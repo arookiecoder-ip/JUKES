@@ -30,7 +30,17 @@ class BoostAudioProcessor : BaseAudioProcessor() {
     @Volatile private var bassDb = 0f
     @Volatile private var stable = false
     private var rmsPow = 0f
-    private var agcGain = 1f
+    @Volatile private var agcGain = 1f
+
+    /** Where the stable-volume gain currently sits; remembered per track so the next play starts there. */
+    val currentAgcGain: Float get() = agcGain
+
+    /** Start the AGC at a previously learned gain (RMS is set to match so it doesn't snap away). */
+    fun seedAgc(gain: Float) {
+        val g = gain.coerceIn(0.25f, 4f)
+        agcGain = g
+        rmsPow = (TARGET_RMS / g).let { it * it }
+    }
 
     // Per-channel biquad state: x1, x2, y1, y2
     private var state = FloatArray(0)

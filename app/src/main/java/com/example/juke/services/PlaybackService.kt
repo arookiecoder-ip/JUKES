@@ -15,7 +15,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.KeyEvent
 import androidx.annotation.OptIn
@@ -177,7 +176,7 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var database: MusicDatabase
     private val musicService by lazy { MusicService(applicationContext) }
     private val queueManager by lazy { QueueManager.getInstance(applicationContext) }
-    val audioEffectController: AudioEffectController by lazy { AudioEffectController(this) }
+    val audioEffectController: AudioEffectController by lazy { AudioEffectController.get(this) }
 
     // For Stream Mode cleanup and progress tracking
     private var previousTrackId: String? = null
@@ -208,11 +207,8 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-    private var wasPlayingBeforeCall = false
-    private var wasPlayingBeforeFocusLoss = false
     private lateinit var audioManager: AudioManager
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var resumeRunnable: Runnable? = null
     private var pendingPlayAfterManualTrackChangeFromIndex: Int? = null
 
     private fun rememberManualTrackChangeRequest(@Player.Command playerCommand: Int) {
@@ -252,112 +248,34 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    // 1. Define the Receiver
-    private val callStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
-                val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
-                Log.d(TAG, "Phone state changed: $state")
+    // Calls: ExoPlayer owns audio focus (handleAudioFocus = true). A call takes transient focus, so
+    // playback pauses and resumes by itself - no READ_PHONE_STATE needed. Focus can come back
+    // briefly while the call is connecting; AudioManager.mode (no permission) tells us a call is
+    // still live, so we hold the resume until the mode returns to normal.
+    private fun inCall() = audioManager.mode == AudioManager.MODE_IN_CALL ||
+        audioManager.mode == AudioManager.MODE_IN_COMMUNICATION ||
+        audioManager.mode == AudioManager.MODE_RINGTONE
 
-                when (state) {
-                    TelephonyManager.EXTRA_STATE_RINGING -> {
-                        // Call coming in: Pause and save state
-                        if (player.isPlaying) {
-                            wasPlayingBeforeCall = true
-                            player.pause()
-                            Log.d(TAG, "Paused playback due to incoming call")
-                        }
-                    }
-
-                    TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                        // Call active (or outgoing call started)
-                        // If user makes an outgoing call while music is playing, pause and save state
-                        if (player.isPlaying) {
-                            wasPlayingBeforeCall = true
-                            player.pause()
-                            Log.d(TAG, "Paused playback due to active/outgoing call")
-                        }
-                    }
-
-                    TelephonyManager.EXTRA_STATE_IDLE -> {
-                        // Call ended: Auto resume if we were playing before
-                        // IMPORTANT: Post the resume with a delay to allow the app to come to foreground
-                        // This prevents ForegroundServiceStartNotAllowedException when Media3 tries to update the notification
-                        if (wasPlayingBeforeCall) {
-                            wasPlayingBeforeCall = false
-                            // Remove any pending resume
-                            resumeRunnable?.let { mainHandler.removeCallbacks(it) }
-                            // Post resume with 500ms delay to ensure app is in foreground
-                            resumeRunnable = Runnable {
-                                if (!player.isPlaying) {
-                                    try {
-                                        player.play()
-                                        Log.d(TAG, "Auto-resumed playback after call (delayed)")
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Failed to resume after call: ${e.message}", e)
-                                    }
-                                }
-                            }
-                            mainHandler.postDelayed(resumeRunnable!!, 500)
-                        }
-                    }
-                }
+    private val resumeAfterCall = object : Runnable {
+        override fun run() {
+            if (inCall()) mainHandler.postDelayed(this, 500)
+            else {
+                player.play()
+                Log.d(TAG, "Call ended - resumed")
             }
         }
     }
 
-    // Audio focus listener to handle other apps playing audio
-    private val audioFocusChangeListener =
-        AudioManager.OnAudioFocusChangeListener { focusChange ->
-            when (focusChange) {
-                AudioManager.AUDIOFOCUS_LOSS -> {
-                    // Permanent loss (another app took focus permanently)
-                    if (player.isPlaying) {
-                        player.pause()
-                        Log.d(TAG, "Audio focus lost permanently - paused")
-                    }
-                    wasPlayingBeforeFocusLoss = false
-                }
-
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                    // Temporary loss (notification, alarm, etc.)
-                    if (player.isPlaying) {
-                        wasPlayingBeforeFocusLoss = true
-                        player.pause()
-                        Log.d(TAG, "Audio focus lost temporarily - paused")
-                    }
-                }
-
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                    // Can duck (lower volume) - we'll just pause for simplicity
-                    if (player.isPlaying) {
-                        wasPlayingBeforeFocusLoss = true
-                        player.pause()
-                        Log.d(TAG, "Audio focus ducked - paused")
-                    }
-                }
-
-                AudioManager.AUDIOFOCUS_GAIN -> {
-                    // Regained focus - resume if we were playing before
-                    // Post with a small delay to avoid conflicts with call state handling
-                    if (wasPlayingBeforeFocusLoss && !wasPlayingBeforeCall) {
-                        resumeRunnable?.let { mainHandler.removeCallbacks(it) }
-                        resumeRunnable = Runnable {
-                            try {
-                                if (!player.isPlaying) {
-                                    player.play()
-                                    Log.d(TAG, "Audio focus regained - resumed (delayed)")
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Failed to resume on audio focus gain: ${e.message}", e)
-                            }
-                        }
-                        mainHandler.postDelayed(resumeRunnable!!, 100)
-                    }
-                    wasPlayingBeforeFocusLoss = false
-                }
+    private val callGuard = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS && inCall()) {
+                player.pause()
+                mainHandler.removeCallbacks(resumeAfterCall)
+                mainHandler.postDelayed(resumeAfterCall, 500)
+                Log.d(TAG, "Focus returned during a call - held")
             }
         }
+    }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -461,6 +379,18 @@ class PlaybackService : MediaLibraryService() {
 
             mediaItem?.let {
                 val trackId = it.mediaId
+                // Stable Volume memory: store where the AGC settled for the track that just ended and
+                // start the next one at its own learned gain (no first-seconds loudness jump).
+                // ponytail: one float per played track in prefs; prune if it ever matters.
+                if (audioEffectController.isNormalizationEnabled.value) {
+                    val gains = getSharedPreferences("agc_gains", MODE_PRIVATE)
+                    currentPlayingTrackId?.let { prev ->
+                        gains.edit().putFloat(prev, audioEffectController.boostProcessor.currentAgcGain).apply()
+                    }
+                    if (gains.contains(trackId)) {
+                        audioEffectController.boostProcessor.seedAgc(gains.getFloat(trackId, 1f))
+                    }
+                }
                 currentPlayingTrackId = trackId
                 Log.d(TAG, "Media item transition: $trackId, reason: $reason")
                 // Note: Play count is now incremented only when track reaches 50% via checkPlayCountThreshold()
@@ -649,7 +579,7 @@ class PlaybackService : MediaLibraryService() {
 
         player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setAudioAttributes(audioAttributes, false) // Keep FALSE to allow manual call control
+            .setAudioAttributes(audioAttributes, true) // ExoPlayer handles focus: pauses for calls, resumes after
             .setHandleAudioBecomingNoisy(true)
             .setLoadControl(loadControl) // <-- Apply the LoadControl here
             .build()
@@ -659,37 +589,7 @@ class PlaybackService : MediaLibraryService() {
         audioEffectController.edgeSilence.enabled = prefs.getBoolean("skip_silence_enabled", false)
         prefs.registerOnSharedPreferenceChangeListener(audioSettingsListener)
 
-        // Request audio focus when player starts playing
-        player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) {
-                    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        audioManager.requestAudioFocus(
-                            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                                .setAudioAttributes(
-                                    android.media.AudioAttributes.Builder()
-                                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                                        .build()
-                                )
-                                .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                                .build()
-                        )
-                    } else {
-                        @Suppress("DEPRECATION")
-                        audioManager.requestAudioFocus(
-                            audioFocusChangeListener,
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.AUDIOFOCUS_GAIN
-                        )
-                    }
-
-                    if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                        Log.w(TAG, "Audio focus not granted")
-                    }
-                }
-            }
-        })
+        player.addListener(callGuard)
 
         // Listen for audio session ID changes to attach audio effects
         player.addAnalyticsListener(object : AnalyticsListener {
@@ -736,13 +636,6 @@ class PlaybackService : MediaLibraryService() {
 
         Log.d(TAG, "PlaybackService created")
 
-        // 2. Register the Receiver safely
-        try {
-            val filter = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
-            registerReceiver(callStateReceiver, filter)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register call state receiver: ${e.message}")
-        }
         // Collect favourite changes from the shared bus and update the notification icon.
         // This fires whether the toggle came from the notification itself OR from the player UI.
         serviceScope.launch {
@@ -833,8 +726,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         // Clean up pending resume operations
-        resumeRunnable?.let { mainHandler.removeCallbacks(it) }
-        resumeRunnable = null
+        mainHandler.removeCallbacks(resumeAfterCall)
 
         mediaSession?.run {
             player.release()
@@ -843,12 +735,6 @@ class PlaybackService : MediaLibraryService() {
         }
         audioEffectController.release()
 
-        // 3. Unregister to prevent leaks
-        try {
-            unregisterReceiver(callStateReceiver)
-        } catch (e: Exception) {
-            // Ignore if not registered
-        }
 
         // Release the stream cache
         StreamCacheManager.release()
@@ -1309,7 +1195,7 @@ class PlaybackManager private constructor(private val context: Context) {
     val sleepTimerRemaining: StateFlow<Long?> = _sleepTimerRemaining.asStateFlow()
 
     // Audio effect controller
-    val audioEffectController: AudioEffectController by lazy { AudioEffectController(context) }
+    val audioEffectController: AudioEffectController by lazy { AudioEffectController.get(context) }
 
     // Shuffle state
     private val _isShuffleEnabled = MutableStateFlow(false)
@@ -2014,6 +1900,10 @@ class PlaybackManager private constructor(private val context: Context) {
         return false
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        controller?.setPlaybackSpeed(speed)
+    }
+
     fun togglePlayPause() {
         controller?.let {
             if (it.isPlaying) {
@@ -2430,7 +2320,6 @@ class PlaybackManager private constructor(private val context: Context) {
     fun release() {
         cancelSleepTimer()
         savePlaybackState() // Save state before releasing
-        audioEffectController.release()
         MediaController.releaseFuture(controllerFuture ?: return)
         // remove player listener if attached
         try {

@@ -13,7 +13,18 @@ import kotlinx.coroutines.flow.asStateFlow
  * Controls audio effects (Equalizer and Volume Booster) for media playback.
  * Attaches to ExoPlayer via audio session ID.
  */
-class AudioEffectController(private val context: Context) {
+class AudioEffectController private constructor(private val context: Context) {
+
+    companion object {
+        @Volatile private var instance: AudioEffectController? = null
+
+        /** One controller per process: the service owns the audio session, the UI drives the same object. */
+        fun get(context: Context): AudioEffectController =
+            instance ?: synchronized(this) {
+                instance ?: AudioEffectController(context.applicationContext).also { instance = it }
+            }
+    }
+
 
     private val TAG = "AudioEffectController"
     private val prefs = context.getSharedPreferences("audio_effects_prefs", Context.MODE_PRIVATE)
@@ -46,12 +57,25 @@ class AudioEffectController(private val context: Context) {
         MutableStateFlow(prefs.getBoolean("normalization_enabled", false))
     val isNormalizationEnabled: StateFlow<Boolean> = _isNormalizationEnabled.asStateFlow()
 
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pendingWrites = mutableListOf<android.content.SharedPreferences.Editor.() -> Unit>()
+    private val flush = Runnable {
+        val writes = pendingWrites.toList(); pendingWrites.clear()
+        prefs.edit { writes.forEach { it() } }
+    }
+
+    /** Slider drags fire per pixel; write the latest values once the drag settles. */
+    private fun persistLater(write: android.content.SharedPreferences.Editor.() -> Unit) {
+        pendingWrites.add(write)
+        handler.removeCallbacks(flush)
+        handler.postDelayed(flush, 400)
+    }
+
     /** 0-100% -> up to +14 dB gain and +9 dB low shelf. */
     private fun applyBoost() {
         val level = _boosterLevel.value
         val bass = _bassLevel.value
         boostProcessor.configure(_isBoosterEnabled.value, level * 0.14f, bass * 0.12f, _isNormalizationEnabled.value)
-        Log.d(TAG, "applyBoost on=${_isBoosterEnabled.value} volume=$level bass=$bass stable=${_isNormalizationEnabled.value}")
     }
 
     private fun loadEqualizerBands(): List<Int> {
@@ -186,13 +210,13 @@ class AudioEffectController(private val context: Context) {
      */
     fun setBoosterLevel(percentage: Int) {
         _boosterLevel.value = percentage.coerceIn(0, 100)
-        prefs.edit { putInt("booster_level", _boosterLevel.value) }
+        persistLater { putInt("booster_level", _boosterLevel.value) }
         applyBoost()
     }
 
     fun setBassLevel(percentage: Int) {
         _bassLevel.value = percentage.coerceIn(0, 100)
-        prefs.edit { putInt("bass_level", _bassLevel.value) }
+        persistLater { putInt("bass_level", _bassLevel.value) }
         applyBoost()
     }
 
@@ -250,74 +274,9 @@ class AudioEffectController(private val context: Context) {
         }
     }
 
-    private val prefListener =
-        android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
-            try {
-                when {
-                    key == "equalizer_enabled" -> {
-                        val enabled = sharedPreferences.getBoolean(key, false)
-                        // Only update if changed to avoid loops
-                        if (_isEqualizerEnabled.value != enabled) {
-                            _isEqualizerEnabled.value = enabled
-                        }
-                        if (equalizer?.enabled != enabled) {
-                            equalizer?.enabled = enabled
-                            Log.d(TAG, "Listener: Equalizer enabled updated to $enabled")
-                        }
-                    }
-
-                    key?.startsWith("eq_band_") == true -> {
-                        val index = key.removePrefix("eq_band_").toIntOrNull()
-                        if (index != null && index in 0..9) {
-                            val level = sharedPreferences.getInt(key, 0)
-
-                            // Update flow if needed
-                            val currentBands = _equalizerBands.value.toMutableList()
-                            if (currentBands[index] != level) {
-                                currentBands[index] = level
-                                _equalizerBands.value = currentBands
-                            }
-
-                            // Apply to hardware equalizer
-                            equalizer?.let { eq ->
-                                val shortLevel = level.toShort()
-                                if (eq.getBandLevel(index.toShort()) != shortLevel) {
-                                    eq.setBandLevel(index.toShort(), shortLevel)
-                                    Log.d(TAG, "Listener: Set band $index to $level")
-                                }
-                            }
-                        }
-                    }
-
-                    key == "booster_enabled" -> {
-                        _isBoosterEnabled.value = sharedPreferences.getBoolean(key, false)
-                        applyBoost()
-                    }
-
-                    key == "bass_level" -> {
-                        _bassLevel.value = sharedPreferences.getInt(key, 0)
-                        applyBoost()
-                    }
-
-                    key == "booster_level" -> {
-                        _boosterLevel.value = sharedPreferences.getInt(key, 0)
-                        applyBoost()
-                    }
-
-                    key == "normalization_enabled" -> {
-                        _isNormalizationEnabled.value = sharedPreferences.getBoolean(key, false)
-                        applyBoost()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in preference listener: ${e.message}")
-            }
-        }
-
     init {
         loadPreferences()
         applyBoost()
-        prefs.registerOnSharedPreferenceChangeListener(prefListener)
     }
 
     private fun loadPreferences() {
@@ -358,7 +317,6 @@ class AudioEffectController(private val context: Context) {
      */
     fun release() {
         try {
-            prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
             releaseEffects()
             currentAudioSessionId = 0
             Log.d(TAG, "Audio effects fully released")

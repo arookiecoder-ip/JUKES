@@ -24,6 +24,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -175,7 +176,7 @@ fun Modifier.glassPane(
     return this
         .glassShadow(shape, spec.elevation, 0.30f)
         .clip(shape)
-        .background(base.copy(alpha = spec.fill))
+        .background(base.copy(alpha = if (GlassPrefs.solid) 0.94f else spec.fill))
         .glassRim(shape, spec.rimAlpha, dark)
 }
 
@@ -257,6 +258,11 @@ fun Modifier.glassLens(
         .glassRim(shape, spec.rimAlpha, dark)
 }
 
+/** User opt-out of translucency (blur and see-through fills): surfaces become near-opaque. */
+object GlassPrefs {
+    var solid by androidx.compose.runtime.mutableStateOf(false)
+}
+
 /** Floating glass: real backdrop blur of whatever scrolls beneath, plus tint, rim and sheen. */
 @Composable
 fun Modifier.glassFloat(
@@ -281,7 +287,10 @@ fun Modifier.glassFloat(
     return this
         .glassShadow(shape, spec.elevation, 0.36f)
         .clip(shape)
-        .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style) else Modifier.background(base.copy(alpha = spec.fill + 0.30f)))
+        .then(
+            if (hazeState != null && !GlassPrefs.solid) Modifier.hazeEffect(hazeState, style)
+            else Modifier.background(base.copy(alpha = if (GlassPrefs.solid) 0.96f else (spec.fill + 0.30f).coerceAtMost(0.9f)))
+        )
         .glassRim(shape, spec.rimAlpha, dark)
 }
 

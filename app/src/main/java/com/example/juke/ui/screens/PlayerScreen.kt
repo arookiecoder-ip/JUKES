@@ -52,6 +52,7 @@ import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Lyrics
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Translate
@@ -169,6 +170,7 @@ fun PlayerScreen(
     val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
     val currentTrack = uiState.currentTrack
     var showQueue by remember { mutableStateOf(false) }
+    val playbackSpeed by musicViewModel.playbackSpeed.collectAsStateWithLifecycle()
     var showLyrics by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
@@ -333,7 +335,9 @@ fun PlayerScreen(
                         showMenuOption = true,
                         isAlbumAvailable = currentTrack.albumSpotifyId != null,
                         currentArtist = currentTrack.artist,
-                        onShowBlacklistPicker = { showBlacklistPicker = true }
+                        onShowBlacklistPicker = { showBlacklistPicker = true },
+                        playbackSpeed = playbackSpeed,
+                        onCycleSpeed = { musicViewModel.cyclePlaybackSpeed() }
                     )
 
                     Spacer(modifier = Modifier.height(spacerSm))
@@ -509,7 +513,13 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
             showHandle = false
         ) {
+            val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
             QueueBottomSheetContent(
+                statusText = when {
+                    rec.resolving > 0 -> "Finding next songs… (${rec.resolving})"
+                    rec.reserve > 0 -> "${rec.reserve} more songs ready from the radio"
+                    else -> null
+                },
                 currentTrack = currentTrack,
                 queue = uiState.queue,
                 queueIndex = uiState.queueIndex,
@@ -612,7 +622,9 @@ fun PlayerHeader(
     showMenuOption: Boolean,
     isAlbumAvailable: Boolean,
     currentArtist: String = "",
-    onShowBlacklistPicker: () -> Unit = {}
+    onShowBlacklistPicker: () -> Unit = {},
+    playbackSpeed: Float = 1f,
+    onCycleSpeed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     Row(
@@ -650,6 +662,13 @@ fun PlayerHeader(
                     tonalElevation = 0.dp,
                     shadowElevation = 12.dp
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Speed ${if (playbackSpeed % 1f == 0f) playbackSpeed.toInt().toString() else playbackSpeed.toString()}×") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Speed, contentDescription = null)
+                        },
+                        onClick = onCycleSpeed
+                    )
                     DropdownMenuItem(
                         text = { Text("Sleep Timer") },
                         leadingIcon = {

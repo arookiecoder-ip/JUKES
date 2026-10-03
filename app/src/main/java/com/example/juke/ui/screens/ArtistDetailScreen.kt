@@ -1,5 +1,6 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.FlatTrackRow
 import com.example.juke.ui.components.GlassTopAppBar
 import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
@@ -134,7 +135,7 @@ fun ArtistDetailScreen(
                     end = 20.dp,
                     bottom = 16.dp + bottomPadding
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Artist Header
                 item {
@@ -254,73 +255,13 @@ private fun TrackItem(
     track: SpotifyTrack,
     onClick: () -> Unit
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            GlassCard(
-                modifier = Modifier.size(72.dp)) {
-                AsyncImage(
-                    model = bestImageUrl(track.album.images) ?: track.album.images.lastOrNull()?.url
-                    ?: "",
-                    contentDescription = track.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = track.name,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Text(
-                    text = track.artists.joinToString(", ") { it.name },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Text(
-                    text = track.album.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
-            ) {
-                Text(
-                    text = formatDuration(track.durationMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-        }
-    }
+    FlatTrackRow(
+        imageUrl = bestImageUrl(track.album.images) ?: track.album.images.lastOrNull()?.url,
+        title = track.name,
+        subtitle = "${track.artists.joinToString(", ") { it.name }} · ${track.album.name}",
+        duration = formatDuration(track.durationMs),
+        onClick = onClick
+    )
 }
 
 @Composable
