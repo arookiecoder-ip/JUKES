@@ -266,15 +266,7 @@ fun SearchScreen(
                                 ImportPlaylistCard(
                                     playlist = playlist,
                                     onImport = {
-                                        scope.launch {
-                                            searchViewModel.importPlaylist(uiState.playlistId!!) { track ->
-                                                musicViewModel.downloadSong(
-                                                    SpotifyApi.spotifyTrackToSong(
-                                                        track
-                                                    )
-                                                )
-                                            }
-                                        }
+                                        searchViewModel.importPlaylist(uiState.playlistId!!)
                                     }
                                 )
                             } else if (uiState.isImportingPlaylist && uiState.query.isBlank()) {

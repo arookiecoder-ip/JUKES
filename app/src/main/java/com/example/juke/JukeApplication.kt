@@ -10,6 +10,12 @@ import coil.util.DebugLogger
 
 class JukeApplication : Application(), ImageLoaderFactory {
 
+    override fun onCreate() {
+        super.onCreate()
+        // Continue any Spotify import that was cut off when the app was closed.
+        com.example.juke.services.PlaylistImportManager.get(this).resume()
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {

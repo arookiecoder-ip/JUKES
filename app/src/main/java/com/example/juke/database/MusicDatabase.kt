@@ -171,6 +171,18 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
+/** Migration from version 9 to 10: resumable playlist imports. */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS pending_imports (" +
+                "playlist_id TEXT NOT NULL, position INTEGER NOT NULL, " +
+                "track_json TEXT NOT NULL, attempts INTEGER NOT NULL, " +
+                "PRIMARY KEY(playlist_id, position))"
+        )
+    }
+}
+
 class Converters {
     @TypeConverter
     fun fromStringList(value: List<String>?): String? {
@@ -187,8 +199,8 @@ class Converters {
  * Room Database for JUKE music player.
  */
 @Database(
-    entities = [TrackEntity::class, PlaylistEntity::class, PlaylistTrackEntity::class],
-    version = 9,
+    entities = [TrackEntity::class, PlaylistEntity::class, PlaylistTrackEntity::class, PendingImportEntity::class],
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -215,7 +227,8 @@ abstract class MusicDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .fallbackToDestructiveMigration()
                     .build()
