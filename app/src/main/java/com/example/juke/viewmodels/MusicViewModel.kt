@@ -1753,6 +1753,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     // Volume Booster
     val boosterLevel = playbackManager.audioEffectController.boosterLevel
+    val bassLevel = playbackManager.audioEffectController.bassLevel
+    fun setBassLevel(level: Int) = playbackManager.audioEffectController.setBassLevel(level)
     val isBoosterEnabled = playbackManager.audioEffectController.isBoosterEnabled
 
     fun toggleVolumeBooster(enabled: Boolean) {
