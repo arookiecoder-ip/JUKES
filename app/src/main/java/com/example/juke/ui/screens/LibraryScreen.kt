@@ -82,6 +82,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -138,6 +139,8 @@ fun LibraryScreen(
     val haptic = rememberJukeHaptics()
     val keyboardController = LocalSoftwareKeyboardController.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    val importStatus by com.example.juke.services.PlaylistImportManager
+        .get(androidx.compose.ui.platform.LocalContext.current).status.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
     // Helper for haptics
@@ -469,7 +472,11 @@ fun LibraryScreen(
                     GlassFilterChip(
                         selected = uiState.selectedPlaylist?.id == playlist.id,
                         onClick = { libraryViewModel.loadPlaylistTracks(playlist.id) },
-                        label = { Text(playlist.name) },
+                        label = {
+                            val st = importStatus[playlist.id]
+                            Text(if (st != null) "${playlist.name} · ${st.done}/${st.total}" else playlist.name)
+                        },
+                        modifier = if (importStatus.containsKey(playlist.id)) Modifier.alpha(0.55f) else Modifier,
                         leadingIcon = if (uiState.selectedPlaylist?.id == playlist.id) {
                             {
                                 Icon(
@@ -754,6 +761,7 @@ fun LibraryScreen(
                     uiState.selectedPlaylist?.let { playlist ->
                         item(key = "playlist_header_${playlist.id}") {
                             PlaylistHeader(
+                                importStatus = importStatus[playlist.id],
                                 playlist = playlist,
                                 onEditClick = { showEditPlaylistDialog = true }
                             )
@@ -1121,9 +1129,11 @@ private fun SortBottomSheet(
 
 @Composable
 private fun PlaylistHeader(
+    importStatus: com.example.juke.services.ImportStatus?,
     playlist: com.example.juke.database.PlaylistEntity,
     onEditClick: () -> Unit
 ) {
+    Column {
     GlassCard(
         modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -1187,5 +1197,20 @@ private fun PlaylistHeader(
                 }
             }
         }
+    }
+    if (importStatus != null) {
+        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text(
+                if (importStatus.waitingForNetwork) "Importing ${importStatus.done}/${importStatus.total} · waiting for network…"
+                else "Importing ${importStatus.done}/${importStatus.total}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { if (importStatus.total > 0) importStatus.done.toFloat() / importStatus.total else 0f },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
+    }
     }
 }

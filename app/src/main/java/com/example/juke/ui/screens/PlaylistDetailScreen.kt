@@ -159,15 +159,7 @@ fun PlaylistDetailScreen(
                         if (!uiState.isImportingPlaylist) {
                             Spacer(modifier = Modifier.height(16.dp))
                             GlassButton(
-                                onClick = {
-                                    scope.launch {
-                                        playlistDetailViewModel.importPlaylistOffline { track ->
-                                            musicViewModel.downloadSong(
-                                                SpotifyApi.spotifyTrackToSong(track)
-                                            )
-                                        }
-                                    }
-                                },
+                                onClick = { playlistDetailViewModel.importPlaylistOffline() },
                                 modifier = Modifier.fillMaxWidth(0.8f)
                             ) {
                                 Icon(
@@ -188,7 +180,7 @@ fun PlaylistDetailScreen(
                                 modifier = Modifier.fillMaxWidth(0.8f)
                             ) {
                                 Text(
-                                    "Saving Playlist...",
+                                    "Saving playlist… keeps going if you close the app",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )

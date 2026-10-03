@@ -44,6 +44,18 @@ data class PlaylistEntity(
 )
 
 /**
+ * A Spotify import that has not finished: one row per track still to download. Deleted row by row
+ * as tracks land, so the table is the resumable state of an import (survives the app being closed).
+ */
+@Entity(tableName = "pending_imports", primaryKeys = ["playlist_id", "position"])
+data class PendingImportEntity(
+    @ColumnInfo(name = "playlist_id") val playlistId: String,
+    @ColumnInfo(name = "position") val position: Int,
+    @ColumnInfo(name = "track_json") val trackJson: String,
+    @ColumnInfo(name = "attempts") val attempts: Int = 0
+)
+
+/**
  * Room entity for storing playlist-track relationships.
  */
 @Entity(
@@ -156,6 +168,28 @@ interface PlaylistDao {
     @Query("UPDATE playlists SET track_count = :count WHERE id = :playlistId")
     suspend fun updatePlaylistTrackCount(playlistId: String, count: Int)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPendingImports(items: List<PendingImportEntity>)
+
+    @Query("SELECT * FROM pending_imports ORDER BY playlist_id, position LIMIT :limit")
+    suspend fun nextPendingImports(limit: Int): List<PendingImportEntity>
+
+    @Query("DELETE FROM pending_imports WHERE playlist_id = :playlistId AND position = :position")
+    suspend fun deletePendingImport(playlistId: String, position: Int)
+
+    @Query("UPDATE pending_imports SET attempts = attempts + 1 WHERE playlist_id = :playlistId AND position = :position")
+    suspend fun bumpPendingAttempts(playlistId: String, position: Int)
+
+    @Query("SELECT COUNT(*) FROM pending_imports")
+    suspend fun pendingImportCount(): Int
+
+    /** playlist id -> tracks still to download, live. */
+    @Query("SELECT playlist_id AS playlistId, COUNT(*) AS remaining FROM pending_imports GROUP BY playlist_id")
+    fun pendingImportCounts(): Flow<List<PendingCount>>
+
+    @Query("DELETE FROM pending_imports WHERE playlist_id = :playlistId")
+    suspend fun deletePendingImports(playlistId: String)
+
     @Query("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = :playlistId")
     suspend fun getPlaylistTrackCount(playlistId: String): Int
 
@@ -181,3 +215,5 @@ interface PlaylistDao {
     @Query("DELETE FROM playlist_tracks WHERE track_uuid IN (:trackUuids)")
     suspend fun deletePlaylistTracksForTracks(trackUuids: List<String>)
 }
+
+data class PendingCount(val playlistId: String, val remaining: Int)
