@@ -1,7 +1,8 @@
 package com.example.juke.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -24,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,13 +45,9 @@ fun HeroTrackCard(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1.5f) // 3:2 Aspect Ratio
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { 
-                        haptic.click()
-                        onClick() 
-                    }
-                )
+            .clickable(onClickLabel = "Play ${track.title}", role = Role.Button) {
+                haptic.click()
+                onClick()
             },
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
@@ -118,7 +114,7 @@ fun HeroTrackCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            
+
             // Play Count Badge
             Box(
                 modifier = Modifier

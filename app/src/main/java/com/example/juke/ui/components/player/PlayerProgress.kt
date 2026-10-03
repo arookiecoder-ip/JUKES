@@ -1,27 +1,28 @@
 package com.example.juke.ui.components.player
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.MusicUiState
@@ -35,16 +36,12 @@ fun PlayerProgress(
     modifier: Modifier = Modifier
 ) {
     val duration = if (uiState.duration > 0) uiState.duration else musicViewModel.playbackManager.getDuration()
-    val progress = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f
 
     Column(modifier = modifier.fillMaxWidth()) {
-        CustomSeekBar(
-            progress = progress,
-            onProgressChange = { newProgress ->
-                val newPosition = (newProgress * duration).toLong()
-                musicViewModel.seekTo(newPosition)
-            },
-            modifier = Modifier.fillMaxWidth()
+        PlaybackSeekSlider(
+            positionMs = currentPosition,
+            durationMs = duration,
+            onSeek = musicViewModel::seekTo
         )
 
         Row(
@@ -67,83 +64,49 @@ fun PlayerProgress(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CustomSeekBar(
-    progress: Float,
-    onProgressChange: (Float) -> Unit,
+internal fun PlaybackSeekSlider(
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val haptic = rememberJukeHaptics()
-    var isDragging by remember { mutableStateOf(false) }
-    var lastTickBucket by remember { mutableStateOf(0) }
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-
-    Box(
-        modifier = modifier
-            .height(32.dp)
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                    haptic.click()
-                    onProgressChange(newProgress)
-                }
+    var lastBucket by remember(durationMs) { mutableIntStateOf((progress * 24).toInt()) }
+    Slider(
+        value = progress,
+        enabled = durationMs > 0,
+        onValueChange = { value ->
+            val bucket = (value * 24).toInt()
+            if (bucket != lastBucket) {
+                haptic.tick()
+                lastBucket = bucket
             }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { 
-                        isDragging = true
-                        lastTickBucket = progressToScrubBucket(progress)
-                        haptic.gestureStart()
-                    },
-                    onDragEnd = { 
-                        isDragging = false 
-                        haptic.gestureEnd()
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                        val currentBucket = progressToScrubBucket(newProgress)
-                        if (currentBucket != lastTickBucket) {
-                            haptic.tick()
-                            lastTickBucket = currentBucket
-                        }
-                        onProgressChange(newProgress)
-                    }
+            onSeek((value * durationMs).toLong())
+        },
+        onValueChangeFinished = { haptic.gestureEnd() },
+        thumb = {
+            Box(
+                Modifier.size(20.dp).background(
+                    if (durationMs > 0) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                    CircleShape
                 )
-            }
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val centerY = size.height / 2
-            val strokeWidth = 6.dp.toPx()
-            
-            // Inactive track
-            drawLine(
-                color = trackColor,
-                start = Offset(0f, centerY),
-                end = Offset(size.width, centerY),
-                strokeWidth = strokeWidth,
-                cap = StrokeCap.Round
             )
-            
-            // Active track
-            drawLine(
-                color = primaryColor,
-                start = Offset(0f, centerY),
-                end = Offset(size.width * progress, centerY),
-                strokeWidth = strokeWidth,
-                cap = StrokeCap.Round
+        },
+        track = { state ->
+            SliderDefaults.Track(
+                sliderState = state,
+                modifier = Modifier.height(6.dp),
+                thumbTrackGapSize = 0.dp,
+                drawStopIndicator = null,
+                enabled = durationMs > 0
             )
-            
-            // Thumb
-            if (isDragging) {
-                drawCircle(
-                    color = primaryColor,
-                    radius = 12.dp.toPx(),
-                    center = Offset(size.width * progress, centerY)
-                )
-            }
-        }
-    }
+        },
+        modifier = modifier.fillMaxWidth().semantics { contentDescription = "Playback position" }
+    )
 }
 
 private fun formatTime(milliseconds: Long): String {
@@ -151,9 +114,4 @@ private fun formatTime(milliseconds: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
-}
-
-private fun progressToScrubBucket(progress: Float): Int {
-    val steps = 24
-    return (progress.coerceIn(0f, 1f) * steps).toInt()
 }

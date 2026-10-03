@@ -22,6 +22,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
@@ -61,7 +65,10 @@ fun PlayerControls(
                 haptic.toggle()
                 musicViewModel.toggleShuffle()
             },
-            modifier = Modifier.size(resolvedButtonSize)
+            modifier = Modifier.size(resolvedButtonSize).semantics {
+                stateDescription = if (uiState.isShuffleEnabled) "On" else "Off"
+                toggleableState = if (uiState.isShuffleEnabled) ToggleableState.On else ToggleableState.Off
+            }
         ) {
             Icon(
                 imageVector = Icons.Default.Shuffle,
@@ -143,7 +150,13 @@ fun PlayerControls(
                 haptic.toggle()
                 musicViewModel.toggleRepeat()
             },
-            modifier = Modifier.size(resolvedButtonSize)
+            modifier = Modifier.size(resolvedButtonSize).semantics {
+                stateDescription = when (uiState.repeatMode) {
+                    Player.REPEAT_MODE_ONE -> "Repeat one"
+                    Player.REPEAT_MODE_ALL -> "Repeat all"
+                    else -> "Off"
+                }
+            }
         ) {
             val (icon, tint) = when (uiState.repeatMode) {
                 Player.REPEAT_MODE_ONE -> Icons.Default.RepeatOne to MaterialTheme.colorScheme.primary

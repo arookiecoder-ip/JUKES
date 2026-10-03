@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -55,17 +57,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -111,8 +113,8 @@ fun SearchScreen(
     onNavigateToAlbum: (SpotifyAlbum) -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
-    val uiState by searchViewModel.uiState.collectAsState()
-    val isStreamMode by musicViewModel.isStreamMode.collectAsState()
+    val uiState by searchViewModel.uiState.collectAsStateWithLifecycle()
+    val isStreamMode by musicViewModel.isStreamMode.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = rememberJukeHaptics()
@@ -182,6 +184,8 @@ fun SearchScreen(
                         placeholder = {
                             Text(
                                 text = "Search songs, artists, albums",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
@@ -220,7 +224,7 @@ fun SearchScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.focusRequester(searchFocusRequester)
+                        modifier = Modifier.focusRequester(searchFocusRequester).semantics { contentDescription = "Search music" }
                     )
                 },
                 expanded = active,
@@ -230,7 +234,7 @@ fun SearchScreen(
                     .padding(horizontal = if (active) 0.dp else 16.dp)
                     .padding(top = 8.dp, bottom = 16.dp),
                 colors = SearchBarDefaults.colors(
-                    containerColor = if (active) Color.Transparent else MaterialTheme.colorScheme.surface,
+                    containerColor = if (active) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
                     dividerColor = Color.Transparent
                 )
             ) {
