@@ -34,6 +34,7 @@ import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -201,10 +202,9 @@ class PlaybackService : MediaLibraryService() {
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
             if (key == "skip_silence_enabled") {
                 val isEnabled = prefs.getBoolean("skip_silence_enabled", false)
-                if (::player.isInitialized) {
-                    player.skipSilenceEnabled = isEnabled
-                    Log.d(TAG, "Skip silence enabled: $isEnabled")
-                }
+                // Edge-only skipping (own processor); ExoPlayer's skipSilenceEnabled would cut mid-song gaps.
+                audioEffectController.edgeSilence.enabled = isEnabled
+                Log.d(TAG, "Skip silence (edges) enabled: $isEnabled")
             }
         }
 
@@ -577,7 +577,19 @@ class PlaybackService : MediaLibraryService() {
         database = MusicDatabase.getDatabase(applicationContext)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
 
-        val renderersFactory = DefaultRenderersFactory(this)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ) = DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(false) // boost processor works on 16-bit PCM
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessorChain(
+                    JukeAudioChain(audioEffectController.edgeSilence, audioEffectController.boostProcessor)
+                )
+                .build()
+        }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
 
@@ -644,7 +656,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize Skip Silence from Preferences
         val prefs = getSharedPreferences("audio_effects_prefs", MODE_PRIVATE)
-        player.skipSilenceEnabled = prefs.getBoolean("skip_silence_enabled", false)
+        audioEffectController.edgeSilence.enabled = prefs.getBoolean("skip_silence_enabled", false)
         prefs.registerOnSharedPreferenceChangeListener(audioSettingsListener)
 
         // Request audio focus when player starts playing
@@ -689,6 +701,11 @@ class PlaybackService : MediaLibraryService() {
                 audioEffectController.attachToAudioSession(audioSessionId)
             }
         })
+        // The session id event can fire before this listener exists (or never again), which left
+        // every effect unattached; attach to the current session right away.
+        if (player.audioSessionId != 0) {
+            audioEffectController.attachToAudioSession(player.audioSessionId)
+        }
 
         player.addListener(playerListener)
 

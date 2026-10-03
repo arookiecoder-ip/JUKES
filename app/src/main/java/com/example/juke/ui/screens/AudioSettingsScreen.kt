@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -88,6 +89,7 @@ fun AudioSettingsScreen(
 ) {
     val isBoosterEnabled by musicViewModel.isBoosterEnabled.collectAsStateWithLifecycle()
     val boosterLevel by musicViewModel.boosterLevel.collectAsStateWithLifecycle()
+    val bassLevel by musicViewModel.bassLevel.collectAsStateWithLifecycle()
     val isNormalizationEnabled by musicViewModel.isNormalizationEnabled.collectAsStateWithLifecycle()
     val isStreamMode by musicViewModel.isStreamMode.collectAsStateWithLifecycle()
     val isSkipSilenceEnabled by musicViewModel.isSkipSilenceEnabled.collectAsStateWithLifecycle()
@@ -118,18 +120,18 @@ fun AudioSettingsScreen(
 
             LazyColumn(
                 contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = 16.dp,
-                    bottom = 32.dp
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = 4.dp,
+                    bottom = 24.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
                     GlassCard(
                         modifier = Modifier.fillMaxWidth()) {
                         Column {
-                            ListItem(
+                            CompactItem(
                                 headlineContent = {
                                     Text(
                                         "Stream Mode",
@@ -159,7 +161,7 @@ fun AudioSettingsScreen(
 
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                            ListItem(
+                            CompactItem(
                                 headlineContent = {
                                     Text(
                                         "Stable Volume",
@@ -168,7 +170,7 @@ fun AudioSettingsScreen(
                                     )
                                 },
                                 supportingContent = {
-                                    Text("Normalize loudness across tracks")
+                                    Text("Keep loudness steady across tracks")
                                 },
                                 leadingContent = {
                                     Icon(Icons.Rounded.GraphicEq, contentDescription = null)
@@ -189,7 +191,7 @@ fun AudioSettingsScreen(
 
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                            ListItem(
+                            CompactItem(
                                 headlineContent = {
                                     Text(
                                         "Skip Silence",
@@ -219,7 +221,7 @@ fun AudioSettingsScreen(
 
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                            ListItem(
+                            CompactItem(
                                 headlineContent = {
                                     Text(
                                         "Mini-Player Lyrics",
@@ -254,7 +256,7 @@ fun AudioSettingsScreen(
                     GlassCard(
                         modifier = Modifier.fillMaxWidth()) {
                         Column {
-                            ListItem(
+                            CompactItem(
                                 headlineContent = {
                                     Text(
                                         "Bass & Volume Boost",
@@ -263,7 +265,7 @@ fun AudioSettingsScreen(
                                     )
                                 },
                                 supportingContent = {
-                                    Text("Enhance depth and loudness")
+                                    Text("Raise volume and bass separately")
                                 },
                                 leadingContent = {
                                     Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
@@ -289,20 +291,13 @@ fun AudioSettingsScreen(
                             ) {
                                 Column(
                                     modifier = Modifier
-                                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                                        .padding(bottom = 8.dp)
+                                        .padding(horizontal = 16.dp)
+                                        .padding(bottom = 4.dp)
                                 ) {
-                                    Text(
-                                        text = "${boosterLevel}%",
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                                    )
-
-                                    Slider(
-                                        value = boosterLevel.toFloat(),
-                                        onValueChange = { value ->
+                                    BoostSlider(
+                                        label = "Volume",
+                                        level = boosterLevel,
+                                        onLevel = { value ->
                                             val intValue = value.roundToInt().coerceIn(0, 100)
                                             val currentBucket = intValue / 5
                                             if (currentBucket != lastBoosterTickBucket) {
@@ -310,9 +305,16 @@ fun AudioSettingsScreen(
                                                 lastBoosterTickBucket = currentBucket
                                             }
                                             musicViewModel.setVolumeBoosterLevel(intValue)
-                                        },
-                                        valueRange = 0f..100f,
-                                        modifier = Modifier.fillMaxWidth()
+                                        }
+                                    )
+                                    BoostSlider(
+                                        label = "Bass",
+                                        level = bassLevel,
+                                        onLevel = { value ->
+                                            val intValue = value.roundToInt().coerceIn(0, 100)
+                                            if (intValue / 5 != bassLevel / 5) haptic.tick()
+                                            musicViewModel.setBassLevel(intValue)
+                                        }
                                     )
 
                                     Text(
@@ -332,7 +334,7 @@ fun AudioSettingsScreen(
                     GlassCard(
                         modifier = Modifier.fillMaxWidth()) {
                         Column {
-                            ListItem(
+                            CompactItem(
                                 headlineContent = {
                                     Text(
                                         "Recommendation Queue",
@@ -353,8 +355,8 @@ fun AudioSettingsScreen(
 
                             Column(
                                 modifier = Modifier
-                                    .padding(horizontal = 24.dp)
-                                    .padding(bottom = 20.dp)
+                                    .padding(horizontal = 16.dp)
+                                    .padding(bottom = 10.dp)
                             ) {
                                 Text(
                                     text = "$recommendationCount tracks",
@@ -406,7 +408,7 @@ fun AudioSettingsScreen(
 
                     GlassCard(
                         modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -477,7 +479,7 @@ fun AudioSettingsScreen(
 
                     GlassCard(
                         modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -503,7 +505,7 @@ fun AudioSettingsScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             if (blacklistedArtists.isEmpty()) {
                                 Text(
@@ -600,7 +602,7 @@ fun AudioSettingsScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 16.dp),
+                            .padding(vertical = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -735,4 +737,65 @@ private fun MarketCodeDialog(
 
 private fun getCountryName(code: String): String {
     return popularMarkets.firstOrNull { it.first == code }?.second ?: code
+}
+
+@Composable
+private fun BoostSlider(label: String, level: Int, onLevel: (Float) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "$level%",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Slider(
+            value = level.toFloat(),
+            onValueChange = onLevel,
+            valueRange = 0f..100f,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Dense replacement for Material ListItem (which reserves 56-88dp and 16dp gutters). */
+@Composable
+private fun CompactItem(
+    headlineContent: @Composable () -> Unit,
+    supportingContent: (@Composable () -> Unit)? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
+    colors: androidx.compose.material3.ListItemColors? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (leadingContent != null) {
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { leadingContent() }
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            headlineContent()
+            if (supportingContent != null) {
+                androidx.compose.material3.ProvideTextStyle(
+                    MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                    supportingContent
+                )
+            }
+        }
+        if (trailingContent != null) {
+            Spacer(Modifier.width(8.dp))
+            trailingContent()
+        }
+    }
 }
