@@ -98,6 +98,11 @@ class QueueManager private constructor(private val context: Context) {
     private val _currentQueue = MutableStateFlow<List<Track>>(emptyList())
     val currentQueue: StateFlow<List<Track>> = _currentQueue.asStateFlow()
 
+    /** What the recommendation engine is doing: songs being resolved now and songs waiting in reserve. */
+    data class RecStatus(val resolving: Int = 0, val reserve: Int = 0)
+    private val _recStatus = MutableStateFlow(RecStatus())
+    val recStatus: StateFlow<RecStatus> = _recStatus.asStateFlow()
+
     private val _downloadingTracks = MutableStateFlow<List<DownloadInfo>>(emptyList())
     val downloadingTracks: StateFlow<List<DownloadInfo>> = _downloadingTracks.asStateFlow()
 
@@ -388,6 +393,7 @@ class QueueManager private constructor(private val context: Context) {
         seen.clear()
         claimed.clear()
         seedVideoId = null
+        _recStatus.value = RecStatus()
         _downloadingTracks.update { list -> list.filterNot { it.source == "recommendation" } }
     }
 
@@ -466,9 +472,14 @@ class QueueManager private constructor(private val context: Context) {
             if (batch.isEmpty()) continue // reserve drained by duplicates → refill next round
 
             Log.d(TAG, "Resolving ${batch.size} of $target lookahead (reserve left: ${reserve.size})")
-            val resolved = coroutineScope {
-                batch.map { rec -> async { resolveSlots.withPermit { resolveRecommendation(rec, current) } } }
-                    .awaitAll()
+            _recStatus.value = RecStatus(batch.size, reserve.size)
+            val resolved = try {
+                coroutineScope {
+                    batch.map { rec -> async { resolveSlots.withPermit { resolveRecommendation(rec, current) } } }
+                        .awaitAll()
+                }
+            } finally {
+                if (gen == sessionGen.get()) _recStatus.value = RecStatus(0, reserve.size)
             }
             // Add in radio order so the queue follows YouTube's ranking.
             batch.zip(resolved).forEach { (rec, track) ->

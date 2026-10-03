@@ -89,6 +89,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val musicService by lazy { MusicService(application) }
     val playbackManager = PlaybackManager.getInstance(application)
     private val queueManager = QueueManager.getInstance(application)
+    val recStatus = queueManager.recStatus
+
+    private val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+    private val _playbackSpeed = MutableStateFlow(1f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed
+    fun cyclePlaybackSpeed() {
+        val next = speeds[(speeds.indexOf(_playbackSpeed.value) + 1) % speeds.size]
+        _playbackSpeed.value = next
+        playbackManager.setPlaybackSpeed(next)
+    }
 
     private val audioPrefs = application.getSharedPreferences(
         "audio_effects_prefs",

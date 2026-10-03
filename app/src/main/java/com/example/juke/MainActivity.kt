@@ -134,24 +134,12 @@ class MainActivity : ComponentActivity() {
 
     private val showPlayerOnLaunch = mutableStateOf(false)
 
-    // 1. Define the permission launcher
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            android.util.Log.d("MainActivity", "Read Phone State permission granted")
-        } else {
-            android.util.Log.w(
-                "MainActivity",
-                "Read Phone State permission denied - Auto-pause on call will not work"
-            )
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
+        com.example.juke.ui.theme.GlassPrefs.solid =
+            getSharedPreferences("ui_prefs", MODE_PRIVATE).getBoolean("solid_surfaces", false)
 
         // Check intent immediately
         handlePlayerIntent(intent)
@@ -187,7 +175,6 @@ class MainActivity : ComponentActivity() {
                     // Yield the first frame before optional launch work.
                     withFrameNanos { }
                     musicViewModel.startDeferredStartupWork()
-                    requestReadPhoneStatePermissionIfNeeded()
                     AnalyticsManager.getInstance(context).trackAppOpened()
                     updateAvailable = UpdateManager.checkForUpdates()
 
@@ -613,20 +600,6 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra("open_player", false) == true) {
             showPlayerOnLaunch.value = true
         }
-    }
-
-    private fun requestReadPhoneStatePermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_PHONE_STATE
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-
-        requestPermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
     }
 
     override fun onDestroy() {

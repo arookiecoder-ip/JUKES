@@ -73,7 +73,8 @@ fun QueueBottomSheetContent(
     onClose: () -> Unit,
     onMoveTrack: (fromIndex: Int, toIndex: Int) -> Unit,
     onRemoveTrack: (trackId: String) -> Unit,
-    onPlayTrack: (track: com.example.juke.models.Track) -> Unit
+    onPlayTrack: (track: com.example.juke.models.Track) -> Unit,
+    statusText: String? = null
 ) {
     val haptic = rememberJukeHaptics()
 
@@ -102,6 +103,14 @@ fun QueueBottomSheetContent(
             )
             // Spacer to balance the layout
             Spacer(modifier = Modifier.width(48.dp))
+        }
+        if (statusText != null) {
+            Text(
+                statusText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))

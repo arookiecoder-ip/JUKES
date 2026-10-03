@@ -1,0 +1,23 @@
+name: Android CI
+
+on:
+  push:
+    branches: [beta, main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      # The build reads these from local.properties; CI only needs placeholders to compile.
+      - name: Placeholder secrets
+        run: |
+          echo "SPOTIFY_CLIENT_ID=ci" >> local.properties
+          echo "SPOTIFY_CLIENT_SECRET=ci" >> local.properties
+      - run: sh ./gradlew test assembleDebug --stacktrace

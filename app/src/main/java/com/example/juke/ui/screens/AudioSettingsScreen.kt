@@ -331,6 +331,34 @@ fun AudioSettingsScreen(
                 }
 
                 item {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        CompactItem(
+                            headlineContent = {
+                                Text(
+                                    "Solid surfaces",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
+                            supportingContent = { Text("Turn off blur and transparency") },
+                            leadingContent = { Icon(Icons.Rounded.GraphicEq, contentDescription = null) },
+                            trailingContent = {
+                                Switch(
+                                    checked = com.example.juke.ui.theme.GlassPrefs.solid,
+                                    onCheckedChange = {
+                                        haptic.toggle()
+                                        com.example.juke.ui.theme.GlassPrefs.solid = it
+                                        ctx.getSharedPreferences("ui_prefs", android.content.Context.MODE_PRIVATE)
+                                            .edit().putBoolean("solid_surfaces", it).apply()
+                                    }
+                                )
+                            }
+                        )
+                    }
+                }
+
+                item {
                     GlassCard(
                         modifier = Modifier.fillMaxWidth()) {
                         Column {
