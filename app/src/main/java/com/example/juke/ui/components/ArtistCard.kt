@@ -1,5 +1,9 @@
 package com.example.juke.ui.components
 
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -10,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,57 +34,42 @@ fun ArtistCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberJukeHaptics()
-    Card(
+    Column(
         modifier = modifier
-            .width(140.dp)
+            .width(120.dp)
+            .clip(RoundedCornerShape(16.dp))
             .clickable {
                 haptic.click()
                 onClick()
-            },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Artist Image (circular)
-            AsyncImage(
-                model = artist.images.firstOrNull()?.url ?: "",
-                contentDescription = artist.name,
-                modifier = Modifier
-                    .size(100.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Artist Name
-            Text(
-                text = artist.name,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .basicMarquee(),
-                maxLines = 1,
-                overflow = TextOverflow.Clip
-            )
-
-            // Followers
-            if (artist.followers != null) {
-                Text(
-                    text = "${formatNumber(artist.followers.total)} followers",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .basicMarquee(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
-                )
             }
+            .padding(bottom = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AsyncImage(
+            model = artist.images.firstOrNull()?.url ?: "",
+            contentDescription = artist.name,
+            modifier = Modifier
+                .size(120.dp)
+                .clip(CircleShape),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (artist.followers != null) {
+            Text(
+                text = "${formatNumber(artist.followers.total)} followers",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

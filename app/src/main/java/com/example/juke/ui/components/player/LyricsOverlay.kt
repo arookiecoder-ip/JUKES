@@ -1,5 +1,6 @@
 package com.example.juke.ui.components.player
 
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -33,8 +34,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -135,10 +134,9 @@ fun LyricsOverlay(
 
     // Measure the actual overlay height to compute center padding dynamically
     var overlayHeightPx by remember { mutableIntStateOf(0) }
-    val centerPadding = with(density) {
-        // Half the container height so the active line sits at vertical center
-        (overlayHeightPx / 2).toDp()
-    }
+    // Active line rests ~30% from the top (reading position), leaving room for upcoming lines
+    val topPadding = with(density) { (overlayHeightPx * 0.30f).toDp() }
+    val bottomPadding = with(density) { (overlayHeightPx * 0.70f).toDp() }
 
     // Premium full-bleed frosted background
     Box(
@@ -211,13 +209,10 @@ fun LyricsOverlay(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 32.dp)
-                    .fadingEdges(topFraction = 0.18f, bottomFraction = 0.18f),
-                contentPadding = PaddingValues(
-                    top = centerPadding,
-                    bottom = centerPadding
-                ),
-                verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically)
+                    .padding(horizontal = 24.dp)
+                    .fadingEdges(topFraction = 0.14f, bottomFraction = 0.22f),
+                contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 items(lyricLines.size) { index ->
                     val line = lyricLines[index]
@@ -228,7 +223,7 @@ fun LyricsOverlay(
                         targetValue = if (isCurrentLine)
                             Color.White
                         else
-                            Color.White.copy(alpha = 0.30f),
+                            Color.White.copy(alpha = 0.42f),
                         animationSpec = tween(durationMillis = 300),
                         label = "lyricColor"
                     )
@@ -242,14 +237,14 @@ fun LyricsOverlay(
                     )
 
                     // Use fontSize scaling instead of graphicsLayer scale to prevent overflow
-                    val baseFontSize = 22.sp
+                    val baseFontSize = 28.sp
                     val animatedFontSize = baseFontSize * fontScale
 
                     Text(
                         text = line.text,
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontSize = animatedFontSize,
-                            lineHeight = animatedFontSize * 1.4f,
+                            lineHeight = animatedFontSize * 1.25f,
                             letterSpacing = (-0.3).sp
                         ),
                         color = textColor,
@@ -258,8 +253,8 @@ fun LyricsOverlay(
                             .clickable(onClick = {
                                 musicViewModel.seekTo(line.timeMs)
                             }),
-                        textAlign = TextAlign.Center,
-                        fontWeight = if (isCurrentLine) FontWeight.Bold else FontWeight.Medium,
+                        textAlign = TextAlign.Start,
+                        fontWeight = FontWeight.Bold,
                         overflow = TextOverflow.Clip,
                         softWrap = true
                     )
@@ -315,16 +310,10 @@ fun LyricsOverlay(
                     .padding(bottom = 12.dp, start = 16.dp, end = 16.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
-                Card(
+                GlassCard(
                     modifier = Modifier
                         .fillMaxWidth(0.9f)
-                        .padding(bottom = 32.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                ) {
+                        .padding(bottom = 32.dp)) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally

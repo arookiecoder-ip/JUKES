@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,11 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.lifecycle.Lifecycle
@@ -58,6 +56,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.juke.ui.screens.LyricLine
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.glassFloat
 import com.example.juke.ui.screens.parseSyncedLyrics
 import com.example.juke.utils.LyricsRomanizer
 import com.example.juke.utils.rememberJukeHaptics
@@ -217,10 +218,10 @@ fun MiniPlayer(
             }
         }
 
-        Card(
+        Box(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .glassFloat(GlassShapes.Bar, GlassLevel.Regular)
                 .clickable(onClickLabel = "Open player", role = Role.Button) {
                     haptic.click()
                     onExpand()
@@ -241,25 +242,13 @@ fun MiniPlayer(
                             offsetX += dragAmount
                         }
                     )
-                },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.Transparent
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                }
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
-                DancingGlassBackground(
-                    extractedColors = uiState.extractedColors,
-                    isPlaying = uiState.isPlaying,
-                    modifier = Modifier.matchParentSize()
-                )
-
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 2.dp)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (currentTrack.thumbnailUri != null) {
@@ -275,15 +264,15 @@ fun MiniPlayer(
                                 .build(),
                             contentDescription = currentTrack.title,
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(8.dp)),
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(18.dp)),
                             contentScale = ContentScale.Crop
                         )
                     } else {
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(8.dp)),
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(18.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -416,15 +405,22 @@ fun MiniPlayer(
                     0f
                 }
 
-                LinearProgressIndicator(
-                    progress = { progress },
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .padding(horizontal = 22.dp, vertical = 6.dp)
                         .fillMaxWidth()
-                        .height(2.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    trackColor = Color.Transparent
-                )
+                        .height(3.dp)
+                        .clip(GlassShapes.Pill)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(3.dp)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f))
+                    )
+                }
             }
         }
     }

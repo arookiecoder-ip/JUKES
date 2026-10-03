@@ -14,6 +14,7 @@ import com.example.juke.network.SpotifyApi
 import com.example.juke.network.isOffline
 import com.example.juke.utils.ArtistUtils
 import com.example.juke.utils.BlacklistManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,6 +23,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
@@ -95,28 +101,11 @@ class QueueManager private constructor(private val context: Context) {
     private val _downloadingTracks = MutableStateFlow<List<DownloadInfo>>(emptyList())
     val downloadingTracks: StateFlow<List<DownloadInfo>> = _downloadingTracks.asStateFlow()
 
-    // Expose pending recommendations count for UI
-    fun getPendingDownloadsCount(): Int = pendingRecommendations.size + downloadJobs.size
-
-    private var firstPlayedTrack: Track? = null
     private val playedTracksHistory = java.util.LinkedList<Track>()
-
-    // Pending recommendations to download
-    private val pendingRecommendations =
-        ConcurrentLinkedQueue<RecommenderApi.ValidatedRecommendation>()
-
-    // Currently downloading jobs
-    private val downloadJobs = mutableMapOf<String, Job>()
-
-    // Track if we're currently fetching recommendations (to prevent multiple concurrent fetches)
-    private var isRecommendationFetchInProgress = false
 
     // External downloads tracking (downloaded outside QueueManager, e.g. Instant Play)
     // Key: "Title-Artist" to prevent adding them as recommendations
     private val _externalDownloads = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-
-    // Tracks all generated recommendations and plays in this session
-    private val sessionHistory = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     /**
      * Notify QueueManager that a download has started externally (e.g. from Instant Play).
@@ -149,13 +138,7 @@ class QueueManager private constructor(private val context: Context) {
         val currentQueueSize = _currentQueue.value.size
         Log.d(TAG, "Checking recommendations: queue size = $currentQueueSize")
 
-        if (currentQueueSize <= 2) {
-            val currentTrack = _currentQueue.value.firstOrNull()
-            currentTrack?.let {
-                Log.d(TAG, "Queue size <= 2, fetching recommendations for: ${it.title}")
-                fetchAndQueueRecommendations(it, false)
-            }
-        }
+        _currentQueue.value.firstOrNull()?.let { requestFill(it, currentQueueSize - 1) }
     }
 
     /**
@@ -171,24 +154,22 @@ class QueueManager private constructor(private val context: Context) {
      *
      * @param tracks Initial queue
      * @param isRadioMode If true, recommendations use only the seed track (no ensemble)
-     * @param preserveHistory If true, keep firstPlayedTrack / playedTracksHistory /
-     *                       recentArtists / sessionHistory across the call
+     * @param preserveHistory If true, keep playedTracksHistory / recentArtists / the
+     *                       recommendation reserve across the call
      */
     fun initializeQueue(tracks: List<Track>, isRadioMode: Boolean = false, preserveHistory: Boolean = false) {
-        // Cancel any pending downloads from the previous song
-        // This prevents old recommendation downloads from being added to the queue
-        cancelPendingRecommendationDownloads()
+        // A new session drops the old reserve and in-flight resolves so nothing from the previous
+        // song leaks in. Re-seating the cursor inside the same session keeps the reserve.
+        if (!preserveHistory) cancelPendingRecommendationDownloads()
 
         _currentQueue.value = tracks.toMutableList()
 
         if (!preserveHistory) {
-            firstPlayedTrack = tracks.firstOrNull()
             playedTracksHistory.clear()
             // A fresh session must also reset recency- and dedup-tracking, otherwise
             // ensemble seeds, the offline scorer's "recently heard artist" penalty, and
             // the session dedup set all reflect the previous session's tastes.
             recentArtists.clear()
-            sessionHistory.clear()
         }
 
         Log.d(
@@ -196,10 +177,10 @@ class QueueManager private constructor(private val context: Context) {
             "Queue initialized with ${tracks.size} tracks (cancelled previous recommendations, preserveHistory: $preserveHistory)"
         )
 
-        // Check if we need to fetch recommendations for the new song
-        if (tracks.size <= 2) {
-            val currentTrack = tracks.firstOrNull()
-            currentTrack?.let { fetchAndQueueRecommendations(it, isRadioMode) }
+        // Top the lookahead window up from the radio when the queue is shorter than it.
+        tracks.firstOrNull()?.let { first ->
+            if (isRadioMode) fetchAndQueueRecommendations(first, true)
+            else requestFill(first, tracks.size - 1)
         }
     }
 
@@ -214,9 +195,6 @@ class QueueManager private constructor(private val context: Context) {
      */
     fun updateHistory(history: List<Track>) {
         if (history.isNotEmpty()) {
-            if (firstPlayedTrack == null) {
-                firstPlayedTrack = history.first()
-            }
             val toKeep = history.takeLast(50) // Manage arbitrary history size
             // Merge with existing avoiding duplicates
             val existingIds = playedTracksHistory.map { it.uuid }.toSet()
@@ -298,12 +276,8 @@ class QueueManager private constructor(private val context: Context) {
         _currentQueue.value = currentList
         Log.d(TAG, "Removed from queue: $trackId")
 
-        // Only trigger recommendations if the queue is critically low AND no fetch is already running.
-        // User-triggered removals must not re-initiate a full recommendation cycle if one is underway.
-        if (currentList.size <= 2 && !isRecommendationFetchInProgress) {
-            val currentTrack = currentList.firstOrNull()
-            currentTrack?.let { fetchAndQueueRecommendations(it, false) }
-        }
+        // The window refill is single-flight and a no-op when the lookahead is already satisfied.
+        currentList.firstOrNull()?.let { requestFill(it, currentList.size - 1) }
     }
 
     /**
@@ -359,11 +333,7 @@ class QueueManager private constructor(private val context: Context) {
 
         Log.d(TAG, "Moved to next track. Queue size: ${currentList.size}")
 
-        // Check if we need to fetch more recommendations
-        if (currentList.size <= 2) {
-            val currentTrack = currentList.firstOrNull()
-            currentTrack?.let { fetchAndQueueRecommendations(it, false) }
-        }
+        currentList.firstOrNull()?.let { requestFill(it, currentList.size - 1) }
 
         // Ensure next 3 songs are downloaded/validated
         ensureUpcomingTracksReady() // <-- Updated from ensureNext2Ready()
@@ -387,280 +357,212 @@ class QueueManager private constructor(private val context: Context) {
         }
     }
 
+    // ── Recommendation engine ────────────────────────────────────────────────────────────
+    // One YouTube Music radio (~49 songs) is kept in `reserve`. Only `lookahead` songs ahead of
+    // the playing track are resolved (Spotify match + stream/download) and put in the queue;
+    // whenever a song starts, the window is topped back up from the reserve. When the reserve
+    // runs dry it is refilled from a radio seeded by the last queued song.
+    //
+    // Identity: YouTube video id plus a normalised song key (brackets/punctuation stripped, first
+    // artist), checked against the queue, history and everything already seen this session, so the
+    // same song can't enter twice under different spellings.
+
+    private val reserve = java.util.concurrent.ConcurrentLinkedDeque<RecommenderApi.YouTubeRecommendation>()
+    private val seen: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val claimed: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val fillMutex = Mutex()
+    private val resolveSlots = Semaphore(3)
+    private val sessionGen = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var seedVideoId: String? = null
+
+    /** How many resolved songs to keep ahead of the playing one (Audio Settings). */
+    private fun lookahead(): Int = settingsPrefs.getInt("recommendation_count", 5).coerceIn(1, 49)
+
+    /** Start a fresh recommendation session: drops the reserve, seen-set and any in-flight work. */
+    private fun resetRecommendationSession() {
+        sessionGen.incrementAndGet()
+        sessionScope.cancel()
+        sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        reserve.clear()
+        seen.clear()
+        claimed.clear()
+        seedVideoId = null
+        _downloadingTracks.update { list -> list.filterNot { it.source == "recommendation" } }
+    }
+
+    private fun songKey(track: Track) = RecommenderApi.songKey(track.title, track.artist)
+
+    /** Keys of everything that must not be queued again: queue, history and the playing song. */
+    private fun queuedKeys(current: Track): Set<String> =
+        (_currentQueue.value + playedTracksHistory.toList() + current).mapTo(HashSet()) { songKey(it) }
+
+    /** Songs queued after [current], using the larger of our own count and the caller's. */
+    private fun upcomingAfter(current: Track, reported: Int): Int {
+        val queue = _currentQueue.value
+        val idx = queue.indexOfFirst { it.uuid == current.uuid }
+        val own = if (idx >= 0) queue.size - 1 - idx else 0
+        return maxOf(own, reported, 0)
+    }
+
     /**
-     * Fetch recommendations based on current track and add to queue.
-     *
-     * Tries online recommendations first (YouTube Music -> Spotify validation).
-     * Falls back to offline library-based recommendations if:
-     * - Network is unavailable
-     * - API returns no results
-     * - Any exception occurs
-     *
-     * @param currentTrack Track to base recommendations on
+     * Called every time a song starts. [remaining] is how many songs the player still has queued
+     * after it. Tops the resolved window back up to the user's lookahead.
+     */
+    fun onPlaybackAdvanced(track: Track, remaining: Int) = requestFill(track, remaining)
+
+    /**
+     * Ask for recommendations based on [currentTrack]. [isRadioMode] (manual refresh) starts a
+     * new radio from this song and adds a full lookahead of fresh songs.
      */
     fun fetchAndQueueRecommendations(currentTrack: Track, isRadioMode: Boolean = false) {
-        serviceScope.launch {
-            // Prevent multiple concurrent recommendation fetches
-            if (isRecommendationFetchInProgress) {
-                Log.d(TAG, "Recommendation fetch already in progress, skipping")
-                return@launch
-            }
+        if (isRadioMode) {
+            resetRecommendationSession()
+            requestFill(currentTrack, remaining = 0, ignoreQueue = true)
+        } else {
+            requestFill(currentTrack, _currentQueue.value.size - 1)
+        }
+    }
 
-            isRecommendationFetchInProgress = true
-            try {
-                Log.d(
-                    TAG,
-                    "Fetching recommendations for: ${currentTrack.title} by ${currentTrack.artist} (Radio Mode: $isRadioMode)"
-                )
-
-                var onlineSucceeded = false
-
+    private fun requestFill(current: Track, remaining: Int, ignoreQueue: Boolean = false) {
+        val gen = sessionGen.get()
+        sessionScope.launch {
+            fillMutex.withLock {
+                if (gen != sessionGen.get()) return@withLock
                 try {
-                    // --- ONLINE PATH ---
-                    val seedTracks = mutableListOf<Track>()
-                    seedTracks.add(currentTrack)
-
-                    if (!isRadioMode) {
-                        firstPlayedTrack?.let { if (it.uuid != currentTrack.uuid) seedTracks.add(it) }
-
-                        // Select up to 3 random tracks from history + queue
-                        val pool = (playedTracksHistory + _currentQueue.value)
-                            .filter { it.uuid != currentTrack.uuid && it.uuid != firstPlayedTrack?.uuid }
-                            .distinctBy { it.uuid }
-                            .shuffled()
-                        seedTracks.addAll(pool.take(3))
-                    }
-
-                    Log.d(TAG, "Using ensemble seeds size: ${seedTracks.size}")
-
-                    val rawRecommendations = mutableListOf<RecommenderApi.YouTubeRecommendation>()
-
-                    coroutineScope {
-                        val deferredRecs = seedTracks.map { seed ->
-                            async {
-                                try {
-                                    val videoId = seed.ytVideoId ?: run {
-                                        val query = "${seed.title} ${seed.artist}"
-                                        RecommenderApi.getBestVideoMatch(query)
-                                    }
-                                    if (videoId != null) {
-                                        Log.d(TAG, "Fetching radio for seed: ${seed.title} ($videoId)")
-                                        RecommenderApi.fetchFullRadioQueue(videoId)
-                                    } else {
-                                        emptyList()
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Failed fetch for seed ${seed.title}: ${e.message}")
-                                    emptyList()
-                                }
-                            }
-                        }
-                        val results = deferredRecs.awaitAll()
-                        rawRecommendations.addAll(results.flatten())
-                    }
-
-                    val sortedRecommendations = if (isRadioMode || seedTracks.size == 1) {
-                        rawRecommendations
-                    } else {
-                        rawRecommendations.groupBy { it.id }
-                            .entries
-                            .sortedByDescending { it.value.size } // intersect frequency
-                            .map { it.value.first() } // take the first instance of each
-                    }
-
-                    // ── Artist Blacklist Filter ───────────────────────────
-                    val blacklist = BlacklistManager.getBlacklistedArtists(context)
-                    val recommendations = if (blacklist.isNotEmpty()) {
-                        sortedRecommendations.filter { rec ->
-                                val blocked = BlacklistManager.containsBlacklistedArtist(
-                                    context,
-                                    rec.artist,
-                                    blacklist
-                                )
-                                        || BlacklistManager.titleContainsBlacklistedArtist(
-                                    context,
-                                    rec.title,
-                                    blacklist
-                                )
-                                if (blocked) Log.d(
-                                    TAG,
-                                    "\uD83D\uDEAB Blacklist filtered: ${rec.title} by ${rec.artist}"
-                                )
-                                !blocked
-                            }
-                        } else sortedRecommendations
-                        if (blacklist.isNotEmpty()) {
-                            Log.d(
-                                TAG,
-                                "Blacklist: removed ${rawRecommendations.size - recommendations.size} of ${rawRecommendations.size} recommendations"
-                            )
-                        }
-                        // ─────────────────────────────────────────────────────
-
-                        if (recommendations.isEmpty()) {
-                            Log.w(TAG, "No online recommendations found. Falling back to offline.")
-                        } else {
-                            Log.d(TAG, "Got ${recommendations.size} raw recommendations")
-
-                            // Construct artist context: Current track artist + Recent artists
-                            val contextArtists =
-                                (listOf(currentTrack.artist) + recentArtists).joinToString(", ")
-
-                            // Get user-defined recommendation count from settings (default: 5)
-                            val targetCount = settingsPrefs.getInt("recommendation_count", 5)
-                            Log.d(TAG, "Target recommendation count: $targetCount")
-
-                            // Build negative songs set: queue + seed + session history + external downloads
-                            val negativeSongs = mutableSetOf<String>()
-                            _currentQueue.value.forEach {
-                                negativeSongs.add("${it.title.lowercase()}-${it.artist.lowercase()}")
-                            }
-                            negativeSongs.add("${currentTrack.title.lowercase()}-${currentTrack.artist.lowercase()}")
-                            negativeSongs.addAll(sessionHistory)
-                            negativeSongs.addAll(_externalDownloads)
-                            Log.d(TAG, "Built negative songs set: ${negativeSongs.size} entries")
-
-                            // Validate with Spotify - fetch 2x the target to allow for filtering duplicates
-                            val validatedRecs = RecommenderApi.validateAndFilterWithSpotify(
-                                recommendations,
-                                originalArtists = contextArtists,
-                                maxResults = targetCount * 2,
-                                negativeSongs = negativeSongs
-                            )
-
-                            if (validatedRecs.isEmpty()) {
-                                Log.w(
-                                    TAG,
-                                    "No validated recommendations found. Falling back to offline."
-                                )
-                            } else {
-                                Log.d(TAG, "Got ${validatedRecs.size} validated recommendations")
-
-                                // Filter out tracks already in current queue
-                                val currentQueueTitles =
-                                    _currentQueue.value.map { it.title.lowercase() to it.artist.lowercase() }
-                                val seedTrackPair =
-                                    currentTrack.title.lowercase() to currentTrack.artist.lowercase()
-
-                                val filteredRecs = validatedRecs.filter { rec ->
-                                    val trackPair = rec.title.lowercase() to rec.artist.lowercase()
-                                    val key = "${rec.title.lowercase()}-${rec.artist.lowercase()}"
-                                    val inQueue = currentQueueTitles.contains(trackPair)
-                                    val isSeed = trackPair == seedTrackPair
-                                    val isExternallyDownloading = _externalDownloads.contains(key)
-                                    val inHistory = sessionHistory.contains(key)
-
-                                    if (isExternallyDownloading) Log.d(
-                                        TAG,
-                                        "Filtered out external download: ${rec.title}"
-                                    )
-                                    if (inHistory) Log.d(
-                                        TAG,
-                                        "Filtered out already played song: ${rec.title}"
-                                    )
-
-                                    !inQueue && !isSeed && !isExternallyDownloading && !inHistory
-                                }
-
-                                Log.d(
-                                    TAG,
-                                    "After queue filtering: ${filteredRecs.size} recommendations"
-                                )
-
-                                if (filteredRecs.isNotEmpty()) {
-                                    // Separate into new (not in library) and library (already downloaded)
-                                    val newRecs =
-                                        mutableListOf<RecommenderApi.ValidatedRecommendation>()
-                                    val libraryRecs =
-                                        mutableListOf<RecommenderApi.ValidatedRecommendation>()
-
-                                    for (rec in filteredRecs) {
-                                        val candidates = trackDao.findTracksByTitleAndDuration(
-                                            rec.title,
-                                            rec.durationSec
-                                        )
-                                        val existsInLibrary = candidates.any {
-                                            ArtistUtils.areArtistsEqual(
-                                                it.artist,
-                                                rec.artist
-                                            ) && it.localUri != null
-                                        }
-                                        if (existsInLibrary) libraryRecs.add(rec) else newRecs.add(
-                                            rec
-                                        )
-                                    }
-
-                                    Log.d(
-                                        TAG,
-                                        "Categorized: ${newRecs.size} new tracks, ${libraryRecs.size} library tracks"
-                                    )
-
-                                    val finalRecs =
-                                        mutableListOf<RecommenderApi.ValidatedRecommendation>()
-                                    finalRecs.addAll(newRecs.take(targetCount))
-                                    if (finalRecs.size < targetCount) {
-                                        val remaining = targetCount - finalRecs.size
-                                        finalRecs.addAll(libraryRecs.take(remaining))
-                                    }
-
-                                    // Final-pass dedup against the live pending queue and within
-                                    // this batch. Defends against the same song surfacing twice
-                                    // when ensemble seeds return overlapping radios.
-                                    val pendingKeys = pendingRecommendations
-                                        .map { "${it.title.lowercase()}-${it.artist.lowercase()}" }
-                                        .toMutableSet()
-                                    val uniqueFinalRecs = finalRecs.filter { rec ->
-                                        val key = "${rec.title.lowercase()}-${rec.artist.lowercase()}"
-                                        if (pendingKeys.contains(key)) {
-                                            Log.d(TAG, "Filtered duplicate before queueing: ${rec.title}")
-                                            false
-                                        } else {
-                                            pendingKeys.add(key)
-                                            true
-                                        }
-                                    }
-
-                                    Log.d(TAG, "Final online selection: ${uniqueFinalRecs.size} tracks")
-
-                                    if (uniqueFinalRecs.isNotEmpty()) {
-                                        uniqueFinalRecs.forEach { rec ->
-                                            pendingRecommendations.offer(rec)
-                                            sessionHistory.add("${rec.title.lowercase()}-${rec.artist.lowercase()}")
-                                            Log.d(
-                                                TAG,
-                                                "Queued for download: ${rec.title} by ${rec.artist}"
-                                            )
-                                        }
-                                        processNextDownload()
-                                        onlineSucceeded = true
-                                    }
-                                }
-                            }
-                        }
-                } catch (onlineEx: Exception) {
-                    if (onlineEx is OfflineException || onlineEx.isOffline()) {
-                        Log.w(
-                            TAG,
-                            "Device is offline. Triggering offline fallback for recommendations."
-                        )
-                    } else {
-                        Log.e(
-                            TAG,
-                            "Online recommendation failed: ${onlineEx.message}. Falling back to offline."
-                        )
-                    }
+                    fillWindow(current, remaining, ignoreQueue, gen)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error filling recommendation window: ${e.message}", e)
                 }
+            }
+        }
+    }
 
-                // --- OFFLINE FALLBACK ---
-                if (!onlineSucceeded) {
-                    Log.d(TAG, "Triggering offline fallback for: ${currentTrack.title}")
-                    fetchOfflineRecommendations(currentTrack)
+    private suspend fun fillWindow(current: Track, reported: Int, ignoreQueue: Boolean, gen: Int) {
+        val target = lookahead()
+        var added = 0
+        var round = 0
+        val baseline = if (ignoreQueue) upcomingAfter(current, 0) else 0
+
+        while (round++ < 4 && gen == sessionGen.get()) {
+            val upcoming = if (ignoreQueue) upcomingAfter(current, 0) - baseline
+            else upcomingAfter(current, reported)
+            val need = target - upcoming
+            if (need <= 0) return
+
+            if (reserve.isEmpty() && refillReserve(current) == 0) break
+
+            val queued = queuedKeys(current)
+            val batch = mutableListOf<RecommenderApi.YouTubeRecommendation>()
+            val batchKeys = mutableSetOf<String>()
+            while (batch.size < need) {
+                val rec = reserve.pollFirst() ?: break
+                val key = RecommenderApi.songKey(rec.title, rec.artist)
+                if (key in queued || !batchKeys.add(key)) continue
+                batch += rec
+            }
+            if (batch.isEmpty()) continue // reserve drained by duplicates → refill next round
+
+            Log.d(TAG, "Resolving ${batch.size} of $target lookahead (reserve left: ${reserve.size})")
+            val resolved = coroutineScope {
+                batch.map { rec -> async { resolveSlots.withPermit { resolveRecommendation(rec, current) } } }
+                    .awaitAll()
+            }
+            // Add in radio order so the queue follows YouTube's ranking.
+            batch.zip(resolved).forEach { (rec, track) ->
+                if (track == null || gen != sessionGen.get()) return@forEach
+                seen.add("k:${songKey(track)}")
+                addToQueue(track)
+                seedVideoId = rec.id
+                added++
+            }
+        }
+
+        if (added == 0 && gen == sessionGen.get() && target - upcomingAfter(current, reported) > 0) {
+            Log.d(TAG, "Online radio produced nothing. Falling back to offline library.")
+            fetchOfflineRecommendations(current, target - upcomingAfter(current, reported))
+        }
+    }
+
+    /** Pull one YouTube Music radio into the reserve. Returns how many new songs it added. */
+    private suspend fun refillReserve(current: Track): Int {
+        queuedKeys(current).forEach { seen.add("k:$it") }
+        current.ytVideoId?.let { seen.add("yt:$it") }
+
+        val seedId = seedVideoId ?: current.ytVideoId
+            ?: RecommenderApi.getBestVideoMatch("${current.title} ${current.artist}")
+            ?: return 0
+        seen.add("yt:$seedId")
+
+        val radio = RecommenderApi.fetchFullRadioQueue(seedId)
+        val blacklist = BlacklistManager.getBlacklistedArtists(context)
+        var added = 0
+        for (rec in radio) {
+            if (RecommenderApi.isSpamTitle(rec.title)) continue
+            if (blacklist.isNotEmpty() &&
+                (BlacklistManager.containsBlacklistedArtist(context, rec.artist, blacklist) ||
+                        BlacklistManager.titleContainsBlacklistedArtist(context, rec.title, blacklist))
+            ) continue
+            // Both ids must be new: same video, or same song under another upload.
+            if (!seen.add("yt:${rec.id}")) continue
+            if (!seen.add("k:${RecommenderApi.songKey(rec.title, rec.artist)}")) continue
+            reserve.addLast(rec)
+            added++
+        }
+        Log.d(TAG, "Radio for seed $seedId: ${radio.size} items, $added new → reserve ${reserve.size}")
+        return added
+    }
+
+    /** Spotify match, then stream or download. Null means skip this song. */
+    private suspend fun resolveRecommendation(
+        rec: RecommenderApi.YouTubeRecommendation,
+        current: Track
+    ): Track? {
+        val validated = try {
+            RecommenderApi.matchOnSpotify(rec)
+        } catch (e: OfflineException) {
+            return null
+        } ?: return null
+
+        val key = RecommenderApi.songKey(validated.title, validated.artist)
+        val spotifyId = validated.spotifyUrl.substringAfterLast("/").substringBefore("?")
+        val inQueue = _currentQueue.value.any { it.spotifyId == spotifyId } || key in queuedKeys(current)
+        if (inQueue || !claimed.add(key)) {
+            Log.d(TAG, "Skipping already-queued song: ${validated.title}")
+            return null
+        }
+
+        // Already in the library → reuse it instead of downloading again.
+        val candidates = trackDao.findTracksByTitleAndDuration(validated.title, validated.durationSec)
+        candidates.find { ArtistUtils.areArtistsEqual(it.artist, validated.artist) && it.localUri != null }
+            ?.let { return it.toTrack() }
+
+        val info = DownloadInfo(validated.title, validated.artist, "recommendation")
+        _downloadingTracks.update { it + info }
+        try {
+            val song = SpotifyApi.spotifyTrackToSong(SpotifyApi.getTrack(spotifyId))
+            return if (isStreamMode) {
+                // Pin queued uuids so cache eviction never removes a file about to be played.
+                val pinned = _currentQueue.value.map { it.uuid }.toSet()
+                musicService.streamTrack(song, pinnedUuids = pinned).also {
+                    trackDao.insertTrack(it.toEntity())
                 }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in fetchAndQueueRecommendations: ${e.message}", e)
-            } finally {
-                isRecommendationFetchInProgress = false
+            } else {
+                musicService.smartDownloadAndIndex(song)
+            }
+        } catch (e: CancellationException) {
+            claimed.remove(key)
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving ${validated.title}: ${e.message}", e)
+            claimed.remove(key)
+            return null
+        } finally {
+            _downloadingTracks.update { list ->
+                val i = list.indexOf(info)
+                if (i >= 0) list.toMutableList().apply { removeAt(i) } else list
             }
         }
     }
@@ -682,9 +584,9 @@ class QueueManager private constructor(private val context: Context) {
      *
      * @param currentTrack The currently playing track to seed the queue from
      */
-    private suspend fun fetchOfflineRecommendations(currentTrack: Track) {
+    private suspend fun fetchOfflineRecommendations(currentTrack: Track, limit: Int) {
         try {
-            val targetCount = settingsPrefs.getInt("recommendation_count", 5)
+            val targetCount = limit
             val allDownloaded = trackDao.getDownloadedTracks()
 
             if (allDownloaded.isEmpty()) {
@@ -853,118 +755,6 @@ class QueueManager private constructor(private val context: Context) {
             .toSet()
     }
 
-    /**
-     * Process the next download from pending recommendations.
-     * 
-     * This method ensures that only a limited number of downloads
-     * happen simultaneously to avoid overwhelming the system.
-     */
-    private fun processNextDownload() {
-        serviceScope.launch {
-            while (true) {
-                // Check capacity safely
-                val shouldStop = synchronized(downloadJobs) {
-                    downloadJobs.size >= 6
-                }
-                if (shouldStop) break
-
-                val rec = pendingRecommendations.poll() ?: break
-                val recKey = "${rec.title.lowercase()}-${rec.artist.lowercase()}"
-
-                // CHECK 1: Check if already in current queue (Prevent Duplicates)
-                if (_currentQueue.value.any {
-                        it.title.equals(
-                            rec.title,
-                            ignoreCase = true
-                        ) && it.artist.equals(rec.artist, ignoreCase = true)
-                    }) {
-                    Log.d(TAG, "Skipping duplicate recommendation (already in queue): ${rec.title}")
-                    continue
-                }
-
-                // CHECK 2: Check if already downloaded (Database check)
-                // This is a suspending function, so it must be outside synchronized block
-                val candidates = trackDao.findTracksByTitleAndDuration(rec.title, rec.durationSec)
-                val existingTrack = candidates.find {
-                    ArtistUtils.areArtistsEqual(it.artist, rec.artist)
-                }
-                if (existingTrack != null && existingTrack.localUri != null) {
-                    Log.d(TAG, "Track already exists: ${rec.title}")
-                    addToQueue(existingTrack.toTrack())
-                    continue
-                }
-
-                // CHECK 3 + reservation: atomically claim the title|artist slot in
-                // _downloadingTracks BEFORE launching, so the next loop iteration (or a
-                // re-entered processNextDownload) sees this song as in-flight immediately.
-                val downloadInfo = DownloadInfo(rec.title, rec.artist, "recommendation")
-                val claimed = synchronized(downloadJobs) {
-                    val isAlreadyDownloading = _downloadingTracks.value.any {
-                        it.title.equals(rec.title, ignoreCase = true) &&
-                                it.artist.equals(rec.artist, ignoreCase = true)
-                    } || downloadJobs.containsKey(recKey)
-                    if (!isAlreadyDownloading) {
-                        _downloadingTracks.value = _downloadingTracks.value + downloadInfo
-                        true
-                    } else false
-                }
-                if (!claimed) {
-                    Log.d(TAG, "Track already downloading: ${rec.title}")
-                    continue
-                }
-
-                // Start download
-                val downloadJob = launch {
-                    try {
-                        Log.d(TAG, "Starting download: ${rec.title} by ${rec.artist}")
-
-                        val trackId = rec.spotifyUrl.substringAfterLast("/").substringBefore("?")
-                        val spotifyTrack = SpotifyApi.getTrack(trackId)
-                        val song = SpotifyApi.spotifyTrackToSong(spotifyTrack)
-
-                        val track = if (isStreamMode) {
-                            Log.d(
-                                TAG,
-                                "Stream Mode enabled, resolving stream URL for: ${rec.title}"
-                            )
-                            // Pin all currently queued track UUIDs so LRU never evicts files
-                            // that are about to be played while recommendation downloads run.
-                            val pinnedUuids = _currentQueue.value.map { it.uuid }.toSet()
-                            musicService.streamTrack(song, pinnedUuids = pinnedUuids).also {
-                                trackDao.insertTrack(it.toEntity())
-                            }
-                        } else {
-                            Log.d(TAG, "Stream Mode disabled, downloading: ${rec.title}")
-                            musicService.smartDownloadAndIndex(song)
-                        }
-
-                        Log.d(TAG, "Successfully processed (stream=$isStreamMode): ${track.title}")
-                        addToQueue(track)
-
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error downloading ${rec.title}: ${e.message}", e)
-                    } finally {
-                        _downloadingTracks.value = _downloadingTracks.value.filterNot {
-                            it.title == rec.title && it.artist == rec.artist
-                        }
-
-                        synchronized(downloadJobs) {
-                            downloadJobs.remove(recKey)
-                        }
-
-                        // Process next batch of downloads
-                        processNextDownload()
-                    }
-                }
-
-                // Register job safely under composite key (title|artist) to avoid
-                // title-only collisions clobbering active downloads.
-                synchronized(downloadJobs) {
-                    downloadJobs[recKey] = downloadJob
-                }
-            }
-        }
-    }
     /**
      * Ensure the next 2 songs in queue are downloaded.
      * 
@@ -1147,27 +937,8 @@ class QueueManager private constructor(private val context: Context) {
      * This prevents old recommendations from being mixed with new ones.
      */
     private fun cancelPendingRecommendationDownloads() {
-        // Clear pending queue
-        val pendingCount = pendingRecommendations.size
-        pendingRecommendations.clear()
-
-        // Cancel all in-progress downloads
-        downloadJobs.values.forEach { job ->
-            if (!job.isCompleted) {
-                job.cancel()
-            }
-        }
-        downloadJobs.clear()
-
-        // Clear downloading tracks display
-        _downloadingTracks.value = emptyList()
-
-        if (pendingCount > 0 || downloadJobs.isNotEmpty()) {
-            Log.d(
-                TAG,
-                "Cancelled $pendingCount pending recommendations and ${downloadJobs.size} active downloads"
-            )
-        }
+        resetRecommendationSession()
+        Log.d(TAG, "Recommendation session reset (reserve, seen-set and in-flight resolves cleared)")
     }
 
     /**
@@ -1210,6 +981,7 @@ class QueueManager private constructor(private val context: Context) {
      */
     fun cleanup() {
         cancelPendingRecommendationDownloads()
+        sessionScope.cancel()
         serviceScope.cancel()
         instance = null
         Log.d(TAG, "QueueManager cleaned up and instance reset")

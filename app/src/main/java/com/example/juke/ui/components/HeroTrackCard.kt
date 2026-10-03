@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,7 +28,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.runtime.remember
 import com.example.juke.models.Track
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.glassFloat
+import com.example.juke.ui.theme.glassPane
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import com.example.juke.utils.rememberJukeHaptics
 
 @Composable
@@ -41,18 +46,19 @@ fun HeroTrackCard(
 ) {
     val haptic = rememberJukeHaptics()
 
-    Card(
+    val hazeState = remember { HazeState() }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(1.5f) // 3:2 Aspect Ratio
+            .aspectRatio(1.5f)
+            .glassPane(GlassShapes.Card, GlassLevel.Thick)
             .clickable(onClickLabel = "Play ${track.title}", role = Role.Button) {
                 haptic.click()
                 onClick()
-            },
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            }
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
             if (track.thumbnailUri != null) {
                 AsyncImage(
                     model = track.thumbnailUri,
@@ -75,63 +81,46 @@ fun HeroTrackCard(
                     )
                 }
             }
+        }
 
-            // Gradient Overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.3f),
-                                Color.Black.copy(alpha = 0.8f)
-                            )
-                        )
-                    )
+        // Caption lens: the artwork blurs through the plate, a dark layer keeps the text above AA.
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(10.dp)
+                .fillMaxWidth()
+                .glassFloat(GlassShapes.Control, GlassLevel.Regular, source = hazeState)
+                .background(Color.Black.copy(alpha = 0.32f))
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            Text(
+                text = track.artist,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.86f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-            // Text Content
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // Play Count Badge
-            Box(
+        if (track.playCount > 0) {
+            Text(
+                text = "${track.playCount} plays",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp)
-                    .background(
-                        Color.Black.copy(alpha = 0.6f),
-                        RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "${track.playCount} plays",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White
-                )
-            }
+                    .glassFloat(GlassShapes.Pill, GlassLevel.Thin, source = hazeState)
+                    .background(Color.Black.copy(alpha = 0.32f))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
         }
     }
 }

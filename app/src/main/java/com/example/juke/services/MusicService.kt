@@ -11,6 +11,7 @@ import com.example.juke.models.Track
 import com.example.juke.models.withUpdatedLyrics
 import com.example.juke.network.ApiClient
 import com.example.juke.network.RecommenderApi
+import com.example.juke.network.SpotsaverApi
 import com.example.juke.network.SpotifyApi
 import com.example.juke.utils.FastDownloader
 import io.ktor.client.call.body
@@ -90,19 +91,21 @@ class MusicService(private val context: Context) {
         val finalFile = File(streamDir, "${stableUuid}_stream.mp3")
         val tempFile = File(streamDir, "${stableUuid}_stream.tmp")
 
-        // For instant search plays: Spotmate first (faster). Otherwise 50/50 random.
+        // Spotsaver is primary; keep the existing legacy provider preference for fallback.
         val useGamepvzFirst = if (forceSpotmateFirst) false
             else (System.currentTimeMillis() % 2L) == 0L
         val primaryName = if (useGamepvzFirst) "Gamepvz" else "Spotmate"
         val fallbackName = if (useGamepvzFirst) "Spotmate" else "Gamepvz"
         var queuedSpotmateTaskId: String? = null
 
-        suspend fun downloadToTempFile(useGamepvz: Boolean) {
+        suspend fun downloadToTempFile(useGamepvz: Boolean?) {
             if (tempFile.exists()) {
                 tempFile.delete()
             }
 
-            val request = if (useGamepvz) {
+            val request = if (useGamepvz == null) {
+                SpotsaverApi.getDownloadRequest(song.title, song.artist)
+            } else if (useGamepvz) {
                 SpotifyApi.getGamepvzDownloadRequest(song.url)
             } else {
                 try {
@@ -121,59 +124,65 @@ class MusicService(private val context: Context) {
                 url = request.url,
                 outputFile = tempFile,
                 headers = request.headers,
-                threads = 4
+                threads = 4,
+                probeRanges = request.probeRanges
             )
 
-            if (!tempFile.exists() || tempFile.length() < 100_000L) {
+            if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidMp3Header(tempFile)) {
                 throw Exception("Stream payload is too small")
             }
         }
 
-        try {
-            withTimeout(90_000L) { downloadToTempFile(useGamepvzFirst) }
-        } catch (primaryEx: Exception) {
-            Log.w(
-                TAG,
-                "$primaryName stream fetch failed (${primaryEx.message}), falling back to $fallbackName"
-            )
-            try {
-                withTimeout(90_000L) { downloadToTempFile(!useGamepvzFirst) }
-            } catch (fallbackEx: Exception) {
-                val queuedTaskId = queuedSpotmateTaskId
-                if (!queuedTaskId.isNullOrBlank()) {
+        preferNewProvider(
+            primary = { withTimeout(30_000L) { downloadToTempFile(null) } },
+            fallback = {
+                try {
+                    withTimeout(90_000L) { downloadToTempFile(useGamepvzFirst) }
+                } catch (primaryEx: Exception) {
                     Log.w(
                         TAG,
-                        "Both direct stream sources failed; polling queued Spotmate task: $queuedTaskId"
+                        "$primaryName stream fetch failed (${primaryEx.message}), falling back to $fallbackName"
                     )
                     try {
-                        val queuedData = withTimeout(120_000L) {
-                            SpotifyApi.downloadSongFromSpotmateTask(queuedTaskId)
-                        }
+                        withTimeout(90_000L) { downloadToTempFile(!useGamepvzFirst) }
+                    } catch (fallbackEx: Exception) {
+                        val queuedTaskId = queuedSpotmateTaskId
+                        if (!queuedTaskId.isNullOrBlank()) {
+                            Log.w(
+                                TAG,
+                                "Both direct stream sources failed; polling queued Spotmate task: $queuedTaskId"
+                            )
+                            try {
+                                val queuedData = withTimeout(120_000L) {
+                                    SpotifyApi.downloadSongFromSpotmateTask(queuedTaskId)
+                                }
 
-                        if (queuedData.isEmpty() || queuedData.size < 100_000) {
-                            throw Exception("Queued Spotmate stream payload is too small")
-                        }
+                                if (queuedData.isEmpty() || queuedData.size < 100_000) {
+                                    throw Exception("Queued Spotmate stream payload is too small")
+                                }
 
-                        if (tempFile.exists()) {
-                            tempFile.delete()
+                                if (tempFile.exists()) {
+                                    tempFile.delete()
+                                }
+                                tempFile.writeBytes(queuedData)
+                            } catch (queuedTaskEx: Exception) {
+                                Log.e(TAG, "Queued Spotmate task failed: ${queuedTaskEx.message}")
+                                throw Exception(
+                                    "Stream unavailable: $primaryName=${primaryEx.message}, " +
+                                            "$fallbackName=${fallbackEx.message}, queued=${queuedTaskEx.message}"
+                                )
+                            }
+                        } else {
+                            Log.e(TAG, "Both stream sources failed: ${fallbackEx.message}")
+                            throw Exception(
+                                "Stream unavailable: $primaryName=${primaryEx.message}, " +
+                                        "$fallbackName=${fallbackEx.message}"
+                            )
                         }
-                        tempFile.writeBytes(queuedData)
-                    } catch (queuedTaskEx: Exception) {
-                        Log.e(TAG, "Queued Spotmate task failed: ${queuedTaskEx.message}")
-                        throw Exception(
-                            "Stream unavailable: $primaryName=${primaryEx.message}, " +
-                                    "$fallbackName=${fallbackEx.message}, queued=${queuedTaskEx.message}"
-                        )
                     }
-                } else {
-                    Log.e(TAG, "Both stream sources failed: ${fallbackEx.message}")
-                    throw Exception(
-                        "Stream unavailable: $primaryName=${primaryEx.message}, " +
-                                "$fallbackName=${fallbackEx.message}"
-                    )
                 }
             }
-        }
+        )
 
         if (finalFile.exists()) {
             finalFile.delete()
@@ -298,20 +307,22 @@ class MusicService(private val context: Context) {
                 throw Exception("Invalid Spotify URL format")
             }
 
-            // Try both sources in random order to balance load and provide automatic fallback.
+            // Prefer Spotsaver; preserve the legacy fallback order.
             val useGamepvzFirst = (System.currentTimeMillis() % 2L) == 0L
             Log.d(
                 TAG,
-                "Downloading '${song.title}' — primary: ${if (useGamepvzFirst) "Gamepvz" else "Spotmate"}"
+                "Downloading '${song.title}' — primary: Spotsaver"
             )
             var queuedSpotmateTaskId: String? = null
 
-            suspend fun trySource(useGamepvz: Boolean) {
+            suspend fun trySource(useGamepvz: Boolean?) {
                 if (audioFile.exists()) {
                     audioFile.delete()
                 }
 
-                val request = if (useGamepvz) {
+                val request = if (useGamepvz == null) {
+                    SpotsaverApi.getDownloadRequest(song.title, song.artist)
+                } else if (useGamepvz) {
                     SpotifyApi.getGamepvzDownloadRequest(song.url)
                 } else {
                     try {
@@ -330,49 +341,55 @@ class MusicService(private val context: Context) {
                     url = request.url,
                     outputFile = audioFile,
                     headers = request.headers,
-                    threads = 4
+                    threads = 4,
+                    probeRanges = request.probeRanges
                 )
 
-                if (!audioFile.exists() || audioFile.length() < 100_000L) {
+                if (!audioFile.exists() || audioFile.length() < 100_000L || !isValidMp3Header(audioFile)) {
                     throw Exception("Downloaded file is too small to be a valid MP3")
                 }
             }
 
             var usedGamepvzFirst = useGamepvzFirst
-            try {
-                withTimeout(90_000L) { trySource(useGamepvzFirst) }
-            } catch (primaryEx: Exception) {
-                val fallbackName = if (useGamepvzFirst) "Spotmate" else "Gamepvz"
-                Log.w(TAG, "Primary download failed (${primaryEx.message}), falling back to $fallbackName")
-                usedGamepvzFirst = !useGamepvzFirst
-                try {
-                    withTimeout(90_000L) { trySource(!useGamepvzFirst) }
-                } catch (fallbackEx: Exception) {
-                    val queuedTaskId = queuedSpotmateTaskId
-                    if (!queuedTaskId.isNullOrBlank()) {
-                        Log.w(
-                            TAG,
-                            "Both direct sources failed; polling queued Spotmate task: $queuedTaskId"
-                        )
-                        val queuedData = withTimeout(120_000L) {
-                            SpotifyApi.downloadSongFromSpotmateTask(queuedTaskId)
-                        }
+            preferNewProvider(
+                primary = { withTimeout(45_000L) { trySource(null) } },
+                fallback = {
+                    try {
+                        withTimeout(90_000L) { trySource(useGamepvzFirst) }
+                    } catch (primaryEx: Exception) {
+                        val fallbackName = if (useGamepvzFirst) "Spotmate" else "Gamepvz"
+                        Log.w(TAG, "Primary download failed (${primaryEx.message}), falling back to $fallbackName")
+                        usedGamepvzFirst = !useGamepvzFirst
+                        try {
+                            withTimeout(90_000L) { trySource(!useGamepvzFirst) }
+                        } catch (fallbackEx: Exception) {
+                            val queuedTaskId = queuedSpotmateTaskId
+                            if (!queuedTaskId.isNullOrBlank()) {
+                                Log.w(
+                                    TAG,
+                                    "Both direct sources failed; polling queued Spotmate task: $queuedTaskId"
+                                )
+                                val queuedData = withTimeout(120_000L) {
+                                    SpotifyApi.downloadSongFromSpotmateTask(queuedTaskId)
+                                }
 
-                        if (queuedData.isEmpty() || queuedData.size < 100_000) {
-                            throw Exception("Queued Spotmate download is too small")
-                        }
+                                if (queuedData.isEmpty() || queuedData.size < 100_000) {
+                                    throw Exception("Queued Spotmate download is too small")
+                                }
 
-                        if (audioFile.exists()) {
-                            audioFile.delete()
+                                if (audioFile.exists()) {
+                                    audioFile.delete()
+                                }
+                                audioFile.writeBytes(queuedData)
+                            } else {
+                                throw Exception(
+                                    "All sources failed: primary=${primaryEx.message}, fallback=${fallbackEx.message}"
+                                )
+                            }
                         }
-                        audioFile.writeBytes(queuedData)
-                    } else {
-                        throw Exception(
-                            "All sources failed: primary=${primaryEx.message}, fallback=${fallbackEx.message}"
-                        )
                     }
                 }
-            }
+            )
 
             Log.d(TAG, "Downloaded ${audioFile.length()} bytes — wrote to ${audioFile.absolutePath}")
 
@@ -553,18 +570,25 @@ class MusicService(private val context: Context) {
         val resolveStarted = android.os.SystemClock.elapsedRealtime()
         var queuedSpotmateTaskId: String? = null
         val resolvedRequest = try {
-            resolveStreamUrl(
+            preferNewProvider(
                 primary = {
-                    val request = SpotifyApi.getGamepvzDownloadRequest(song.url)
-                    request.copy(url = com.example.juke.network.gamepvzStreamUrl(request.url))
+                    withTimeout(8_000L) { SpotsaverApi.getDownloadRequest(song.title, song.artist) }
                 },
                 fallback = {
-                    try {
-                        SpotifyApi.getSpotmateDownloadRequest(song.url)
-                    } catch (e: SpotifyApi.SpotmateQueuedException) {
-                        queuedSpotmateTaskId = e.taskId
-                        throw e
-                    }
+                    resolveStreamUrl(
+                        primary = {
+                            val request = SpotifyApi.getGamepvzDownloadRequest(song.url)
+                            request.copy(url = com.example.juke.network.gamepvzStreamUrl(request.url))
+                        },
+                        fallback = {
+                            try {
+                                SpotifyApi.getSpotmateDownloadRequest(song.url)
+                            } catch (e: SpotifyApi.SpotmateQueuedException) {
+                                queuedSpotmateTaskId = e.taskId
+                                throw e
+                            }
+                }
+            )
                 }
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -627,12 +651,13 @@ class MusicService(private val context: Context) {
                         url = resolvedRequest.url,
                         outputFile = tempFile,
                         headers = resolvedRequest.headers,
-                        threads = 4
+                        threads = 4,
+                        probeRanges = resolvedRequest.probeRanges
                     )
                 }
 
-                if (!tempFile.exists() || tempFile.length() < 100_000L) {
-                    Log.w(TAG, "streamTrackInstant: background download too small, discarding")
+                if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidMp3Header(tempFile)) {
+                    Log.w(TAG, "streamTrackInstant: background download invalid or too small, discarding")
                     tempFile.delete()
                     return@launch
                 }

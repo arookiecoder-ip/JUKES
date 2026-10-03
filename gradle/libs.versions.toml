@@ -18,6 +18,7 @@ navigation = "2.8.5"
 gson = "2.10.1"
 foundationLayout = "1.10.0"
 palette = "1.0.0"
+haze = "1.2.2"
 
 [libraries]
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
@@ -68,6 +69,9 @@ androidx-media3-datasource = { group = "androidx.media3", name = "media3-datasou
 
 # Coil
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+
+# Haze (backdrop blur for glass surfaces)
+haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 
 # Gson
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }

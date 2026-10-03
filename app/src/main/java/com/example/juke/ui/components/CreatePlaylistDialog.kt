@@ -1,6 +1,5 @@
 package com.example.juke.ui.components
 
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,7 +18,7 @@ fun CreatePlaylistDialog(
     var name by remember { mutableStateOf("") }
     val haptic = rememberJukeHaptics()
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Playlist") },
         text = {

@@ -1,0 +1,222 @@
+package com.example.juke.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateIntSizeAsState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.round
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.LocalGlassAccent
+import com.example.juke.ui.theme.glassFloat
+import com.example.juke.ui.theme.glassLens
+import com.example.juke.ui.theme.glassPane
+
+data class GlassNavItem(
+    val label: String,
+    val selected: Boolean,
+    val onClick: () -> Unit,
+    val icon: @Composable () -> Unit,
+)
+
+/**
+ * Floating glass tab bar. Same destinations and semantics as a Material navigation bar
+ * (selectable tabs, one selected), drawn as a lens of blurred content instead of a slab.
+ */
+@Composable
+fun GlassNavBar(items: List<GlassNavItem>, modifier: Modifier = Modifier) {
+    GlassTabGroup(
+        items = items,
+        vertical = false,
+        modifier = modifier.fillMaxWidth().glassFloat(GlassShapes.Bar, GlassLevel.Regular).padding(6.dp)
+    )
+}
+
+/**
+ * One liquid selection lens. It travels on a loose spring, stretches along its direction of
+ * travel in proportion to its speed while squashing across it, and swells slightly while moving,
+ * like a drop of glass sliding between tabs. On the horizontal bar it can also be dragged and
+ * released onto the nearest tab.
+ */
+@Composable
+private fun GlassTabGroup(items: List<GlassNavItem>, vertical: Boolean, modifier: Modifier = Modifier) {
+    val accent = LocalGlassAccent.current
+    val scope = rememberCoroutineScope()
+    val bounds = remember { mutableStateMapOf<Int, Pair<IntOffset, IntSize>>() }
+    val selectedIndex = items.indexOfFirst { it.selected }
+    val selected = bounds[selectedIndex]
+    // Position along the travel axis, in px; velocity is read straight off the animation.
+    val pos = remember { Animatable(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    var placed by remember { mutableStateOf(false) }
+    fun axis(o: IntOffset) = if (vertical) o.y.toFloat() else o.x.toFloat()
+    val lensSpring = spring<Float>(dampingRatio = 0.62f, stiffness = 260f)
+
+    LaunchedEffect(selected, dragging) {
+        val target = selected?.first?.let(::axis) ?: return@LaunchedEffect
+        if (dragging) return@LaunchedEffect
+        if (!placed) { pos.snapTo(target); placed = true } else pos.animateTo(target, lensSpring)
+    }
+    val size by animateIntSizeAsState(
+        selected?.second ?: IntSize.Zero,
+        spring(dampingRatio = 0.8f, stiffness = 300f),
+        label = "lensSize"
+    )
+    val cross = selected?.first?.let { if (vertical) it.x else it.y } ?: 0
+
+    val dragModifier = if (vertical) Modifier else Modifier.pointerInput(items) {
+        detectHorizontalDragGestures(
+            onDragStart = { dragging = true },
+            onDragCancel = { dragging = false },
+            onDragEnd = { dragging = false },
+            onHorizontalDrag = { change, dx ->
+                change.consume()
+                val lo = bounds.values.minOfOrNull { it.first.x }?.toFloat() ?: 0f
+                val hi = bounds.values.maxOfOrNull { it.first.x }?.toFloat() ?: 0f
+                scope.launch { pos.snapTo((pos.value + dx).coerceIn(lo, hi)) }
+            }
+        )
+    }
+    // On release, land on whichever tab the lens is nearest to (projected a little by its velocity).
+    LaunchedEffect(dragging) {
+        if (dragging || !placed) return@LaunchedEffect
+        val p = pos.value
+        val nearest = bounds.entries.minByOrNull { (_, v) -> kotlin.math.abs(v.first.x - p) }?.key ?: return@LaunchedEffect
+        if (nearest != selectedIndex) items.getOrNull(nearest)?.onClick?.invoke()
+        else bounds[nearest]?.let { pos.animateTo(it.first.x.toFloat(), lensSpring) }
+    }
+
+    Box(modifier = modifier.then(dragModifier)) {
+        if (selected != null) {
+            with(LocalDensity.current) {
+                Box(
+                    Modifier
+                        .offset {
+                            if (vertical) IntOffset(cross, pos.value.roundToInt())
+                            else IntOffset(pos.value.roundToInt(), cross)
+                        }
+                        .size(size.width.toDp(), size.height.toDp())
+                        .graphicsLayer {
+                            val speed = (kotlin.math.abs(pos.velocity) / 5000f).coerceIn(0f, 1f)
+                            val grab = if (dragging) 0.08f else 0f
+                            val along = 1f + 0.38f * speed + grab
+                            val across = 1f - 0.16f * speed + grab * 0.5f
+                            scaleX = if (vertical) across else along
+                            scaleY = if (vertical) along else across
+                        }
+                        .glassLens(GlassShapes.Control, accent) {
+                            (kotlin.math.abs(pos.velocity) / 4000f).coerceIn(0f, 1f) + if (dragging) 0.4f else 0f
+                        }
+                )
+            }
+        }
+        val tabModifier = { i: Int ->
+            Modifier.onPlaced { bounds[i] = it.positionInParent().round() to it.size }
+        }
+        if (vertical) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                items.forEachIndexed { i, item -> GlassNavTab(item, tabModifier(i).fillMaxWidth()) }
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                items.forEachIndexed { i, item -> GlassNavTab(item, tabModifier(i).weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlassNavTab(item: GlassNavItem, modifier: Modifier = Modifier) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val tint by animateColorAsState(
+        targetValue = if (item.selected) onSurface else onSurface.copy(alpha = 0.72f),
+        animationSpec = tween(180),
+        label = "navTint"
+    )
+    Column(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .clip(GlassShapes.Control)
+            .selectable(
+                selected = item.selected,
+                role = Role.Tab,
+                onClick = item.onClick,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            )
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        CompositionLocalProvider(LocalContentColor provides tint) {
+            item.icon()
+            Text(
+                text = item.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = tint
+            )
+        }
+    }
+}
+
+/** Expanded-width counterpart: a vertical floating glass rail. */
+@Composable
+fun GlassNavRail(items: List<GlassNavItem>, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
+        GlassTabGroup(
+            items = items,
+            vertical = true,
+            modifier = Modifier
+                .width(80.dp)
+                .glassFloat(GlassShapes.Bar, GlassLevel.Regular)
+                .padding(vertical = 8.dp, horizontal = 6.dp)
+        )
+    }
+}

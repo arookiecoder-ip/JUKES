@@ -1,5 +1,6 @@
 package com.example.juke.ui.components.player
 
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -30,8 +31,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -114,13 +113,9 @@ fun QueueBottomSheetContent(
         ) {
             // Current track indicator
             item(key = "now_playing_card") {
-                Card(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
+        accent = MaterialTheme.colorScheme.primaryContainer) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -280,7 +275,7 @@ fun QueueBottomSheetContent(
                             label = "DragScale"
                         )
 
-                        Card(
+                        GlassCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .graphicsLayer {
@@ -289,14 +284,7 @@ fun QueueBottomSheetContent(
                                     this.scaleX = scale
                                     this.scaleY = scale
                                 }
-                                .zIndex(if (dragOffset != 0f) 100f else 0f),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            elevation = CardDefaults.cardElevation(
-                                defaultElevation = if (dragOffset != 0f) 8.dp else 1.dp
-                            )
-                        ) {
+                                .zIndex(if (dragOffset != 0f) 100f else 0f)) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

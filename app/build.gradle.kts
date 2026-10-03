@@ -130,6 +130,7 @@ dependencies {
 
     // Coil
     implementation(libs.coil.compose)
+    implementation(libs.haze)
 
     // Gson
     implementation(libs.gson)

@@ -47,9 +47,9 @@ fun SearchResultItemM3(
                 haptic.click()
                 onClick()
             }
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 8.dp),
         colors = ListItemDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = Color.Transparent,
             headlineColor = MaterialTheme.colorScheme.onBackground,
             supportingColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
         ),

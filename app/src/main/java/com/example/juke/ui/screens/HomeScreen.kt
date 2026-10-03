@@ -85,6 +85,11 @@ import coil.compose.AsyncImage
 import com.example.juke.models.Track
 import com.example.juke.ui.components.HeroTrackCard
 import com.example.juke.ui.components.HomeSkeleton
+import com.example.juke.ui.components.GlassIconButton
+import com.example.juke.ui.components.GlassPillButton
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.glassPane
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.HomeViewModel
 import com.example.juke.viewmodels.MusicViewModel
@@ -193,38 +198,22 @@ private fun HomeHeader(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 24.dp, end = 16.dp, top = 24.dp, bottom = 24.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "JUKE",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
-                letterSpacing = 2.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = greeting,
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
+        Text(
+            text = greeting,
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
 
-        FilledIconButton(
+        GlassIconButton(
             onClick = onSettingsClick,
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            contentDescription = "Settings"
         ) {
-            Icon(
-                Icons.Filled.Settings,
-                contentDescription = "Settings"
-            )
+            Icon(Icons.Filled.Settings, contentDescription = null)
         }
     }
 }
@@ -324,7 +313,7 @@ private fun RecentlyPlayedSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (tracks.size > 1) {
-                FilledIconButton(
+                GlassIconButton(
                     onClick = {
                         coroutineScope.launch {
                             haptic.click()
@@ -333,15 +322,9 @@ private fun RecentlyPlayedSection(
                             )
                         }
                     },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    contentDescription = "Previous recently played track"
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Previous recently played track"
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                 }
             }
 
@@ -377,7 +360,7 @@ private fun RecentlyPlayedSection(
             }
 
             if (tracks.size > 1) {
-                FilledIconButton(
+                GlassIconButton(
                     onClick = {
                         coroutineScope.launch {
                             haptic.click()
@@ -386,15 +369,9 @@ private fun RecentlyPlayedSection(
                             )
                         }
                     },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    contentDescription = "Next recently played track"
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Next recently played track"
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                 }
             }
         }
@@ -459,7 +436,6 @@ private fun SectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
         if (onActionClick != null) {
@@ -499,8 +475,7 @@ private fun MusicCard(
                 scaleX = cardScale
                 scaleY = cardScale
             }
-            .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .glassPane(GlassShapes.Card, GlassLevel.Regular)
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
                     append(track.title)
@@ -582,7 +557,8 @@ private fun MusicCard(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp)
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f), CircleShape)
+                    .glassPane(GlassShapes.Pill, GlassLevel.Thin, Color.Black)
+                    .background(Color.Black.copy(alpha = 0.34f))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -644,8 +620,7 @@ private fun FavoriteCard(
         Box(
             modifier = Modifier
                 .size(96.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .glassPane(CircleShape, GlassLevel.Regular),
             contentAlignment = Alignment.Center
         ) {
             if (track.thumbnailUri != null) {
@@ -717,8 +692,7 @@ private fun EmptyHomeState(
             Box(
                 modifier = Modifier
                     .size(if (isShort) 48.dp else 80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .glassPane(CircleShape, GlassLevel.Thick),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -744,7 +718,7 @@ private fun EmptyHomeState(
                 lineHeight = 24.sp
             )
             Spacer(modifier = Modifier.height(if (isShort) 12.dp else 24.dp))
-            Button(onClick = onSearchClick) { Text("Find music") }
+            GlassPillButton(text = "Find music", onClick = onSearchClick)
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.GlassTopAppBar
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Arrangement
@@ -22,8 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,7 +75,7 @@ fun ArtistDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = { Text(artist?.name ?: "Artist") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -111,7 +111,7 @@ fun ArtistDetailScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = androidx.compose.ui.graphics.Color.Transparent
     ) { paddingValues ->
         if (uiState.isLoading || artist == null) {
             MediaDetailSkeleton(
@@ -254,22 +254,17 @@ private fun TrackItem(
     track: SpotifyTrack,
     onClick: () -> Unit
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+        onClick = onClick) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Card(
-                modifier = Modifier.size(72.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
+            GlassCard(
+                modifier = Modifier.size(72.dp)) {
                 AsyncImage(
                     model = bestImageUrl(track.album.images) ?: track.album.images.lastOrNull()?.url
                     ?: "",
@@ -315,7 +310,7 @@ private fun TrackItem(
 
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
             ) {
                 Text(
                     text = formatDuration(track.durationMs),
@@ -333,14 +328,11 @@ private fun AlbumItem(
     album: SpotifyAlbum,
     onClick: () -> Unit
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        onClick = onClick,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+        onClick = onClick) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

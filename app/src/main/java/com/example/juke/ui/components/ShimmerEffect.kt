@@ -16,9 +16,9 @@ import androidx.compose.ui.graphics.Brush
 
 fun Modifier.shimmerEffect(): Modifier = composed {
     val shimmerColors = listOf(
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
     )
 
     val transition = rememberInfiniteTransition(label = "shimmer")
