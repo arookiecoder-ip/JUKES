@@ -1,8 +1,9 @@
 package com.example.juke
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.Manifest
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -11,9 +12,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -38,6 +42,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -45,17 +51,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -140,12 +143,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Portrait lock for phones (shortest width < 600dp)
-        // Tablets and large screens will support landscape
-        if (resources.configuration.smallestScreenWidthDp < 600) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
-
         enableEdgeToEdge()
 
         // Check intent immediately
@@ -153,7 +150,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val musicViewModel: MusicViewModel = viewModel()
-            val uiState by musicViewModel.uiState.collectAsState()
+            val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
 
             JUKETheme(
                 extractedColors = uiState.extractedColors
@@ -175,7 +172,7 @@ class MainActivity : ComponentActivity() {
 
                 // --- UPDATE CHECK LOGIC ---
                 var updateAvailable by remember { mutableStateOf<GithubRelease?>(null) }
-                val updateDownloadState by UpdateManager.downloadState.collectAsState()
+                val updateDownloadState by UpdateManager.downloadState.collectAsStateWithLifecycle()
                 val isUpdateDownloading = updateDownloadState is UpdateDownloadState.Downloading
 
                 LaunchedEffect(Unit) {
@@ -354,81 +351,69 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val isExpanded = LocalConfiguration.current.screenWidthDp >= 600
+                val onNavigate: (Screen) -> Unit = { screen ->
+
+                    if (currentMainTab == screen.route) {
+                        if (currentRoute != screen.route) {
+                            navController.popBackStack(
+                                screen.route,
+                                inclusive = false
+                            )
+
+                            if (currentRoute?.startsWith("artist/") == true) {
+                                activityViewModelProvider[SearchViewModel::class.java]
+                                    .clearArtistDetail()
+                            } else if (currentRoute?.startsWith("album/") == true) {
+                                activityViewModelProvider[AlbumDetailViewModel::class.java]
+                                    .clearAlbumDetail()
+                            } else if (currentRoute?.startsWith("playlist/") == true) {
+                                activityViewModelProvider[PlaylistDetailViewModel::class.java]
+                                    .clearPlaylistDetail()
+                            }
+                        } else if (screen == Screen.Search) {
+                            if (searchResetTrigger > 0 && searchFocusTrigger == searchResetTrigger) {
+                                searchFocusTrigger++
+                            } else {
+                                searchResetTrigger++
+                                searchFocusTrigger = searchResetTrigger
+                            }
+                        }
+                    } else {
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
                         if (currentRoute != "settings") {
                             Column {
-                                MiniPlayer(
-                                    musicViewModel = musicViewModel,
-                                    onExpand = { showPlayerModal = true }
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            brush = Brush.verticalGradient(
-                                                colors = listOf(
-                                                    Color.Transparent,
-                                                    MaterialTheme.colorScheme.surface
-                                                ),
-                                                startY = 0f,
-                                                endY = 100f
+                                MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
+                                if (!isExpanded) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surface)
                                             )
                                         )
-                                ) {
-                                    NavigationBar(
-                                        containerColor = Color.Transparent
                                     ) {
-                                        items.forEach { screen ->
-                                            NavigationBarItem(
-                                                icon = {
-                                                    if (currentMainTab == screen.route) {
-                                                        screen.filledIcon()
-                                                    } else {
-                                                        screen.outlinedIcon()
-                                                    }
-                                                },
-                                                label = { Text(screen.title) },
-                                                selected = currentMainTab == screen.route,
-                                                onClick = {
-                                                    if (currentMainTab == screen.route) {
-                                                        if (currentRoute != screen.route) {
-                                                            navController.popBackStack(
-                                                                screen.route,
-                                                                inclusive = false
-                                                            )
-
-                                                            if (currentRoute?.startsWith("artist/") == true) {
-                                                                activityViewModelProvider[SearchViewModel::class.java]
-                                                                    .clearArtistDetail()
-                                                            } else if (currentRoute?.startsWith("album/") == true) {
-                                                                activityViewModelProvider[AlbumDetailViewModel::class.java]
-                                                                    .clearAlbumDetail()
-                                                            } else if (currentRoute?.startsWith("playlist/") == true) {
-                                                                activityViewModelProvider[PlaylistDetailViewModel::class.java]
-                                                                    .clearPlaylistDetail()
-                                                            }
-                                                        } else if (screen == Screen.Search) {
-                                                            if (searchResetTrigger > 0 && searchFocusTrigger == searchResetTrigger) {
-                                                                searchFocusTrigger++
-                                                            } else {
-                                                                searchResetTrigger++
-                                                                searchFocusTrigger = searchResetTrigger
-                                                            }
-                                                        }
-                                                    } else {
-                                                        navController.navigate(screen.route) {
-                                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                                saveState = true
-                                                            }
-                                                            launchSingleTop = true
-                                                            restoreState = true
-                                                        }
-                                                    }
-                                                }
-                                            )
+                                        NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
+                                            items.forEach { screen ->
+                                                NavigationBarItem(
+                                                    icon = { if (currentMainTab == screen.route) screen.filledIcon() else screen.outlinedIcon() },
+                                                    label = { Text(screen.title) },
+                                                    selected = currentMainTab == screen.route,
+                                                    onClick = { onNavigate(screen) }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -445,120 +430,135 @@ class MainActivity : ComponentActivity() {
                         bottom = 0.dp
                     )
 
-                    NavHost(
-                        navController = navController,
-                        startDestination = Screen.Home.route,
-                        modifier = Modifier.padding(contentPadding)
-                    ) {
-                        composable(Screen.Home.route) {
-                            HomeScreen(
-                                musicViewModel = musicViewModel,
-                                onSettingsClick = { navController.navigate("settings") },
-                                onSeeAllClick = {
-                                    navController.navigate(Screen.Library.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        if (isExpanded && currentRoute != "settings") {
+                            NavigationRail {
+                                items.forEach { screen ->
+                                    NavigationRailItem(
+                                        icon = { if (currentMainTab == screen.route) screen.filledIcon() else screen.outlinedIcon() },
+                                        label = { Text(screen.title) },
+                                        selected = currentMainTab == screen.route,
+                                        onClick = { onNavigate(screen) }
+                                    )
+                                }
+                            }
+                        }
+                        NavHost(
+                            navController = navController,
+                            startDestination = Screen.Home.route,
+                            modifier = Modifier.weight(1f).padding(contentPadding)
+                        ) {
+                            composable(Screen.Home.route) {
+                                HomeScreen(
+                                    musicViewModel = musicViewModel,
+                                    onSettingsClick = { navController.navigate("settings") },
+                                    onSearchClick = { onNavigate(Screen.Search) },
+                                    onSeeAllClick = {
+                                        navController.navigate(Screen.Library.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
+                                    },
+                                    bottomPadding = bottomPadding
+                                )
+                            }
+                            composable(Screen.Search.route) {
+                                val searchViewModel =
+                                    activityViewModelProvider[SearchViewModel::class.java]
+                                SearchScreen(
+                                    musicViewModel = musicViewModel,
+                                    searchViewModel = searchViewModel,
+                                    searchResetTrigger = searchResetTrigger,
+                                    searchFocusTrigger = searchFocusTrigger,
+                                    onNavigateToArtist = { artist ->
+                                        searchViewModel.loadArtistDetails(artist)
+                                        navController.navigate("artist/${artist.id}")
+                                    },
+                                    onNavigateToPlaylist = { playlist ->
+                                        activityViewModelProvider[PlaylistDetailViewModel::class.java]
+                                            .loadPlaylistDetails(playlist)
+                                        navController.navigate("playlist/${playlist.id}")
+                                    },
+                                    onNavigateToAlbum = { album ->
+                                        activityViewModelProvider[AlbumDetailViewModel::class.java]
+                                            .loadAlbumDetails(album)
+                                        navController.navigate("album/${album.id}")
+                                    },
+                                    bottomPadding = bottomPadding
+                                )
+                            }
+                            composable(Screen.Library.route) {
+                                LibraryScreen(
+                                    musicViewModel = musicViewModel,
+                                    bottomPadding = bottomPadding
+                                )
+                            }
+                            composable("settings") {
+                                AudioSettingsScreen(
+                                    musicViewModel = musicViewModel,
+                                    onNavigateBack = {
+                                        navController.popBackStack()
+                                    },
+                                    onNavigateToPurge = {
+                                        navController.navigate("settings/purge")
                                     }
-                                },
-                                bottomPadding = bottomPadding
-                            )
-                        }
-                        composable(Screen.Search.route) {
-                            val searchViewModel =
-                                activityViewModelProvider[SearchViewModel::class.java]
-                            SearchScreen(
-                                musicViewModel = musicViewModel,
-                                searchViewModel = searchViewModel,
-                                searchResetTrigger = searchResetTrigger,
-                                searchFocusTrigger = searchFocusTrigger,
-                                onNavigateToArtist = { artist ->
-                                    searchViewModel.loadArtistDetails(artist)
-                                    navController.navigate("artist/${artist.id}")
-                                },
-                                onNavigateToPlaylist = { playlist ->
+                                )
+                            }
+                            composable("settings/purge") {
+                                com.example.juke.ui.screens.PurgeSelectionScreen(
+                                    musicViewModel = musicViewModel,
+                                    onNavigateBack = {
+                                        navController.popBackStack()
+                                    }
+                                )
+                            }
+                            composable("artist/{artistId}") {
+                                val searchViewModel =
+                                    activityViewModelProvider[SearchViewModel::class.java]
+                                ArtistDetailScreen(
+                                    searchViewModel = searchViewModel,
+                                    musicViewModel = musicViewModel,
+                                    onNavigateBack = {
+                                        searchViewModel.clearArtistDetail()
+                                        navController.popBackStack()
+                                    },
+                                    onNavigateToAlbum = { album ->
+                                        activityViewModelProvider[AlbumDetailViewModel::class.java]
+                                            .loadAlbumDetails(album)
+                                        navController.navigate("album/${album.id}")
+                                    },
+                                    bottomPadding = bottomPadding
+                                )
+                            }
+                            composable("playlist/{playlistId}") {
+                                val playlistDetailViewModel =
                                     activityViewModelProvider[PlaylistDetailViewModel::class.java]
-                                        .loadPlaylistDetails(playlist)
-                                    navController.navigate("playlist/${playlist.id}")
-                                },
-                                onNavigateToAlbum = { album ->
+                                PlaylistDetailScreen(
+                                    playlistDetailViewModel = playlistDetailViewModel,
+                                    musicViewModel = musicViewModel,
+                                    onNavigateBack = {
+                                        playlistDetailViewModel.clearPlaylistDetail()
+                                        navController.popBackStack()
+                                    },
+                                    bottomPadding = bottomPadding
+                                )
+                            }
+                            composable("album/{albumId}") {
+                                val albumDetailViewModel =
                                     activityViewModelProvider[AlbumDetailViewModel::class.java]
-                                        .loadAlbumDetails(album)
-                                    navController.navigate("album/${album.id}")
-                                },
-                                bottomPadding = bottomPadding
-                            )
-                        }
-                        composable(Screen.Library.route) {
-                            LibraryScreen(
-                                musicViewModel = musicViewModel,
-                                bottomPadding = bottomPadding
-                            )
-                        }
-                        composable("settings") {
-                            AudioSettingsScreen(
-                                musicViewModel = musicViewModel,
-                                onNavigateBack = {
-                                    navController.popBackStack()
-                                },
-                                onNavigateToPurge = {
-                                    navController.navigate("settings/purge")
-                                }
-                            )
-                        }
-                        composable("settings/purge") {
-                            com.example.juke.ui.screens.PurgeSelectionScreen(
-                                musicViewModel = musicViewModel,
-                                onNavigateBack = {
-                                    navController.popBackStack()
-                                }
-                            )
-                        }
-                        composable("artist/{artistId}") {
-                            val searchViewModel =
-                                activityViewModelProvider[SearchViewModel::class.java]
-                            ArtistDetailScreen(
-                                searchViewModel = searchViewModel,
-                                musicViewModel = musicViewModel,
-                                onNavigateBack = {
-                                    searchViewModel.clearArtistDetail()
-                                    navController.popBackStack()
-                                },
-                                onNavigateToAlbum = { album ->
-                                    activityViewModelProvider[AlbumDetailViewModel::class.java]
-                                        .loadAlbumDetails(album)
-                                    navController.navigate("album/${album.id}")
-                                },
-                                bottomPadding = bottomPadding
-                            )
-                        }
-                        composable("playlist/{playlistId}") {
-                            val playlistDetailViewModel =
-                                activityViewModelProvider[PlaylistDetailViewModel::class.java]
-                            PlaylistDetailScreen(
-                                playlistDetailViewModel = playlistDetailViewModel,
-                                musicViewModel = musicViewModel,
-                                onNavigateBack = {
-                                    playlistDetailViewModel.clearPlaylistDetail()
-                                    navController.popBackStack()
-                                },
-                                bottomPadding = bottomPadding
-                            )
-                        }
-                        composable("album/{albumId}") {
-                            val albumDetailViewModel =
-                                activityViewModelProvider[AlbumDetailViewModel::class.java]
-                            AlbumDetailScreen(
-                                albumDetailViewModel = albumDetailViewModel,
-                                musicViewModel = musicViewModel,
-                                onNavigateBack = {
-                                    albumDetailViewModel.clearAlbumDetail()
-                                    navController.popBackStack()
-                                },
-                                bottomPadding = bottomPadding
-                            )
+                                AlbumDetailScreen(
+                                    albumDetailViewModel = albumDetailViewModel,
+                                    musicViewModel = musicViewModel,
+                                    onNavigateBack = {
+                                        albumDetailViewModel.clearAlbumDetail()
+                                        navController.popBackStack()
+                                    },
+                                    bottomPadding = bottomPadding
+                                )
+                            }
                         }
                     }
                 }

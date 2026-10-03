@@ -1,7 +1,8 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -31,8 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,10 +60,10 @@ fun PlaylistDetailScreen(
     onNavigateBack: () -> Unit,
     bottomPadding: Dp = 0.dp
 ) {
-    val uiState by playlistDetailViewModel.uiState.collectAsState()
+    val uiState by playlistDetailViewModel.uiState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val playlist = uiState.playlist
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -120,14 +120,14 @@ fun PlaylistDetailScreen(
                                 .clip(RoundedCornerShape(12.dp)),
                             contentScale = ContentScale.Crop
                         )
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
-                        
+
                         Text(
                             text = playlist.name,
                             style = MaterialTheme.typography.headlineMedium
                         )
-                        
+
                         playlist.owner.displayName?.let {
                             Text(
                                 text = "By $it",
@@ -135,13 +135,13 @@ fun PlaylistDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        
+
                         Text(
                             text = "${playlist.tracks?.total ?: 0} tracks",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        
+
                         playlist.description?.let { desc ->
                             if (desc.isNotBlank()) {
                                 Text(
@@ -152,7 +152,7 @@ fun PlaylistDetailScreen(
                                 )
                             }
                         }
-                        
+
                         // Save Playlist Offline Button
                         if (!uiState.isImportingPlaylist) {
                             Spacer(modifier = Modifier.height(16.dp))
@@ -177,7 +177,7 @@ fun PlaylistDetailScreen(
                                 Text("Save Playlist Offline")
                             }
                         }
-                        
+
                         // Import Progress Indicator
                         if (uiState.isImportingPlaylist) {
                             Spacer(modifier = Modifier.height(16.dp))
@@ -209,7 +209,7 @@ fun PlaylistDetailScreen(
                         }
                     }
                 }
-                
+
                 // Tracks Section
                 if (uiState.tracks.isNotEmpty()) {
                     item {
@@ -218,7 +218,7 @@ fun PlaylistDetailScreen(
                             style = MaterialTheme.typography.titleLarge
                         )
                     }
-                    
+
                     items(uiState.tracks) { track ->
                         SwipeToAddNextContainer(
                             onAddNext = {
@@ -275,9 +275,9 @@ private fun TrackItem(
                     contentScale = ContentScale.Crop
                 )
             }
-            
+
             Spacer(modifier = Modifier.width(16.dp))
-            
+
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -290,7 +290,7 @@ private fun TrackItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Text(
                     text = track.artists.joinToString(", ") { it.name },
                     style = MaterialTheme.typography.bodyMedium,
@@ -298,7 +298,7 @@ private fun TrackItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Text(
                     text = track.album.name,
                     style = MaterialTheme.typography.bodySmall,
@@ -307,9 +307,9 @@ private fun TrackItem(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            
+
             Spacer(modifier = Modifier.width(12.dp))
-            
+
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant

@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.os.Build
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.animateColorAsState
@@ -13,6 +15,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -41,21 +44,21 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,9 +99,10 @@ fun HomeScreen(
     homeViewModel: HomeViewModel = viewModel(),
     onSettingsClick: () -> Unit = {},
     onSeeAllClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
-    val uiState by homeViewModel.uiState.collectAsState()
+    val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
 
     LaunchedEffect(Unit) {
@@ -130,8 +134,8 @@ fun HomeScreen(
         ) {
             if (uiState.recentlyPlayed.isEmpty() && uiState.mostPlayed.isEmpty() && uiState.favorites.isEmpty()) {
                 EmptyHomeState(
-                    onSettingsClick = onSettingsClick,
-                    modifier = Modifier.fillMaxSize()
+                    onSearchClick = onSearchClick,
+                    modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
                 )
             } else {
                 LazyColumn(
@@ -697,64 +701,50 @@ private fun FavoriteCard(
 
 @Composable
 private fun EmptyHomeState(
-    onSettingsClick: () -> Unit,
+    onSearchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        // Settings icon top-right
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
-            contentAlignment = Alignment.TopEnd
-        ) {
-            IconButton(onClick = onSettingsClick) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
+        val isShort = maxHeight < 400.dp
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(40.dp)
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(if (isShort) 16.dp else 32.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(if (isShort) 48.dp else 80.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Filled.MusicNote,
-                    contentDescription = "Music note",
-                    modifier = Modifier.size(40.dp),
+                    contentDescription = null,
+                    modifier = Modifier.size(if (isShort) 28.dp else 40.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(if (isShort) 12.dp else 24.dp))
             Text(
                 "Welcome to JUKE",
-                style = MaterialTheme.typography.headlineMedium,
+                style = if (isShort) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 "Your library is empty.\nSearch and download your favorite music to get started.",
-                style = MaterialTheme.typography.bodyLarge,
+                style = if (isShort) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 24.sp
             )
+            Spacer(modifier = Modifier.height(if (isShort) 12.dp else 24.dp))
+            Button(onClick = onSearchClick) { Text("Find music") }
         }
     }
 }
-

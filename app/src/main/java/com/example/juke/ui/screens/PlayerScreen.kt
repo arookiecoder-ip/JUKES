@@ -1,9 +1,13 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.annotation.SuppressLint
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -51,14 +55,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.surfaceColorAtElevation
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -94,7 +99,7 @@ import com.example.juke.viewmodels.MusicViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// Re-export LyricLine for compatibility if needed elsewhere, 
+// Re-export LyricLine for compatibility if needed elsewhere,
 // though it should ideally be in a model file.
 data class LyricLine(
     val timeMs: Long,
@@ -148,15 +153,15 @@ fun PlayerScreen(
     BackHandler(onBack = onDismiss)
 
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
-    val uiState by musicViewModel.uiState.collectAsState()
+    val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
     val currentTrack = uiState.currentTrack
     var showQueue by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
     var showBlacklistPicker by remember { mutableStateOf(false) }
-    val romanizeLyrics by musicViewModel.isRomanizedLyricsEnabled.collectAsState()
-    val sleepTimerRemaining by musicViewModel.sleepTimerRemaining.collectAsState()
+    val romanizeLyrics by musicViewModel.isRomanizedLyricsEnabled.collectAsStateWithLifecycle()
+    val sleepTimerRemaining by musicViewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
 
     var showAddToPlaylistDialog by remember { mutableStateOf<Track?>(null) }
@@ -164,7 +169,7 @@ fun PlayerScreen(
     var trackPlaylists by remember {
         mutableStateOf<List<PlaylistEntity>>(emptyList())
     }
-    val libraryUiState by libraryViewModel.uiState.collectAsState()
+    val libraryUiState by libraryViewModel.uiState.collectAsStateWithLifecycle()
 
     // Fetch playlists for the selected track when dialog opens
     LaunchedEffect(showAddToPlaylistDialog) {
@@ -178,10 +183,13 @@ fun PlayerScreen(
     configuration.screenHeightDp.dp
     val isTablet = screenWidth >= 600.dp
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            musicViewModel.updateProgress()
-            delay(300)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                musicViewModel.updateProgress()
+                delay(300)
+            }
         }
     }
 
@@ -263,7 +271,7 @@ fun PlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(MaterialTheme.colorScheme.surface)
         ) {
             // Immersive Background
             if (currentTrack.thumbnailUri != null) {
@@ -288,9 +296,9 @@ fun PlayerScreen(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.3f),
-                                Color.Black.copy(alpha = 0.7f),
-                                Color.Black.copy(alpha = 0.9f)
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
                             )
                         )
                     )
@@ -308,11 +316,11 @@ fun PlayerScreen(
                 val spacerSm = if (isCompact) 8.dp else if (screenH < 800.dp) 16.dp else 24.dp
                 if (isCompact) 12.dp else if (screenH < 800.dp) 24.dp else 36.dp
                 val actionIconSize = if (isCompact) 18.dp else 24.dp
-                val actionBtnSize = if (isCompact) 36.dp else 48.dp
+                val actionBtnSize = 48.dp
                 // Fixed sizes for the bottom bar so they never shrink too small
                 val actionBarIconSize = if (isCompact) 26.dp else 32.dp
                 val ctrlPlaySize = if (isCompact) 60.dp else if (isTablet) 88.dp else 72.dp
-                val ctrlBtnSize = if (isCompact) 44.dp else if (isTablet) 72.dp else 56.dp
+                val ctrlBtnSize = if (isCompact) 48.dp else if (isTablet) 72.dp else 56.dp
                 val ctrlIconSize = if (isCompact) 28.dp else if (isTablet) 56.dp else 40.dp
                 val ctrlSmallIconSize = if (isCompact) 18.dp else if (isTablet) 32.dp else 24.dp
                 val artworkFraction =
@@ -327,6 +335,7 @@ fun PlayerScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -381,7 +390,7 @@ fun PlayerScreen(
                             Text(
                                 text = currentTrack.title,
                                 style = titleStyle.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 modifier = Modifier.basicMarquee()
                             )
@@ -389,7 +398,7 @@ fun PlayerScreen(
                             Text(
                                 text = currentTrack.artist,
                                 style = subtitleStyle,
-                                color = Color.White.copy(alpha = 0.7f),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                                 maxLines = 1,
                                 modifier = Modifier
                                     .basicMarquee()
@@ -412,7 +421,7 @@ fun PlayerScreen(
                                     Icon(
                                         imageVector = Icons.Default.Download,
                                         contentDescription = "Download",
-                                        tint = Color.White,
+                                        tint = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.size(actionIconSize)
                                     )
                                 }
@@ -424,7 +433,7 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.AddCircle,
                                     contentDescription = "Add to Playlist",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(actionIconSize)
                                 )
                             }
@@ -438,7 +447,7 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = if (currentTrack.isFavourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                                     contentDescription = if (currentTrack.isFavourite) "Unfavorite" else "Favorite",
-                                    tint = if (currentTrack.isFavourite) MaterialTheme.colorScheme.primary else Color.White,
+                                    tint = if (currentTrack.isFavourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(actionIconSize)
                                 )
                             }
@@ -715,7 +724,7 @@ fun PlayerHeader(
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = "Close",
-                tint = Color.White,
+                tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(32.dp)
             )
         }
@@ -723,7 +732,7 @@ fun PlayerHeader(
         Text(
             "Now Playing",
             style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.9f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
         )
 
         if (showMenuOption) {
@@ -733,7 +742,7 @@ fun PlayerHeader(
                     Icon(
                         Icons.Default.MoreVert,
                         "Menu",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 DropdownMenu(

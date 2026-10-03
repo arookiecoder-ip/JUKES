@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,7 +31,6 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CloudSync
@@ -56,14 +58,13 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -84,13 +85,13 @@ fun AudioSettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToPurge: () -> Unit
 ) {
-    val isBoosterEnabled by musicViewModel.isBoosterEnabled.collectAsState()
-    val boosterLevel by musicViewModel.boosterLevel.collectAsState()
-    val isNormalizationEnabled by musicViewModel.isNormalizationEnabled.collectAsState()
-    val isStreamMode by musicViewModel.isStreamMode.collectAsState()
-    val isSkipSilenceEnabled by musicViewModel.isSkipSilenceEnabled.collectAsState()
-    val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsState()
-    val recommendationCount by musicViewModel.recommendationCount.collectAsState()
+    val isBoosterEnabled by musicViewModel.isBoosterEnabled.collectAsStateWithLifecycle()
+    val boosterLevel by musicViewModel.boosterLevel.collectAsStateWithLifecycle()
+    val isNormalizationEnabled by musicViewModel.isNormalizationEnabled.collectAsStateWithLifecycle()
+    val isStreamMode by musicViewModel.isStreamMode.collectAsStateWithLifecycle()
+    val isSkipSilenceEnabled by musicViewModel.isSkipSilenceEnabled.collectAsStateWithLifecycle()
+    val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
+    val recommendationCount by musicViewModel.recommendationCount.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
     var lastBoosterTickBucket by remember { mutableIntStateOf((boosterLevel / 5).coerceIn(0, 20)) }
     var lastRecommendationTick by remember {
@@ -104,9 +105,9 @@ fun AudioSettingsScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF1A1C1E), // Dark
-                        Color(0xFF0F1113), // Darker
-                        Color.Black
+                        MaterialTheme.colorScheme.surfaceContainer, // Dark
+                        MaterialTheme.colorScheme.surface, // Darker
+                        MaterialTheme.colorScheme.background
                     )
                 )
             )
@@ -119,12 +120,12 @@ fun AudioSettingsScreen(
                 title = { Text("Audio Control", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
-                    titleContentColor = Color.White
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
 
@@ -413,12 +414,12 @@ fun AudioSettingsScreen(
                                     Text(
                                         "3",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.65f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                     )
                                     Text(
                                         "15",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.65f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                     )
                                 }
                             }
@@ -428,7 +429,7 @@ fun AudioSettingsScreen(
 
                 // Market Selection Section
                 item {
-                    val marketCode by musicViewModel.marketCode.collectAsState()
+                    val marketCode by musicViewModel.marketCode.collectAsStateWithLifecycle()
                     var showDialog by remember { mutableStateOf(false) }
 
                     Card(
@@ -459,20 +460,20 @@ fun AudioSettingsScreen(
                                         Text(
                                             "Spotify Region",
                                             style = MaterialTheme.typography.titleMedium,
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
                                             getCountryName(marketCode),
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = Color.White.copy(alpha = 0.6f)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
                                 OutlinedButton(
                                     onClick = { showDialog = true },
                                     colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = Color.White
+                                        contentColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 ) {
                                     Text(marketCode, fontWeight = FontWeight.Bold)
@@ -484,7 +485,7 @@ fun AudioSettingsScreen(
                             Text(
                                 "Controls which region's music catalog appears in search results.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -533,13 +534,13 @@ fun AudioSettingsScreen(
                                     Text(
                                         "Blocked Artists",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
                                         "Songs from these artists won't be recommended",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -550,7 +551,7 @@ fun AudioSettingsScreen(
                                 Text(
                                     "No blocked artists",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.4f),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                     modifier = Modifier.padding(vertical = 8.dp)
                                 )
                             } else {
@@ -565,7 +566,7 @@ fun AudioSettingsScreen(
                                         Text(
                                             text = artist.replaceFirstChar { it.uppercase() },
                                             style = MaterialTheme.typography.bodyLarge,
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.weight(1f)
                                         )
                                         IconButton(
@@ -578,7 +579,7 @@ fun AudioSettingsScreen(
                                             Icon(
                                                 Icons.Default.Close,
                                                 contentDescription = "Unblock $artist",
-                                                tint = Color.White.copy(alpha = 0.7f),
+                                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
@@ -621,20 +622,20 @@ fun AudioSettingsScreen(
                                     Text(
                                         "Purge Redundant Tracks",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
                                         "Free up space by deleting unused songs",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.6f)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -653,7 +654,7 @@ fun AudioSettingsScreen(
                         Text(
                             "Made with ❤️ by MEEK",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.5f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
 
                         Button(
@@ -725,6 +726,7 @@ private fun MarketCodeDialog(
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
+                    label = { Text("Country or code") },
                     placeholder = { Text("Search country or code...") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -732,7 +734,7 @@ private fun MarketCodeDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                LazyColumn(modifier = Modifier.height(400.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.4f).dp)) {
                     val filtered = popularMarkets.filter {
                         it.first.contains(searchQuery, ignoreCase = true) ||
                                 it.second.contains(searchQuery, ignoreCase = true)

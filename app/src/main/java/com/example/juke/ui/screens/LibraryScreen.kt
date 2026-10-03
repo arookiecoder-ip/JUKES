@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -71,13 +72,11 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -93,7 +92,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.juke.models.Track
-import com.example.juke.services.DownloadInfo
 import com.example.juke.ui.components.AddToPlaylistDialog
 import com.example.juke.ui.components.CompactDownloadBanner
 import com.example.juke.ui.components.CreatePlaylistDialog
@@ -118,7 +116,7 @@ fun LibraryScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val uiState by libraryViewModel.uiState.collectAsState()
+    val uiState by libraryViewModel.uiState.collectAsStateWithLifecycle()
     val libraryDownloadBannerState by remember(musicViewModel) {
         musicViewModel.uiState
             .map { state ->
@@ -128,8 +126,8 @@ fun LibraryScreen(
                 )
             }
             .distinctUntilChanged()
-    }.collectAsState(
-        initial = LibraryDownloadBannerState(
+    }.collectAsStateWithLifecycle(
+        initialValue = LibraryDownloadBannerState(
             currentDownload = musicViewModel.uiState.value.currentDownload,
             downloadQueue = musicViewModel.uiState.value.downloadQueue
         )
@@ -957,8 +955,8 @@ fun LibraryScreen(
             },
             onRemoveFromPlaylist = { playlist ->
                 coroutineScope.launch {
-                    // Logic for remove from playlist with list? 
-                    // AddToPlaylistDialog hides remove if multiple. 
+                    // Logic for remove from playlist with list?
+                    // AddToPlaylistDialog hides remove if multiple.
                     if (tracks.size == 1) {
                         libraryViewModel.removeFromPlaylist(playlist, tracks.first())
                         trackPlaylists = libraryViewModel.getPlaylistsForTrack(tracks.first().uuid)
@@ -1292,7 +1290,3 @@ private fun PlaylistHeader(
         }
     }
 }
-
-
-
-

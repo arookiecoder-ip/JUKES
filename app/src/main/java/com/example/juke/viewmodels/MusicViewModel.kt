@@ -1,5 +1,7 @@
 ﻿package com.example.juke.viewmodels
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.app.Application
 import android.util.Log
 import android.widget.Toast
@@ -9,10 +11,12 @@ import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.palette.graphics.Palette
-import coil.ImageLoader
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import androidx.room.withTransaction
+import com.example.juke.models.mergeCompletedStream
+import com.example.juke.models.fetchLyricsWithRetry
 import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toEntity
 import com.example.juke.database.toTrack
@@ -30,10 +34,14 @@ import com.example.juke.services.QueueManager
 import com.example.juke.ui.theme.ExtractedColors
 import com.example.juke.utils.DatabaseMigrationHelper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -302,6 +310,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Covers local/cached playback, restored queues and automatic next-track transitions.
+        viewModelScope.launch {
+            _uiState.map { it.currentTrack }
+                .distinctUntilChanged { old, new -> old?.uuid == new?.uuid }
+                .collect { track ->
+                    if (track != null && track.syncedLyrics.isNullOrBlank() && track.plainLyrics.isNullOrBlank()) {
+                        refreshLyrics(track)
+                    }
+                }
+        }
+
         // Observe current track changes to extract colors
         viewModelScope.launch {
             _uiState.map { it.currentTrack?.thumbnailUri }
@@ -485,17 +504,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var paletteJob: Job? = null
+
     private fun extractColors(thumbnailUri: String?) {
+        paletteJob?.cancel()
         if (thumbnailUri == null) {
             _uiState.update { it.copy(extractedColors = null) }
             return
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        paletteJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val loader = ImageLoader(getApplication())
+                val loader = getApplication<Application>().imageLoader
                 val request = ImageRequest.Builder(getApplication())
                     .data(thumbnailUri)
+                    .size(128)
                     .allowHardware(false) // Palette needs software bitmap
                     .build()
 
@@ -504,6 +527,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (bitmap != null) {
                     val palette = Palette.from(bitmap).generate()
+                    ensureActive()
                     // Robust color extraction with fallbacks
                     val vibrant = palette.vibrantSwatch
                     val lightVibrant = palette.lightVibrantSwatch
@@ -563,6 +587,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     _uiState.update { it.copy(extractedColors = null) }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "Failed to extract colors", e)
                 _uiState.update { it.copy(extractedColors = null) }
@@ -758,10 +784,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         // Also insert into QueueManager if it's within the range it cares about
                         val queueManagerIndex = insertIndex - currentQueueIndex
                         if (queueManagerIndex >= 0) {
-                            // QueueManager might not support batch insert yet? 
+                            // QueueManager might not support batch insert yet?
                             // It does not seem to have batch insert based on previous reads, but we can loop.
                             // Actually QueueManager logic in addNext(Track) calls insertQueueItem.
-                            // We should probably add batch support there too or loop. 
+                            // We should probably add batch support there too or loop.
                             // looping is fine for small batches.
                             tracks.forEachIndexed { i, track ->
                                 queueManager.insertQueueItem(queueManagerIndex + i, track)
@@ -1008,7 +1034,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             song = song,
                             forceSpotmateFirst = true,
                             pinnedUuids = pinnedUuids,
-                            onLocalFileReady = { localTrack ->
+                            awaitPlaybackStarted = { trackId ->
+                                kotlinx.coroutines.flow.combine(
+                                    playbackManager.currentTrackIdFlow,
+                                    playbackManager.isPlayingFlow
+                                ) { currentId, playing -> currentId == trackId && playing }
+                                    .first { it }
+                            },
+                            onLocalFileReady = { completedTrack ->
+                                val localTrack = withContext(Dispatchers.IO) {
+                                    database.withTransaction {
+                                        val latest = trackDao.getTrackByUuid(completedTrack.uuid)?.toTrack() ?: completedTrack
+                                        val merged = mergeCompletedStream(completedTrack, latest)
+                                        trackDao.insertTrack(merged.toEntity())
+                                        merged
+                                    }
+                                }
                                 // Background download finished — swap ExoPlayer source to local file.
                                 // seamlessIfPlaying=true keeps audio uninterrupted during the swap.
                                 val swapped = playbackManager.replaceTrackInQueue(
@@ -1017,9 +1058,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                                     seamlessIfPlaying = true
                                 )
                                 // Update DB and in-memory queue with the local file path
-                                viewModelScope.launch(Dispatchers.IO) {
-                                    trackDao.insertTrack(localTrack.toEntity())
-                                }
                                 queueManager.replaceTrackInQueue(localTrack.uuid, localTrack)
                                 _uiState.update { state ->
                                     val newQueue = state.queue.map {
@@ -1042,9 +1080,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     playTrack(httpTrack)
 
                     // Hydrate lyrics and YT video ID off the critical path
-                    if (httpTrack.syncedLyrics.isNullOrBlank() && httpTrack.plainLyrics.isNullOrBlank()) {
-                        refreshLyrics(httpTrack)
-                    }
                     if (httpTrack.ytVideoId.isNullOrBlank()) {
                         refreshYtVideoId(httpTrack)
                     }
@@ -1576,7 +1611,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             // Emit to PlaybackManager so everyone stays in sync (including ourselves via the flow above)
             playbackManager.emitFavouriteChanged(track.uuid, newStatus)
 
-            // We don't need to manually update _uiState here anymore because 
+            // We don't need to manually update _uiState here anymore because
             // the collector above will handle it for both local and remote changes.
         }
     }
@@ -1593,31 +1628,39 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
+    private val lyricsRefreshJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+
     fun refreshLyrics(track: Track) {
-        viewModelScope.launch {
+        if (lyricsRefreshJobs[track.uuid]?.isActive == true) return
+        lyricsRefreshJobs[track.uuid] = viewModelScope.launch {
             Log.d("MusicViewModel", "Refreshing lyrics for: ${track.title}")
             try {
                 // Fetch lyrics from LRCLib
                 val result = withContext(Dispatchers.IO) {
-                    SpotifyApi.searchLyrics(
-                        title = track.title,
-                        artist = track.artist,
-                        duration = track.durationSec,
-                        ytVideoId = track.ytVideoId
-                    )
+                    fetchLyricsWithRetry {
+                        val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
+                        SpotifyApi.searchLyrics(
+                            title = latest.title,
+                            artist = latest.artist,
+                            duration = latest.durationSec,
+                            ytVideoId = latest.ytVideoId
+                        )
+                    }
                 }
 
                 if (result != null) {
                     Log.d("MusicViewModel", "New lyrics found for: ${track.title}")
 
                     val updatedTrack = withContext(Dispatchers.IO) {
-                        val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
-                        val refreshedTrack = latest.withUpdatedLyrics(
-                            syncedLyrics = result.syncedLyrics,
-                            plainLyrics = result.plainLyrics
-                        )
-                        trackDao.insertTrack(refreshedTrack.toEntity())
-                        refreshedTrack
+                        database.withTransaction {
+                            val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
+                            val refreshedTrack = latest.withUpdatedLyrics(
+                                syncedLyrics = result.syncedLyrics?.takeIf { it.isNotBlank() } ?: latest.syncedLyrics,
+                                plainLyrics = result.plainLyrics?.takeIf { it.isNotBlank() } ?: latest.plainLyrics
+                            )
+                            trackDao.insertTrack(refreshedTrack.toEntity())
+                            refreshedTrack
+                        }
                     }
 
                     queueManager.replaceTrackInQueue(track.uuid, updatedTrack)
@@ -1629,8 +1672,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     Log.d("MusicViewModel", "No lyrics found for: ${track.title}")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "Failed to refresh lyrics: ${e.message}", e)
+            } finally {
+                lyricsRefreshJobs.remove(track.uuid)
             }
         }
     }
@@ -1654,10 +1701,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Persist with freshest DB snapshot to avoid overwriting newly hydrated metadata.
                 val persistedTrack = withContext(Dispatchers.IO) {
-                    val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
-                    val updated = latest.copy(ytVideoId = ytVideoId)
-                    trackDao.insertTrack(updated.toEntity())
-                    updated
+                    database.withTransaction {
+                        val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
+                        val updated = latest.copy(ytVideoId = ytVideoId)
+                        trackDao.insertTrack(updated.toEntity())
+                        updated
+                    }
                 }
 
                 _uiState.update { state ->
@@ -1681,6 +1730,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 // Keep QueueManager in sync so recommendation seeding can use hydrated video IDs.
                 queueManager.replaceTrackInQueue(track.uuid, persistedTrack)
 
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "Failed to async fetch YT video ID: ${e.message}", e)
             }

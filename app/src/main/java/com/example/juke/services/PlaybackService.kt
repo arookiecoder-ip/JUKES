@@ -591,6 +591,23 @@ class PlaybackService : MediaLibraryService() {
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
             .setAllowCrossProtocolRedirects(true)
+        httpDataSourceFactory.setTransferListener(object : androidx.media3.datasource.TransferListener {
+            private val starts = java.util.concurrent.ConcurrentHashMap<androidx.media3.datasource.DataSource, Long>()
+            override fun onTransferInitializing(source: androidx.media3.datasource.DataSource, spec: androidx.media3.datasource.DataSpec, network: Boolean) {
+                starts[source] = android.os.SystemClock.elapsedRealtime()
+            }
+            override fun onTransferStart(source: androidx.media3.datasource.DataSource, spec: androidx.media3.datasource.DataSpec, network: Boolean) {
+                val start = starts[source] ?: return
+                Log.d(TAG, "Stream HTTP connected in ${android.os.SystemClock.elapsedRealtime() - start}ms (${spec.uri.host})")
+            }
+            override fun onBytesTransferred(source: androidx.media3.datasource.DataSource, spec: androidx.media3.datasource.DataSpec, network: Boolean, bytes: Int) {
+                val start = starts.remove(source) ?: return
+                Log.d(TAG, "Stream first bytes in ${android.os.SystemClock.elapsedRealtime() - start}ms")
+            }
+            override fun onTransferEnd(source: androidx.media3.datasource.DataSource, spec: androidx.media3.datasource.DataSpec, network: Boolean) {
+                starts.remove(source)
+            }
+        })
         val upstreamDataSourceFactory =
             DefaultDataSource.Factory(applicationContext, httpDataSourceFactory)
         val cacheDataSourceFactory = CacheDataSource.Factory()
