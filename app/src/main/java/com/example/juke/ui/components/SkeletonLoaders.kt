@@ -46,14 +46,14 @@ private fun TrackRowSkeleton(index: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ShapedSkeletonBlock(
-            modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(10.dp)
+            modifier = Modifier.size(48.dp),
+            shape = RoundedCornerShape(8.dp)
         )
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(14.dp))
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -73,8 +73,8 @@ private fun TrackRowSkeleton(index: Int) {
         }
         Spacer(modifier = Modifier.width(16.dp))
         ShapedSkeletonBlock(
-            modifier = Modifier.size(18.dp),
-            shape = CircleShape
+            modifier = Modifier.width(28.dp).height(10.dp),
+            shape = RoundedCornerShape(5.dp)
         )
     }
 }
@@ -88,7 +88,7 @@ fun TrackListSkeleton(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         items(count) { index ->
             TrackRowSkeleton(index = index)

@@ -1,5 +1,10 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.theme.glassPane
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.components.GlassFilterChip
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.AnimatedVisibility
@@ -13,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,8 +46,6 @@ import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -54,6 +58,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -95,6 +106,8 @@ import com.example.juke.ui.components.ArtistCard
 import com.example.juke.ui.components.PlaylistCard
 import com.example.juke.ui.components.SearchResultItemM3
 import com.example.juke.ui.components.SwipeToAddNextContainer
+import com.example.juke.ui.components.GlassButton
+import com.example.juke.ui.components.SearchHeader
 import com.example.juke.ui.components.TrackListSkeleton
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.MusicViewModel
@@ -121,7 +134,6 @@ fun SearchScreen(
 
     var previousTrigger by remember { mutableIntStateOf(searchResetTrigger) }
     var previousFocusTrigger by remember { mutableIntStateOf(searchFocusTrigger) }
-    val searchFocusRequester = remember { FocusRequester() }
     var selectedFilter by rememberSaveable { mutableStateOf("All") }
     var active by rememberSaveable { mutableStateOf(false) }
     val filters = listOf("All", "Tracks", "Artists", "Playlists", "Albums")
@@ -137,12 +149,6 @@ fun SearchScreen(
             previousTrigger = searchResetTrigger
             searchViewModel.updateQuery("")
             active = true
-            kotlinx.coroutines.delay(100)
-            try {
-                searchFocusRequester.requestFocus()
-            } catch (_: Exception) {
-            }
-            keyboardController?.show()
         }
     }
 
@@ -151,94 +157,32 @@ fun SearchScreen(
         if (searchFocusTrigger != previousFocusTrigger && searchFocusTrigger > 0) {
             previousFocusTrigger = searchFocusTrigger
             active = true
-            kotlinx.coroutines.delay(100)
-            try {
-                searchFocusRequester.requestFocus()
-            } catch (_: Exception) {
-            }
-            keyboardController?.show()
         }
     }
 
-    Scaffold { paddingValues ->
+    Scaffold(containerColor = Color.Transparent) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(bottom = paddingValues.calculateBottomPadding())
-                .background(MaterialTheme.colorScheme.background)
         ) {
-            SearchBar(
-                inputField = {
-                    SearchBarDefaults.InputField(
-                        query = uiState.query,
-                        onQueryChange = { searchViewModel.updateQuery(it) },
-                        onSearch = {
-                            if (uiState.query.isNotBlank() && !uiState.isSearching) {
-                                keyboardController?.hide()
-                                searchViewModel.search(uiState.query)
-                            }
-                        },
-                        expanded = active,
-                        onExpandedChange = { active = it },
-                        placeholder = {
-                            Text(
-                                text = "Search songs, artists, albums",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        leadingIcon = {
-                            if (active) {
-                                IconButton(
-                                    onClick = {
-                                        haptic.click()
-                                        active = false
-                                        keyboardController?.hide()
-                                        searchViewModel.updateQuery("")
-                                    }
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Rounded.ArrowBack,
-                                        contentDescription = "Back"
-                                    )
-                                }
-                            } else {
-                                Icon(
-                                    Icons.Rounded.Search,
-                                    contentDescription = "Search",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        },
-                        trailingIcon = {
-                            if (uiState.query.isNotEmpty()) {
-                                IconButton(
-                                    onClick = {
-                                        haptic.click()
-                                        searchViewModel.updateQuery("")
-                                    }
-                                ) {
-                                    Icon(Icons.Rounded.Clear, contentDescription = "Clear search")
-                                }
-                            }
-                        },
-                        modifier = Modifier.focusRequester(searchFocusRequester).semantics { contentDescription = "Search music" }
-                    )
-                },
-                expanded = active,
-                onExpandedChange = { active = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (active) 0.dp else 16.dp)
-                    .padding(top = 8.dp, bottom = 16.dp),
-                colors = SearchBarDefaults.colors(
-                    containerColor = if (active) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
-                    dividerColor = Color.Transparent
-                )
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
+            SearchHeader(
+                title = "Search",
+                query = uiState.query,
+                onQueryChange = { searchViewModel.updateQuery(it) },
+                open = active,
+                onOpenChange = { active = it },
+                placeholder = "Songs, artists, albums",
+                onSearch = {
+                    if (uiState.query.isNotBlank() && !uiState.isSearching) {
+                        keyboardController?.hide()
+                        searchViewModel.search(uiState.query)
+                    }
+                }
+            )
+
+            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
 
                     // ── Suggestions view (shown while the user is typing) ────────────
                     if (uiState.isShowingSuggestions && uiState.query.isNotBlank()) {
@@ -289,7 +233,7 @@ fun SearchScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(filters) { filter ->
-                                    FilterChip(
+                                    GlassFilterChip(
                                         selected = selectedFilter == filter,
                                         onClick = { selectedFilter = filter },
                                         label = {
@@ -297,29 +241,7 @@ fun SearchScreen(
                                                 filter,
                                                 style = MaterialTheme.typography.labelLarge
                                             )
-                                        },
-                                        border = FilterChipDefaults.filterChipBorder(
-                                            enabled = true,
-                                            selected = selectedFilter == filter,
-                                            borderColor = MaterialTheme.colorScheme.outline.copy(
-                                                alpha = 0.2f
-                                            ),
-                                            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(
-                                                alpha = 0.5f
-                                            )
-                                        ),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            containerColor = Color.Transparent,
-                                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
-                                                alpha = 0.15f
-                                            ),
-                                            labelColor = MaterialTheme.colorScheme.onBackground.copy(
-                                                alpha = 0.7f
-                                            ),
-                                            selectedLabelColor = MaterialTheme.colorScheme.primary
-                                        ),
-                                        shape = CircleShape
-                                    )
+                                        })
                                 }
                             }
                         }
@@ -387,16 +309,12 @@ fun SearchScreen(
                             }
 
                             if (uiState.error != null) {
-                                Card(
+                                GlassCard(
                                     modifier = Modifier
                                         .align(Alignment.TopCenter)
                                         .padding(12.dp)
                                         .fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.errorContainer
-                                    ),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
+        accent = MaterialTheme.colorScheme.errorContainer) {
                                     Row(
                                         modifier = Modifier.padding(
                                             horizontal = 16.dp,
@@ -431,96 +349,6 @@ fun SearchScreen(
                             }
                         }
                     }
-                }
-            }
-
-            AnimatedVisibility(
-                visible = !active && (uiState.query.isNotBlank() || uiState.recentSearches.isNotEmpty()),
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    if (uiState.query.isNotBlank()) {
-                        Text(
-                            text = "Browse Categories",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.padding(vertical = 16.dp)
-                        )
-
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(filters) { filter ->
-                                FilterChip(
-                                    selected = selectedFilter == filter,
-                                    onClick = {
-                                        haptic.click()
-                                        selectedFilter = filter
-                                        active = true
-                                    },
-                                    label = { Text(filter) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        containerColor = Color.Transparent,
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
-                                            alpha = 0.15f
-                                        ),
-                                        labelColor = MaterialTheme.colorScheme.onBackground.copy(
-                                            alpha = 0.7f
-                                        ),
-                                        selectedLabelColor = MaterialTheme.colorScheme.primary
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        enabled = true,
-                                        selected = selectedFilter == filter,
-                                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                        selectedBorderColor = MaterialTheme.colorScheme.primary.copy(
-                                            alpha = 0.5f
-                                        )
-                                    ),
-                                    shape = CircleShape
-                                )
-                            }
-                        }
-                    }
-
-                    if (uiState.recentSearches.isNotEmpty()) {
-                        Text(
-                            text = "Recent Searches",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
-                        )
-                        uiState.recentSearches.take(4).forEach { query ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        haptic.click()
-                                        active = true
-                                        searchViewModel.updateQuery(query)
-                                        searchViewModel.search(query)
-                                    }
-                                    .padding(vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = query,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            HorizontalDivider(
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                            )
-                        }
-                    }
-                }
             }
         }
     }
@@ -539,52 +367,44 @@ private fun ImportPlaylistCard(
     playlist: SpotifyPlaylist,
     onImport: () -> Unit
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
-        shape = RoundedCornerShape(24.dp)
+            .padding(20.dp)
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Column {
-                    Text(
-                        text = "Import Playlist",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "${playlist.tracks?.total ?: 0} tracks ready to download",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    )
-                }
-            }
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AsyncImage(
+                model = playlist.images.firstOrNull()?.url ?: "",
+                contentDescription = null,
+                modifier = Modifier
+                    .size(132.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = playlist.name,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${playlist.tracks?.total ?: 0} tracks ready to download",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
             Spacer(modifier = Modifier.height(24.dp))
-            Button(
-                onClick = onImport,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Start Import", fontWeight = FontWeight.Bold)
+            GlassButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(16.dp))
+                Text("Import playlist", fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -592,37 +412,43 @@ private fun ImportPlaylistCard(
 
 @Composable
 private fun ImportProgressCard(progress: Int, total: Int) {
-    Card(
+    val fraction = if (total > 0) progress.toFloat() / total else 0f
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        ),
-        shape = RoundedCornerShape(24.dp)
+            .padding(20.dp)
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    "${(fraction * 100).toInt()}%",
+                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "$progress / $total tracks",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
             Text(
-                "Importing…",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSecondaryContainer
+                "Importing playlist…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(16.dp))
             LinearProgressIndicator(
-                progress = { if (total > 0) progress.toFloat() / total.toFloat() else 0f },
+                progress = { fraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
+                    .height(6.dp)
+                    .clip(CircleShape),
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "$progress / $total tracks",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
-                modifier = Modifier.align(Alignment.End)
+                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                gapSize = 0.dp,
+                drawStopIndicator = {}
             )
         }
     }
@@ -768,29 +594,20 @@ private fun SearchResultsList(
     }
 }
 
-// ── Section header with accent bar ──────────────────────────────────────────
+// ── Section header ──────────────────────────────────────────────────────────
 @Composable
 private fun SectionHeader(title: String) {
-    Row(
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleLarge.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.2).sp
+        ),
+        color = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(16.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(MaterialTheme.colorScheme.primary)
-        )
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
-        )
-    }
+            .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 8.dp)
+    )
 }
 
 // ── Library track row (flat + left accent) ───────────────────────────────────
@@ -804,7 +621,6 @@ private fun LocalTrackItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
                 .clickable(onClick = onClick),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -821,15 +637,15 @@ private fun LocalTrackItem(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AsyncImage(
                     model = track.thumbnailUri ?: "",
                     contentDescription = null,
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(6.dp)),
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop
                 )
                 Spacer(modifier = Modifier.width(14.dp))
@@ -858,7 +674,7 @@ private fun LocalTrackItem(
             }
         }
         HorizontalDivider(
-            modifier = Modifier.padding(start = 78.dp, end = 16.dp),
+            modifier = Modifier.padding(start = 82.dp, end = 20.dp),
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -891,24 +707,17 @@ private fun EmptySearchState(
             modifier = Modifier.padding(horizontal = 40.dp)
         ) {
             val icon = if (isQueryEmpty) Icons.Default.MusicNote else Icons.Outlined.SearchOff
-            val title = if (isQueryEmpty) "What do you want to hear?" else "No results found"
+            val title = if (isQueryEmpty) "Find your next song" else "No results found"
             val subtitle = if (isQueryEmpty) "Search for songs, artists, playlists or albums"
             else "Try a different spelling or keyword"
 
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(44.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+                tint = if (isQueryEmpty) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
             Spacer(modifier = Modifier.height(20.dp))
             Text(
                 text = title,
@@ -938,7 +747,7 @@ private fun RecentSearches(
 ) {
     LazyColumn(
         contentPadding = PaddingValues(
-            start = 16.dp, top = 4.dp, end = 16.dp, bottom = bottomPadding + 24.dp
+            start = 20.dp, top = 4.dp, end = 12.dp, bottom = bottomPadding + 24.dp
         ),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
@@ -951,7 +760,7 @@ private fun RecentSearches(
             ) {
                 Text(
                     text = "Recent",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
@@ -969,7 +778,7 @@ private fun RecentSearches(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSearchClick(query) }
-                    .padding(vertical = 10.dp),
+                    .heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -987,13 +796,13 @@ private fun RecentSearches(
                 )
                 IconButton(
                     onClick = { onRemoveClick(query) },
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Remove",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

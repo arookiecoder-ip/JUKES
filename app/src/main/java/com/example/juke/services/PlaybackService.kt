@@ -1258,6 +1258,7 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
+    private val streamSeekHandoff = StreamSeekHandoff()
     private val TAG = "PlaybackManager"
     private val prefs = context.getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -1735,6 +1736,7 @@ class PlaybackManager private constructor(private val context: Context) {
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                            streamSeekHandoff.trackChanged(mediaItem?.mediaId)
                             mediaItem?.let { item ->
                                 val trackId = item.mediaId
                                 _currentTrackId.value = trackId
@@ -2107,8 +2109,39 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun seekTo(positionMs: Long) {
-        controller?.seekTo(positionMs)
-        Log.d(TAG, "Seeked to $positionMs ms")
+        val ctrl = controller ?: return
+        val item = ctrl.currentMediaItem ?: return
+        val target = positionMs.coerceAtLeast(0)
+        val remote = item.localConfiguration?.uri?.scheme in listOf("http", "https")
+        if (remote) {
+            val local = streamSeekHandoff.fileFor(item.mediaId)
+            if (local != null && seekUsingLocalFile(ctrl, local, target)) return
+            if (!ctrl.isCurrentMediaItemSeekable) {
+                streamSeekHandoff.defer(item.mediaId, target)
+                Log.d(TAG, "Waiting for local stream file to seek to $target ms")
+                return
+            }
+        }
+        ctrl.seekTo(target)
+        Log.d(TAG, "Seeked to $target ms")
+    }
+
+    private fun seekUsingLocalFile(ctrl: MediaController, track: Track, positionMs: Long): Boolean {
+        val path = track.localUri ?: return false
+        if (path.startsWith("http") || !java.io.File(path).isFile) return false
+        val replacement = createValidatedMediaItem(track) ?: return false
+        val index = ctrl.currentMediaItemIndex
+        if (index !in 0 until ctrl.mediaItemCount) return false
+        val items = (0 until ctrl.mediaItemCount).map { i ->
+            if (i == index) replacement else ctrl.getMediaItemAt(i)
+        }
+        val shouldPlay = ctrl.playWhenReady
+        // Setting the initial position works even when the old HTTP item disallowed seek.
+        ctrl.setMediaItems(items, index, positionMs)
+        ctrl.prepare()
+        ctrl.playWhenReady = shouldPlay
+        Log.d(TAG, "Switched stream to local file for seek to $positionMs ms")
+        return true
     }
 
     fun seekToIndex(index: Int) {
@@ -2235,11 +2268,13 @@ class PlaybackManager private constructor(private val context: Context) {
             val currentPosition = if (isCurrentTrack) ctrl.currentPosition else 0L
 
             if (isCurrentTrack && seamlessIfPlaying) {
-                // Background download: Keep playing the temporary file to prevent stuttering.
-                Log.d(
-                    TAG,
-                    "Track $oldMediaId is playing. Skipping ExoPlayer swap for seamless audio."
-                )
+                // Keep seamless audio until a seek explicitly needs the completed local file.
+                val pendingPosition = streamSeekHandoff.completed(newTrack)
+                if (pendingPosition != null) {
+                    seekUsingLocalFile(ctrl, newTrack, pendingPosition)
+                } else {
+                    Log.d(TAG, "Deferred local stream handoff until user seeks: $oldMediaId")
+                }
             } else {
                 // Atomic replacement prevents the timeline "blip" that causes queue duplication
                 ctrl.replaceMediaItem(index, newMediaItem)

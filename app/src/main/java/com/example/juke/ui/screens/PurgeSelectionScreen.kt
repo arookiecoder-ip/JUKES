@@ -1,5 +1,8 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.GlassButton
+import com.example.juke.ui.components.GlassTopAppBar
+import com.example.juke.ui.components.GlassAlertDialog
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.animateColorAsState
@@ -23,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -82,29 +84,16 @@ fun PurgeSelectionScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainer, // Dark
-                        MaterialTheme.colorScheme.surface, // Darker
-                        MaterialTheme.colorScheme.background
-                    )
-                )
-            )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Header
-            TopAppBar(
+            GlassTopAppBar(
                 title = { Text("Purge Redundant", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
                 actions = {
                     if (purgeableTracks.isNotEmpty()) {
                         TextButton(onClick = {
@@ -174,14 +163,9 @@ fun PurgeSelectionScreen(
                                 )
                             }
 
-                            Button(
+                            GlassButton(
                                 onClick = { showConfirmation = true },
-                                enabled = selectedTracks.isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error,
-                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                )
-                            ) {
+                                enabled = selectedTracks.isNotEmpty()) {
                                 Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Delete")
@@ -221,7 +205,7 @@ fun PurgeSelectionScreen(
         }
 
         if (showConfirmation) {
-            AlertDialog(
+            GlassAlertDialog(
                 onDismissRequest = { showConfirmation = false },
                 title = { Text("Confirm Deletion") },
                 text = {

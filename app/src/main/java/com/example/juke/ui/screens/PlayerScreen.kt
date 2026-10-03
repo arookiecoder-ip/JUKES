@@ -1,5 +1,18 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.GlassAlertDialog
+import androidx.compose.material3.ModalBottomSheet
+import com.example.juke.ui.components.GlassIconButton
+import com.example.juke.ui.components.GlassModalBottomSheet
+import com.example.juke.ui.theme.GlassBackdrop
+import com.example.juke.ui.theme.isGlassDark
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.GlassSurface
+import com.example.juke.ui.theme.JUKETheme
+import com.example.juke.ui.theme.glassSheetColor
+import androidx.compose.ui.draw.alpha
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.annotation.SuppressLint
@@ -17,6 +30,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,12 +51,10 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Translate
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,7 +62,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -197,8 +210,7 @@ fun PlayerScreen(
         if (uiState.isLoading) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
+                    .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 PlayerSkeleton()
@@ -263,47 +275,15 @@ fun PlayerScreen(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color.Transparent, // Transparent to show immersive background
+        containerColor = Color.Transparent, // Transparent to show the ambient glass backdrop
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxSize(),
         dragHandle = null
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface)
-        ) {
-            // Immersive Background
-            if (currentTrack.thumbnailUri != null) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(currentTrack.thumbnailUri)
-                        .memoryCacheKey(currentTrack.thumbnailUri)
-                        .diskCacheKey(currentTrack.thumbnailUri)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .blur(50.dp),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            // Gradient Overlay for readability
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                            )
-                        )
-                    )
-            )
-
+        JUKETheme(darkTheme = true, extractedColors = uiState.extractedColors) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Plain black backdrop; the artwork is the only color on the screen.
+            Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
             // Content — fully responsive, adapts to screen height
             BoxWithConstraints(
                 modifier = Modifier
@@ -335,7 +315,6 @@ fun PlayerScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -363,7 +342,8 @@ fun PlayerScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(screenH * artworkFraction),
+                            .weight(1f)
+                            .padding(vertical = if (showLyrics) 0.dp else 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         PlayerArtwork(
@@ -378,7 +358,7 @@ fun PlayerScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.height(spacerSm))
 
                     // Track Info & Action icons
                     Row(
@@ -454,7 +434,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(0.5f))
+                    Spacer(modifier = Modifier.height(spacerSm))
 
                     // Progress
                     PlayerProgress(
@@ -463,7 +443,7 @@ fun PlayerScreen(
                         musicViewModel = musicViewModel
                     )
 
-                    Spacer(modifier = Modifier.weight(0.5f))
+                    Spacer(modifier = Modifier.height(spacerSm))
 
                     // Controls
                     PlayerControls(
@@ -476,10 +456,10 @@ fun PlayerScreen(
                         smallIconSize = ctrlSmallIconSize
                     )
 
-                    Spacer(modifier = Modifier.weight(0.5f))
+                    Spacer(modifier = Modifier.height(spacerSm))
 
-                    // Bottom Action Row (Queue, Radio, Share)
-                    Box(
+                    // Bottom actions: bare icons, no container
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = bottomPadding)
@@ -488,123 +468,46 @@ fun PlayerScreen(
                                     change.consume()
                                     if (dragAmount.y < -50) showQueue = true
                                 }
-                            }
+                            },
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    horizontal = if (isCompact) 12.dp else 16.dp,
-                                    vertical = 8.dp
-                                ),
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            haptic.click()
-                                            showQueue = true
-                                        }
-                                        .padding(vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.List,
-                                        "Queue",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(actionBarIconSize)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        "Queue",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1
-                                    )
-                                }
-
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            haptic.click()
-                                            musicViewModel.startRadio()
-                                        }
-                                        .padding(vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.baseline_mix),
-                                        "Mix",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(actionBarIconSize)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        "Mix",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1
-                                    )
-                                }
-
-                                if (currentTrack.spotifyId != null) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable {
-                                                haptic.click()
-                                                onShareTrack(currentTrack.spotifyId)
-                                            }
-                                            .padding(vertical = 6.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Share,
-                                            "Share",
-                                            tint = MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.size(actionBarIconSize)
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            "Share",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
+                        PlayerAction(
+                            icon = rememberVectorPainter(Icons.Outlined.Lyrics),
+                            label = "Lyrics",
+                            active = showLyrics,
+                            iconSize = actionBarIconSize
+                        ) { haptic.click(); showLyrics = !showLyrics }
+                        PlayerAction(
+                            icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List),
+                            label = "Queue",
+                            iconSize = actionBarIconSize
+                        ) { haptic.click(); showQueue = true }
+                        PlayerAction(
+                            icon = painterResource(id = R.drawable.baseline_mix),
+                            label = "Mix",
+                            iconSize = actionBarIconSize
+                        ) { haptic.click(); musicViewModel.startRadio() }
+                        if (currentTrack.spotifyId != null) {
+                            PlayerAction(
+                                icon = rememberVectorPainter(Icons.Filled.Share),
+                                label = "Share",
+                                iconSize = actionBarIconSize
+                            ) { haptic.click(); onShareTrack(currentTrack.spotifyId) }
                         }
                     }
-
                 }
             }
+        }
         }
     }
 
     // Queue Sheet
     if (showQueue) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             onDismissRequest = { showQueue = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.fillMaxSize(),
-            dragHandle = null
+            showHandle = false
         ) {
             QueueBottomSheetContent(
                 currentTrack = currentTrack,
@@ -621,10 +524,9 @@ fun PlayerScreen(
 
     // Artist Selection Sheet
     if (showArtistSelectionSheet) {
-        ModalBottomSheet(
+        GlassModalBottomSheet(
             onDismissRequest = { showArtistSelectionSheet = false },
-            sheetState = rememberModalBottomSheetState(),
-            containerColor = MaterialTheme.colorScheme.surface
+            sheetState = rememberModalBottomSheetState()
         ) {
             ArtistSelectionContent(
                 currentTrack = currentTrack,
@@ -720,40 +622,33 @@ fun PlayerHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onDismiss) {
+        GlassIconButton(onClick = onDismiss, contentDescription = "Close") {
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = "Close",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp)
+                contentDescription = null,
+                modifier = Modifier.size(28.dp)
             )
         }
 
         Text(
             "Now Playing",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
         )
 
         if (showMenuOption) {
             var showMenu by remember { mutableStateOf(false) }
             Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        "Menu",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
+                GlassIconButton(onClick = { showMenu = true }, contentDescription = "Menu") {
+                    Icon(Icons.Default.MoreVert, contentDescription = null)
                 }
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.background(
-                        MaterialTheme.colorScheme.surfaceColorAtElevation(
-                            3.dp
-                        )
-                    )
+                    shape = GlassShapes.Control,
+                    containerColor = glassSheetColor(),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 12.dp
                 ) {
                     DropdownMenuItem(
                         text = { Text("Sleep Timer") },
@@ -876,7 +771,7 @@ fun SleepTimerDialog(
         mutableFloatStateOf(currentTimerRemaining?.let { it / 60000f } ?: 0f)
     }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sleep Timer") },
         text = {
@@ -888,12 +783,9 @@ fun SleepTimerDialog(
                     val minutes = (currentTimerRemaining / 1000 / 60).toInt()
                     val seconds = ((currentTimerRemaining / 1000) % 60).toInt()
 
-                    Card(
+                    GlassCard(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    ) {
+        accent = MaterialTheme.colorScheme.primaryContainer) {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -981,7 +873,7 @@ fun BlacklistPickerDialog(
         )
     }
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Block Artists") },
         text = {
@@ -1033,4 +925,29 @@ fun BlacklistPickerDialog(
             }
         }
     )
+}
+
+@Composable
+private fun PlayerAction(
+    icon: androidx.compose.ui.graphics.painter.Painter,
+    label: String,
+    iconSize: androidx.compose.ui.unit.Dp,
+    active: Boolean = false,
+    onClick: () -> Unit
+) {
+    val tint = if (active) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .widthIn(min = 64.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp)
+    ) {
+        Icon(icon, label, tint = tint, modifier = Modifier.size(iconSize))
+        Spacer(Modifier.height(2.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
+    }
 }

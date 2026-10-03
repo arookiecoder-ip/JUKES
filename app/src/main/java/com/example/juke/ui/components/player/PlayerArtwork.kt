@@ -26,6 +26,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.glassPane
 import coil.request.ImageRequest
 import com.example.juke.models.Track
 import com.example.juke.utils.rememberJukeHaptics
@@ -69,8 +71,9 @@ fun PlayerArtwork(
 
     // Use fillMaxHeight so the artwork is bounded by the parent Box's height constraint,
     // then use aspectRatio(1f) to ensure it stays square. This prevents overflow on small screens.
-    val artworkModifier = modifier
-        .fillMaxHeight(if (isTablet) 1f else 0.94f)
+    // While lyrics are open the card fills the whole slot so lines have room to breathe.
+    val artworkModifier = if (showLyrics) modifier.fillMaxSize() else modifier
+        .fillMaxHeight()
         .aspectRatio(1f)
 
     if (queue.isEmpty()) {
@@ -134,13 +137,7 @@ private fun ArtworkCard(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .shadow(
-                elevation = 24.dp,
-                shape = RoundedCornerShape(24.dp),
-                clip = false,
-                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-            )
-            .clip(RoundedCornerShape(24.dp))
+            .glassPane(RoundedCornerShape(32.dp), GlassLevel.Thick)
             .clickable {
                 haptic.click()
                 onToggleLyrics()

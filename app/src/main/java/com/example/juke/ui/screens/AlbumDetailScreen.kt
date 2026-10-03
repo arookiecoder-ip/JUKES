@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.GlassTopAppBar
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Arrangement
@@ -18,8 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,7 +63,7 @@ fun AlbumDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = {
                     Text(
                         album?.name ?: "Album",
@@ -78,7 +78,7 @@ fun AlbumDetailScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = androidx.compose.ui.graphics.Color.Transparent
     ) { paddingValues ->
         if (uiState.isLoading || album == null) {
             MediaDetailSkeleton(
@@ -217,22 +217,17 @@ private fun TrackItem(
     album: SpotifyAlbum,
     onClick: () -> Unit
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+        onClick = onClick) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Card(
-                modifier = Modifier.size(72.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
+            GlassCard(
+                modifier = Modifier.size(72.dp)) {
                 AsyncImage(
                     model = album.images.lastOrNull()?.url ?: "",
                     contentDescription = track.name,
@@ -277,7 +272,7 @@ private fun TrackItem(
 
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
             ) {
                 Text(
                     text = formatDuration(track.durationMs),

@@ -406,15 +406,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             "Updated UI state - Index: $index, Track: ${track.title} (deduced from index)"
                         )
 
-                        // Check if we need more recommendations (queue getting low)
+                        // Keep the user's lookahead of resolved songs topped up as each one starts.
                         val remainingTracks = currentQueue.size - index - 1
-                        if (remainingTracks <= 2) {
-                            Log.d(
-                                "MusicViewModel",
-                                "Queue low, fetching recommendations for: ${track.title}"
-                            )
-                            queueManager.fetchAndQueueRecommendations(track)
-                        }
+                        queueManager.onPlaybackAdvanced(track, remainingTracks)
                     }
                 } else if (currentQueue.isNotEmpty()) {
                     Log.w(

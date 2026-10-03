@@ -1,5 +1,6 @@
 package com.example.juke.ui.components
 
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,15 +33,13 @@ fun TrackCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberJukeHaptics()
-    Card(
+    GlassCard(
         modifier = modifier
             .width(140.dp)
             .clickable {
                 haptic.click()
                 onClick()
-            },
-        shape = RoundedCornerShape(8.dp)
-    ) {
+            }) {
         Column {
             Box(
                 modifier = Modifier

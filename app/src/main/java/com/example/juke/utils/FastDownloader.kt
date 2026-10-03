@@ -35,7 +35,8 @@ object FastDownloader {
         url: String,
         outputFile: File,
         headers: Map<String, String> = emptyMap(),
-        threads: Int = 4
+        threads: Int = 4,
+        probeRanges: Boolean = true
     ) = coroutineScope {
         outputFile.parentFile?.mkdirs()
 
@@ -45,7 +46,7 @@ object FastDownloader {
         }
 
         try {
-            val info = fetchRemoteFileInfo(url, headers)
+            val info = if (probeRanges) fetchRemoteFileInfo(url, headers) else null
             val threadCount = resolveThreadCount(info?.contentLength ?: 0L, threads)
             val canUseSegments = info != null && info.contentLength > 0L && info.supportsRanges && threadCount > 1
 

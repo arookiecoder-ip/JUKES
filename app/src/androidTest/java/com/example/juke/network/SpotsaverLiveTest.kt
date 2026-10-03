@@ -15,14 +15,102 @@ import io.ktor.utils.io.readAvailable
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.*
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.net.URI
 
-/** Opt-in live network probe; never run on ordinary builds or play downloaded audio. */
+/** Opt-in live network probe; never run on ordinary builds; playback checks require a silent emulator. */
 class SpotsaverLiveTest {
+    @Test fun productionResolverDownloadsCompleteMp3() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("spotsaverLive") == "true")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = java.io.File(context.cacheDir, "spotsaver-production-test.mp3")
+        val started = SystemClock.elapsedRealtime()
+        try {
+            val request = SpotsaverApi.getDownloadRequest("Jasmine", "Talha Anjum, Umair")
+            // Validate the real download path with no HEAD/range probes for tunnel URLs.
+            com.example.juke.utils.FastDownloader.downloadSegmented(
+                request.url, file, request.headers, threads = 4, probeRanges = request.probeRanges
+            )
+            assertTrue("Downloaded audio too small", file.length() > 100_000)
+            val retriever = android.media.MediaMetadataRetriever()
+            val duration = try {
+                retriever.setDataSource(file.absolutePath)
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            } finally { retriever.release() }
+            assertTrue("Downloaded MP3 cannot be decoded", duration > 30_000L)
+            verifyForwardSeek(request.url, file, duration)
+            context.openFileOutput("spotsaver-production-results.json", 0).use {
+                it.write(buildJsonObject {
+                    put("passed", true)
+                    put("fileBytes", file.length())
+                    put("durationMs", duration)
+                    put("totalMs", SystemClock.elapsedRealtime() - started)
+                    put("rangeProbe", request.probeRanges)
+                    put("forwardSeekVerified", true)
+                }.toString().toByteArray())
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    private suspend fun verifyForwardSeek(url: String, file: java.io.File, durationMs: Long) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = com.example.juke.services.PlaybackManager.getInstance(context)
+        withContext(Dispatchers.Main) { manager.initialize() }
+        val future = withContext(Dispatchers.Main) {
+            androidx.media3.session.MediaController.Builder(context,
+                androidx.media3.session.SessionToken(context, android.content.ComponentName(context,
+                    com.example.juke.services.PlaybackService::class.java))).buildAsync()
+        }
+        val witness = future.get(15, java.util.concurrent.TimeUnit.SECONDS)
+        val remote = com.example.juke.models.Track("seek-probe", "Jasmine", "Talha Anjum, Umair",
+            durationSec = (durationMs / 1000).toInt(), localUri = url, isStream = true)
+        val local = remote.copy(localUri = file.absolutePath)
+        try {
+            withTimeout(10_000) {
+                while (manager.currentTrackIdFlow.value != remote.uuid) {
+                    withContext(Dispatchers.Main) { manager.setQueue(listOf(remote, local.copy(uuid = "seek-tail")), 0) }
+                    delay(100)
+                }
+            }
+            withTimeout(30_000) { manager.isPlayingFlow.first { it } }
+            val target = 120_000L
+            withContext(Dispatchers.Main) {
+                manager.replaceTrackInQueue(remote.uuid, local, seamlessIfPlaying = true)
+                manager.seekTo(target)
+            }
+            withTimeout(10_000) {
+                while (!withContext(Dispatchers.Main) {
+                    manager.isPlayingFlow.value && manager.getCurrentPosition() in target..(target + 5000)
+                }) delay(100)
+            }
+            withContext(Dispatchers.Main) {
+                assertTrue("Seek must use completed local source", witness.currentMediaItem?.localConfiguration?.uri?.path == file.absolutePath)
+                assertTrue("Seeking must preserve queue", witness.mediaItemCount == 2)
+                witness.pause()
+                manager.seekTo(60_000)
+            }
+            withTimeout(10_000) {
+                while (!withContext(Dispatchers.Main) { manager.getCurrentPosition() == 60_000L && !manager.isPlayingFlow.value }) delay(100)
+            }
+        } finally {
+            withContext(Dispatchers.Main) {
+                witness.pause()
+                witness.clearMediaItems()
+                witness.release()
+            }
+        }
+    }
+
     @Test fun coldSessionsResolveAndReturnMp3Bytes() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Enable with -e spotsaverLive true", args.getString("spotsaverLive") == "true")

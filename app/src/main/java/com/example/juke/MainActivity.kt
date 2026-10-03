@@ -34,16 +34,12 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.AlertDialog
+import com.example.juke.ui.components.GlassAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -76,7 +72,19 @@ import com.example.juke.network.SpotifyApi
 import com.example.juke.services.DownloadedUpdate
 import com.example.juke.services.UpdateManager
 import com.example.juke.services.UpdateDownloadState
+import com.example.juke.ui.components.GlassNavBar
+import com.example.juke.ui.components.GlassNavItem
+import com.example.juke.ui.components.GlassNavRail
 import com.example.juke.ui.components.MiniPlayer
+import com.example.juke.ui.theme.GlassBackdrop
+import com.example.juke.ui.theme.isGlassDark
+import com.example.juke.ui.theme.LocalHazeState
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.CompositionLocalProvider
 import com.example.juke.ui.screens.AlbumDetailScreen
 import com.example.juke.ui.screens.ArtistDetailScreen
 import com.example.juke.ui.screens.AudioSettingsScreen
@@ -203,7 +211,7 @@ class MainActivity : ComponentActivity() {
                             (release.body?.contains("critical", ignoreCase = true) == true) ||
                             (release.body?.contains("hotfix", ignoreCase = true) == true)
 
-                    AlertDialog(
+                    GlassAlertDialog(
                         onDismissRequest = {
                             // Only allow dismiss if not emergency
                             if (!isEmergency) {
@@ -305,11 +313,7 @@ class MainActivity : ComponentActivity() {
                                     Text("Maybe Later")
                                 }
                             }
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
 
@@ -391,31 +395,33 @@ class MainActivity : ComponentActivity() {
 
                 }
 
+                val hazeState = remember { HazeState() }
+                val navItems = items.map { screen ->
+                    GlassNavItem(
+                        label = screen.title,
+                        selected = currentMainTab == screen.route,
+                        onClick = { onNavigate(screen) },
+                        icon = { if (currentMainTab == screen.route) screen.filledIcon() else screen.outlinedIcon() }
+                    )
+                }
+
+                CompositionLocalProvider(LocalHazeState provides hazeState) {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    containerColor = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
                         if (currentRoute != "settings") {
-                            Column {
+                            Column(
+                                modifier = Modifier
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 12.dp)
+                                    .padding(bottom = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
                                 if (!isExpanded) {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surface)
-                                            )
-                                        )
-                                    ) {
-                                        NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
-                                            items.forEach { screen ->
-                                                NavigationBarItem(
-                                                    icon = { if (currentMainTab == screen.route) screen.filledIcon() else screen.outlinedIcon() },
-                                                    label = { Text(screen.title) },
-                                                    selected = currentMainTab == screen.route,
-                                                    onClick = { onNavigate(screen) }
-                                                )
-                                            }
-                                        }
-                                    }
+                                    GlassNavBar(items = navItems)
                                 }
                             }
                         }
@@ -430,18 +436,14 @@ class MainActivity : ComponentActivity() {
                         bottom = 0.dp
                     )
 
+                    Box(modifier = Modifier.fillMaxSize()) {
+                    // Backdrop source: the ambient light field and every screen scroll inside it,
+                    // so the floating glass (tab bar, mini player) blurs what is really behind it.
+                    Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+                    Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
                     Row(modifier = Modifier.fillMaxSize()) {
                         if (isExpanded && currentRoute != "settings") {
-                            NavigationRail {
-                                items.forEach { screen ->
-                                    NavigationRailItem(
-                                        icon = { if (currentMainTab == screen.route) screen.filledIcon() else screen.outlinedIcon() },
-                                        label = { Text(screen.title) },
-                                        selected = currentMainTab == screen.route,
-                                        onClick = { onNavigate(screen) }
-                                    )
-                                }
-                            }
+                            GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
                         }
                         NavHost(
                             navController = navController,
@@ -561,6 +563,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    }
+                    }
+                }
                 }
 
                 // Player Modal
@@ -641,7 +646,7 @@ private fun UpdateReadyDialog(
 ) {
     val context = LocalContext.current
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Update Downloaded") },
         text = {

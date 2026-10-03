@@ -1,5 +1,12 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.GlassButton
+import com.example.juke.ui.components.GlassTopAppBar
+import com.example.juke.ui.components.SearchHeader
+import com.example.juke.ui.components.GlassFilterChip
+import com.example.juke.ui.components.GlassModalBottomSheet
+import com.example.juke.ui.components.GlassAlertDialog
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
@@ -40,12 +47,9 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.SearchOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -58,7 +62,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -134,7 +137,7 @@ fun LibraryScreen(
     )
     val haptic = rememberJukeHaptics()
     val keyboardController = LocalSoftwareKeyboardController.current
-    val searchFocusRequester = remember { FocusRequester() }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
     // Helper for haptics
@@ -224,39 +227,23 @@ fun LibraryScreen(
         containerColor = Color.Transparent,
         topBar = {
             if (!uiState.isSelectionMode) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "Your Library",
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                haptic.click()
-                                searchFocusRequester.requestFocus()
-                                keyboardController?.show()
-                            }
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
+                SearchHeader(
+                    title = "Your Library",
+                    query = uiState.searchQuery,
+                    onQueryChange = { libraryViewModel.updateSearchQuery(it) },
+                    open = searchOpen || uiState.searchQuery.isNotEmpty(),
+                    onOpenChange = { searchOpen = it },
+                    placeholder = "Search your library"
+                ) {
+                    IconButton(
+                        onClick = {
+                            haptic.click()
+                            libraryViewModel.toggleSortSheet()
                         }
-
-                        IconButton(
-                            onClick = {
-                                haptic.click()
-                                libraryViewModel.toggleSortSheet()
-                            }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                    ),
-                    scrollBehavior = scrollBehavior
-                )
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                    }
+                }
             }
         }
     ) { paddingValues ->
@@ -390,7 +377,7 @@ fun LibraryScreen(
                     }
 
                     if (showDeleteDialog) {
-                        AlertDialog(
+                        GlassAlertDialog(
                             onDismissRequest = { showDeleteDialog = false },
                             title = { Text("Delete ${uiState.selectedTrackUuids.size} tracks?") },
                             text = { Text("This action cannot be undone.") },
@@ -414,48 +401,6 @@ fun LibraryScreen(
                         )
                     }
                 }
-            } else {
-                // Search Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextField(
-                        value = uiState.searchQuery,
-                        onValueChange = { libraryViewModel.updateSearchQuery(it) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(searchFocusRequester),
-                        placeholder = { Text("Search Anything...") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search"
-                            )
-                        },
-                        trailingIcon = {
-                            if (uiState.searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { libraryViewModel.clearSearch() }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Clear,
-                                        contentDescription = "Clear search"
-                                    )
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                            disabledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.25f),
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        )
-                    )
-                }
             }
 
             val chipColors = FilterChipDefaults.filterChipColors(
@@ -473,18 +418,10 @@ fun LibraryScreen(
             ) {
                 // 1. All Tracks
                 item {
-                    FilterChip(
+                    GlassFilterChip(
                         selected = uiState.selectedPlaylist == null && !uiState.showFavoritesOnly,
                         onClick = { libraryViewModel.loadAllTracks() },
                         label = { Text("All Tracks") },
-                        colors = chipColors,
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = uiState.selectedPlaylist == null && !uiState.showFavoritesOnly,
-                            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        ),
-                        shape = CircleShape,
                         leadingIcon = if (uiState.selectedPlaylist == null && !uiState.showFavoritesOnly) {
                             {
                                 Icon(
@@ -499,18 +436,10 @@ fun LibraryScreen(
 
                 // 2. Favourites
                 item {
-                    FilterChip(
+                    GlassFilterChip(
                         selected = uiState.showFavoritesOnly,
                         onClick = { libraryViewModel.toggleFavoritesFilter() },
                         label = { Text("Favourites") },
-                        colors = chipColors,
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = uiState.showFavoritesOnly,
-                            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        ),
-                        shape = CircleShape,
                         leadingIcon = if (uiState.showFavoritesOnly) {
                             {
                                 Icon(
@@ -537,18 +466,10 @@ fun LibraryScreen(
                     var showMenu by remember { mutableStateOf(false) }
                     var showDeleteDialog by remember { mutableStateOf(false) }
 
-                    FilterChip(
+                    GlassFilterChip(
                         selected = uiState.selectedPlaylist?.id == playlist.id,
                         onClick = { libraryViewModel.loadPlaylistTracks(playlist.id) },
                         label = { Text(playlist.name) },
-                        colors = chipColors,
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = uiState.selectedPlaylist?.id == playlist.id,
-                            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        ),
-                        shape = CircleShape,
                         leadingIcon = if (uiState.selectedPlaylist?.id == playlist.id) {
                             {
                                 Icon(
@@ -609,7 +530,7 @@ fun LibraryScreen(
                     )
 
                     if (showDeleteDialog) {
-                        AlertDialog(
+                        GlassAlertDialog(
                             onDismissRequest = { showDeleteDialog = false },
                             title = { Text("Delete Playlist") },
                             text = { Text("Are you sure you want to delete '${playlist.name}'?") },
@@ -634,7 +555,7 @@ fun LibraryScreen(
 
                 // 4. Import Button
                 item {
-                    AssistChip(
+                    GlassFilterChip(selected = false,
                         onClick = {
                             importLauncher.launch(arrayOf("audio/*"))
                         },
@@ -651,7 +572,7 @@ fun LibraryScreen(
 
                 // 5. Create Playlist Button
                 item {
-                    AssistChip(
+                    GlassFilterChip(selected = false,
                         onClick = { showCreatePlaylistDialog = true },
                         label = { Text("New") },
                         leadingIcon = {
@@ -715,7 +636,7 @@ fun LibraryScreen(
 
                         if (showRenameDialog) {
                             var newName by remember { mutableStateOf(uiState.selectedPlaylist!!.name) }
-                            AlertDialog(
+                            GlassAlertDialog(
                                 onDismissRequest = { showRenameDialog = false },
                                 title = { Text("Rename Playlist") },
                                 text = {
@@ -780,12 +701,8 @@ fun LibraryScreen(
                         .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
@@ -831,7 +748,7 @@ fun LibraryScreen(
                         end = 20.dp,
                         bottom = 100.dp + bottomPadding
                     ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     // Playlist hero if one is selected
                     uiState.selectedPlaylist?.let { playlist ->
@@ -1016,17 +933,10 @@ fun LibraryScreen(
                 )
             }
 
-            Card(
+            GlassCard(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
+                    .fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .padding(
@@ -1126,7 +1036,7 @@ private fun LibraryPlaybackActions(
             )
         }
 
-        FilledTonalButton(
+        GlassButton(
             onClick = {
                 if (tracks.isNotEmpty()) {
                     musicViewModel.setQueue(tracks, startIndex = 0)
@@ -1154,13 +1064,9 @@ private fun SortBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    GlassModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
-    ) {
+        sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1218,11 +1124,8 @@ private fun PlaylistHeader(
     playlist: com.example.juke.database.PlaylistEntity,
     onEditClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+    GlassCard(
+        modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1230,11 +1133,8 @@ private fun PlaylistHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Card(
-                modifier = Modifier.size(96.dp),
-                shape = RoundedCornerShape(12.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-            ) {
+            GlassCard(
+                modifier = Modifier.size(96.dp)) {
                 AsyncImage(
                     model = playlist.thumbnailUri,
                     contentDescription = playlist.name,
@@ -1257,9 +1157,8 @@ private fun PlaylistHeader(
                 )
 
                 // Edit Button
-                FilledTonalButton(
+                GlassButton(
                     onClick = onEditClick,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                     modifier = Modifier.height(32.dp)
                 ) {
                     Icon(

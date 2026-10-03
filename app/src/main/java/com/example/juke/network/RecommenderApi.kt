@@ -457,6 +457,23 @@ object RecommenderApi {
         }
     }
 
+    /** True when a title looks like a remix/cover/spam variant that should never be auto-queued. */
+    fun isSpamTitle(title: String): Boolean = isSpamOrVariant(title) != null
+
+    /**
+     * Stable identity for "the same song" across YouTube and Spotify spellings:
+     * brackets stripped, punctuation/case dropped, first credited artist only.
+     */
+    fun songKey(title: String, artist: String): String {
+        val t = cleanTitle(title).lowercase().filter { it.isLetterOrDigit() }
+        val a = parseArtists(artist).firstOrNull().orEmpty().lowercase().filter { it.isLetterOrDigit() }
+        return "$t|$a"
+    }
+
+    /** Match one YouTube Music item to its Spotify track (null if no confident match). */
+    suspend fun matchOnSpotify(rec: YouTubeRecommendation): ValidatedRecommendation? =
+        validateSingleRecommendation(rec, ytIndex = 0, totalRecs = 1)
+
     /**
      * Fetch full radio queue recommendations from YouTube Music.
      * 
@@ -617,146 +634,6 @@ object RecommenderApi {
             Log.e(TAG, "Error fetching radio queue: ${e.message}", e)
             emptyList()
         }
-    }
-
-    /**
-     * Validate and filter recommendations using Spotify search.
-     *
-     * Batched async validation with composite scoring:
-     * 1. Pre-filter spam and negative songs (queue/recently played)
-     * 2. Validate in batches of 5 concurrent Spotify searches
-     * 3. Early return when enough tracks are validated (≥ maxResults)
-     * 4. Score using composite: 60% YouTube position + 40% Spotify confidence
-     * 5. Apply artist diversity caps (max 2 per seed artist, max 2 per other artist)
-     *
-     * @param recommendations List of YouTube recommendations (in YT order)
-     * @param originalArtists Artists from the original song (comma-separated)
-     * @param maxResults Maximum number of validated results to return (default 10)
-     * @param negativeSongs Set of "title-artist" keys to exclude before validation
-     * @return List of validated recommendations sorted by composite score
-     */
-    suspend fun validateAndFilterWithSpotify(
-        recommendations: List<YouTubeRecommendation>,
-        originalArtists: String = "",
-        maxResults: Int = 10,
-        negativeSongs: Set<String> = emptySet()
-    ): List<ValidatedRecommendation> {
-        Log.d(TAG, "Validating ${recommendations.size} recommendations with Spotify (batch mode)")
-        Log.d(TAG, "Original track artists: $originalArtists")
-        Log.d(TAG, "Negative songs count: ${negativeSongs.size}")
-
-        // Parse original track's artists for diversity tracking
-        val seedArtistNames = parseArtists(originalArtists).map { it.lowercase() }
-
-        // ── Pre-filter: remove spam and negative songs before any API calls ──
-        val candidatesWithIndex = recommendations.mapIndexedNotNull { index, rec ->
-            // Skip spam/variants
-            val spamKeyword = isSpamOrVariant(rec.title)
-            if (spamKeyword != null) {
-                Log.d(TAG, "Pre-filter: skipping spam '${rec.title}' (matched: $spamKeyword)")
-                return@mapIndexedNotNull null
-            }
-            // Skip negative songs (already in queue / recently played / external downloads)
-            val negKey = "${rec.title.lowercase()}-${rec.artist.lowercase()}"
-            if (negativeSongs.contains(negKey)) {
-                Log.d(TAG, "Pre-filter: skipping negative song '${rec.title}' by '${rec.artist}'")
-                return@mapIndexedNotNull null
-            }
-            Pair(index, rec) // Preserve original YT index
-        }
-
-        Log.d(TAG, "After pre-filter: ${candidatesWithIndex.size} candidates (from ${recommendations.size})")
-
-        if (candidatesWithIndex.isEmpty()) return emptyList()
-
-        // ── Batched async validation ──
-        val BATCH_SIZE = 5
-        val allValidated = mutableListOf<ValidatedRecommendation>()
-        val batches = candidatesWithIndex.chunked(BATCH_SIZE)
-
-        for ((batchIdx, batch) in batches.withIndex()) {
-            if (allValidated.size >= maxResults) {
-                Log.d(TAG, "Early return: collected ${allValidated.size} validated (≥ $maxResults) after ${batchIdx} batches")
-                break
-            }
-
-            Log.d(TAG, "[Batch ${batchIdx + 1}/${batches.size}] Validating ${batch.size} tracks concurrently")
-
-            val batchResults = coroutineScope {
-                batch.map { (ytIndex, rec) ->
-                    async {
-                        validateSingleRecommendation(rec, ytIndex, recommendations.size)
-                    }
-                }.awaitAll()
-            }
-
-            // Collect non-null results
-            val validInBatch = batchResults.filterNotNull()
-            allValidated.addAll(validInBatch)
-            Log.d(TAG, "[Batch ${batchIdx + 1}] Validated ${validInBatch.size} / ${batch.size}")
-        }
-
-        Log.d(TAG, "Total validated: ${allValidated.size} out of ${recommendations.size} recommendations")
-
-        if (allValidated.isEmpty()) return emptyList()
-
-        // ── Track-level dedup ──
-        // Ensemble seeds (current track + first played + history) frequently surface the same
-        // Spotify song under different YouTube video IDs (music video vs. lyric video vs. live cut),
-        // so YT-id grouping upstream does not catch them. Collapse here by normalized
-        // (title, artist), keeping the entry with the lowest ytIndex (highest YT priority).
-        val dedupedValidated = allValidated
-            .groupBy { "${it.title.lowercase().trim()}|${it.artist.lowercase().trim()}" }
-            .map { (_, group) -> group.minByOrNull { it.ytIndex } ?: group.first() }
-
-        if (dedupedValidated.size < allValidated.size) {
-            Log.d(
-                TAG,
-                "Track dedup: ${allValidated.size} -> ${dedupedValidated.size} (removed ${allValidated.size - dedupedValidated.size} same title+artist duplicates)"
-            )
-        }
-
-        // ── Composite scoring: sort by (60% YT position + 40% confidence) ──
-        val scored = dedupedValidated.map { rec ->
-            val ytPositionScore = 1.0 - (rec.ytIndex.toDouble() / recommendations.size.coerceAtLeast(1))
-            val normalizedConf = rec.confidence.coerceAtMost(1.15) // Cap boosted confidence
-            val composite = (ytPositionScore * 0.6) + (normalizedConf * 0.4)
-            rec.copy(composite = composite)
-        }.sortedByDescending { it.composite }
-
-        Log.d(TAG, "Composite scored & sorted. Top: '${scored.firstOrNull()?.title}' (composite=${scored.firstOrNull()?.composite?.let { "%.3f".format(it) }})")
-
-        // ── Artist diversity: cap per-artist representation ──
-        val MAX_PER_SEED_ARTIST = 2
-        val MAX_PER_OTHER_ARTIST = 2
-        val artistCounts = mutableMapOf<String, Int>()
-        val diverse = mutableListOf<ValidatedRecommendation>()
-
-        for (rec in scored) {
-            if (diverse.size >= maxResults) break
-
-            val recArtistKey = rec.artist.lowercase().trim()
-            val isSeedArtist = seedArtistNames.any { seed ->
-                similarity(seed, recArtistKey) > 0.75
-            }
-            val limit = if (isSeedArtist) MAX_PER_SEED_ARTIST else MAX_PER_OTHER_ARTIST
-            val currentCount = artistCounts.getOrDefault(recArtistKey, 0)
-
-            if (currentCount >= limit) {
-                Log.d(TAG, "Diversity cap: skipping '${rec.title}' by '${rec.artist}' (count=$currentCount/$limit)")
-                continue
-            }
-
-            artistCounts[recArtistKey] = currentCount + 1
-            diverse.add(rec)
-        }
-
-        Log.d(TAG, "After diversity filter: ${diverse.size} final recommendations")
-        diverse.forEachIndexed { i, rec ->
-            Log.d(TAG, "  [$i] '${rec.title}' by '${rec.artist}' (composite=${"%.3f".format(rec.composite)}, conf=${(rec.confidence * 100).toInt()}%, ytIdx=${rec.ytIndex})")
-        }
-
-        return diverse
     }
 
     /**

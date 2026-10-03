@@ -1,5 +1,9 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.GlassButton
+import com.example.juke.ui.components.GlassTopAppBar
+import com.example.juke.ui.components.GlassAlertDialog
+import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.content.Intent
@@ -37,11 +41,8 @@ import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -102,32 +103,18 @@ fun AudioSettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainer, // Dark
-                        MaterialTheme.colorScheme.surface, // Darker
-                        MaterialTheme.colorScheme.background
-                    )
-                )
-            )
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
             // Header
-            TopAppBar(
+            GlassTopAppBar(
                 title = { Text("Audio Control", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
-            )
+                })
 
             LazyColumn(
                 contentPadding = PaddingValues(
@@ -139,13 +126,8 @@ fun AudioSettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Column {
                             ListItem(
                                 headlineContent = {
@@ -269,13 +251,8 @@ fun AudioSettingsScreen(
                 }
 
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Column {
                             ListItem(
                                 headlineContent = {
@@ -352,13 +329,8 @@ fun AudioSettingsScreen(
                 }
 
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Column {
                             ListItem(
                                 headlineContent = {
@@ -369,7 +341,7 @@ fun AudioSettingsScreen(
                                     )
                                 },
                                 supportingContent = {
-                                    Text("Set how many songs are auto-fetched")
+                                    Text("Songs kept ready ahead; the rest of the radio waits and loads one by one")
                                 },
                                 leadingContent = {
                                     Icon(Icons.Rounded.AutoAwesome, contentDescription = null)
@@ -432,13 +404,8 @@ fun AudioSettingsScreen(
                     val marketCode by musicViewModel.marketCode.collectAsStateWithLifecycle()
                     var showDialog by remember { mutableStateOf(false) }
 
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -470,12 +437,8 @@ fun AudioSettingsScreen(
                                         )
                                     }
                                 }
-                                OutlinedButton(
-                                    onClick = { showDialog = true },
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.onSurface
-                                    )
-                                ) {
+                                GlassButton(
+                                    onClick = { showDialog = true }) {
                                     Text(marketCode, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -512,13 +475,8 @@ fun AudioSettingsScreen(
                         mutableStateOf(BlacklistManager.getBlacklistedArtists(context).sorted())
                     }
 
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -592,13 +550,8 @@ fun AudioSettingsScreen(
 
                 // Storage / Purge Section
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
                                 .clickable { onNavigateToPurge() }
@@ -657,19 +610,14 @@ fun AudioSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
 
-                        Button(
+                        GlassButton(
                             onClick = {
                                 val intent = Intent(
                                     Intent.ACTION_VIEW,
                                     "https://github.com/rajeet-04/JUKES".toUri()
                                 )
                                 context.startActivity(intent)
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                                contentColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
+                            }) {
                             Text("⭐ Star on GitHub")
                         }
                     }
@@ -712,7 +660,7 @@ private fun MarketCodeDialog(
     var searchQuery by remember { mutableStateOf("") }
     val haptic = rememberJukeHaptics()
 
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

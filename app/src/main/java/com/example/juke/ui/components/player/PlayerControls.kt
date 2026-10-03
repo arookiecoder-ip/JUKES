@@ -31,7 +31,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.Role
 import com.example.juke.R
+import com.example.juke.ui.theme.GlassLevel
+import com.example.juke.ui.theme.GlassShapes
+import com.example.juke.ui.theme.glassPane
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.MusicUiState
 import com.example.juke.viewmodels.MusicViewModel
@@ -55,7 +64,9 @@ fun PlayerControls(
     val resolvedSmallIconSize = smallIconSize ?: if (isLarge) 32.dp else 24.dp
 
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -100,18 +111,18 @@ fun PlayerControls(
             playButtonScale.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
         }
 
-        FilledIconButton(
-            onClick = {
-                haptic.heavyClick()
-                musicViewModel.togglePlayPause()
-            },
+        val accent = MaterialTheme.colorScheme.primary
+        Box(
             modifier = Modifier
                 .size(resolvedPlayButtonSize)
-                .scale(playButtonScale.value),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            )
+                .scale(playButtonScale.value)
+                .glassPane(CircleShape, GlassLevel.Thick, accent)
+                .background(accent.copy(alpha = 0.9f))
+                .clickable(role = Role.Button) {
+                    haptic.heavyClick()
+                    musicViewModel.togglePlayPause()
+                },
+            contentAlignment = Alignment.Center
         ) {
             Crossfade(
                 targetState = uiState.isPlaying,
@@ -124,6 +135,7 @@ fun PlayerControls(
                         else R.drawable.baseline_play_24
                     ),
                     contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(resolvedIconSize)
                 )
             }

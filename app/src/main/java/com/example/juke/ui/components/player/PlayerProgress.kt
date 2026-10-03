@@ -23,6 +23,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.MusicUiState
@@ -89,11 +91,14 @@ internal fun PlaybackSeekSlider(
         onValueChangeFinished = { haptic.gestureEnd() },
         thumb = {
             Box(
-                Modifier.size(20.dp).background(
-                    if (durationMs > 0) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                    CircleShape
-                )
+                Modifier
+                    .size(22.dp)
+                    .shadow(6.dp, CircleShape, clip = false, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.45f))
+                    .background(
+                        if (durationMs > 0) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        CircleShape
+                    )
             )
         },
         track = { state ->
@@ -102,7 +107,11 @@ internal fun PlaybackSeekSlider(
                 modifier = Modifier.height(6.dp),
                 thumbTrackGapSize = 0.dp,
                 drawStopIndicator = null,
-                enabled = durationMs > 0
+                enabled = durationMs > 0,
+                colors = SliderDefaults.colors(
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+                )
             )
         },
         modifier = modifier.fillMaxWidth().semantics { contentDescription = "Playback position" }

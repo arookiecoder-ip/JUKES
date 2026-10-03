@@ -69,7 +69,8 @@ object SpotifyApi {
 
     data class DirectDownloadRequest(
         val url: String,
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        val probeRanges: Boolean = true
     )
 
     private const val TAG = "SpotifyApi"
