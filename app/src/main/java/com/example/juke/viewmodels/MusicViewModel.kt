@@ -29,6 +29,7 @@ import com.example.juke.models.withUpdatedLyrics
 import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.RecommenderApi
 import com.example.juke.network.SpotifyApi
+import com.example.juke.network.toAppTrack
 import com.example.juke.services.MusicService
 import com.example.juke.services.PlaybackManager
 import com.example.juke.services.QueueManager
@@ -1299,7 +1300,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         backendTrack: AlexaBackendApi.BackendTrack,
         preResolvedStreamUrl: String? = null
     ) {
-        playAlexaTrack(backendTrack.toTrack(audioUrl = preResolvedStreamUrl))
+        playAlexaTrack(backendTrack.toAppTrack(preResolvedStreamUrl))
     }
 
     /**
