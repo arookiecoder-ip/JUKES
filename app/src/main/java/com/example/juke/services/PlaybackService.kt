@@ -643,6 +643,8 @@ class PlaybackService : MediaLibraryService() {
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true) // ExoPlayer handles focus: pauses for calls, resumes after
             .setHandleAudioBecomingNoisy(true)
+            // Hold CPU + Wi-Fi locks only while playing, so streams keep loading with the screen off.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setLoadControl(loadControl) // <-- Apply the LoadControl here
             .build()
 
