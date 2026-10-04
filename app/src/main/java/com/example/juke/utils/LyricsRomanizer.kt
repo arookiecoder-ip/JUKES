@@ -32,6 +32,16 @@ object LyricsRomanizer {
         }
     }
 
+    /**
+     * True when no line is left in a non-Latin script. A failed request (offline, rate-limited,
+     * background network blocked) falls back to the original line, so such a result must not be
+     * saved as the track's romanized lyrics.
+     */
+    fun isFullyRomanized(lyrics: String): Boolean = lyrics.lineSequence().none { line ->
+        val text = lrcTimestampRegex.find(line)?.groupValues?.get(2) ?: line
+        needsRomanization(text.trim())
+    }
+
     suspend fun getRomanization(
         text: String,
         sourceLanguage: String = DEFAULT_SOURCE_LANGUAGE

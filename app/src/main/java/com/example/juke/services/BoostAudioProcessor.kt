@@ -47,6 +47,8 @@ class BoostAudioProcessor : BaseAudioProcessor() {
     private var b0 = 1f; private var b1 = 0f; private var b2 = 0f; private var a1 = 0f; private var a2 = 0f
     private var coefBassDb = Float.NaN
     private var sampleRate = 44100
+    private var passThrough = ByteArray(0)
+    private var frame = FloatArray(2)
 
     fun configure(enabled: Boolean, gainDb: Float, bassDb: Float, stable: Boolean = false) {
         this.stable = stable
@@ -90,17 +92,19 @@ class BoostAudioProcessor : BaseAudioProcessor() {
         val agc = stable
         if (g < 0.05f && bass < 0.05f && !agc) {
             // Copy first: the reused output buffer can be the buffer we were handed, and put(self) throws.
-            val input = ByteArray(size).also { inputBuffer.get(it) }
+            // The scratch array is reused so idle pass-through doesn't allocate on every buffer.
+            if (passThrough.size < size) passThrough = ByteArray(size)
+            inputBuffer.get(passThrough, 0, size)
             val out = replaceOutputBuffer(size)
-            out.put(input)
+            out.put(passThrough, 0, size)
             out.flip()
             return
         }
         val out = replaceOutputBuffer(size)
         val channels = inputAudioFormat.channelCount
+        if (frame.size != channels) frame = FloatArray(channels)
         if (abs(bass - coefBassDb) > 0.01f || coefBassDb.isNaN()) updateCoefficients(bass, sampleRate)
         val lin = 10.0.pow(g / 20.0).toFloat()
-        val frame = FloatArray(channels)
         // ~400 ms RMS window; gain falls fast (60 ms) and recovers slowly (1.5 s)
         val rmsK = 1f - exp(-1f / (0.4f * sampleRate))
         val downK = 1f - exp(-1f / (0.06f * sampleRate))
