@@ -19,6 +19,7 @@ import com.example.juke.models.SpotifyTopTracksResponse
 import com.example.juke.models.SpotifyTrack
 import io.ktor.client.call.body
 import io.ktor.client.request.forms.FormDataContent
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -31,6 +32,8 @@ import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import org.json.JSONArray
@@ -940,6 +943,35 @@ object SpotifyApi {
         val authorName: String? = null
     )
 
+    // LRCLib is a free community service: cap concurrent calls and back off when it says it is busy,
+    // instead of retrying (and fanning out into fallback searches) while it is overloaded.
+    private val lrclibGate = Semaphore(2)
+    @Volatile private var lrclibBlockedUntil = 0L
+    private var lrclibBackoffMs = 0L
+
+    /** Body of one LRCLib request, or null when skipped/failed because the service is busy. */
+    private suspend fun lrclibGet(block: HttpRequestBuilder.() -> Unit): String? {
+        if (System.currentTimeMillis() < lrclibBlockedUntil) return null
+        return lrclibGate.withPermit {
+            if (System.currentTimeMillis() < lrclibBlockedUntil) return@withPermit null
+            val response = ApiClient.httpClient.get(LRCLIB_BASE_URL, block)
+            val raw = response.bodyAsText()
+            val code = response.status.value
+            // Success is a JSON array; an object with statusCode is LRCLib's error envelope.
+            val busy = code == 429 || code >= 500 ||
+                    (raw.trimStart().startsWith("{") && raw.contains("\"statusCode\""))
+            if (busy) {
+                lrclibBackoffMs = (if (lrclibBackoffMs == 0L) 5_000L else lrclibBackoffMs * 2).coerceAtMost(120_000L)
+                lrclibBlockedUntil = System.currentTimeMillis() + lrclibBackoffMs
+                Log.w(TAG, "LRCLib busy ($code); pausing requests for ${lrclibBackoffMs / 1000}s")
+                null
+            } else {
+                lrclibBackoffMs = 0L
+                raw
+            }
+        }
+    }
+
     /**
      * Search for lyrics on LRCLib using specific query parameters.
      * 
@@ -968,7 +1000,7 @@ object SpotifyApi {
                 "LRCLib Search: $LRCLIB_BASE_URL?track=$cleanedTitle&artist=$artist (Original: $title)"
             )
 
-            val response = ApiClient.httpClient.get(LRCLIB_BASE_URL) {
+            val raw = lrclibGet {
                 header(
                     "User-Agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
@@ -979,13 +1011,11 @@ object SpotifyApi {
                     parameter("album", album)
                 }
             }
-
-            val statusCode = response.status.value
-            val raw = response.bodyAsText()
-            Log.d(TAG, "LRCLib Response ($statusCode): ${raw.take(1000)}")
+            val lrclibBusy = raw == null
+            Log.d(TAG, "LRCLib Response: ${raw?.take(1000) ?: "skipped (busy)"}")
 
             val results: List<LRCLibResult> = try {
-                json.decodeFromString(raw)
+                if (raw == null) emptyList() else json.decodeFromString(raw)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to decode LRCLib response: ${e.message}")
                 emptyList()
@@ -1012,7 +1042,7 @@ object SpotifyApi {
             } else null
 
             // 2. Fallback Search (Individual Artists)
-            if (bestMatch == null) {
+            if (bestMatch == null && !lrclibBusy) {
                 val separators = charArrayOf(',', '&')
                 val individualArtists = artist.split(*separators)
                     .map { it.trim() }
@@ -1026,16 +1056,16 @@ object SpotifyApi {
 
                     for (singleArtist in individualArtists) {
                         try {
-                            val fallbackResponse = ApiClient.httpClient.get(LRCLIB_BASE_URL) {
+                            val fallbackRaw = lrclibGet {
                                 header(
                                     "User-Agent",
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
                                 )
                                 parameter("track", cleanedTitle)
                                 parameter("artist", singleArtist)
-                            }
+                            } ?: break // LRCLib went busy: stop the per-artist fan-out
 
-                            val fallbackResults: List<LRCLibResult> = fallbackResponse.body()
+                            val fallbackResults: List<LRCLibResult> = json.decodeFromString(fallbackRaw)
 
                             // Strict Validation for Fallback
                             // Duration must be within 5% tolerance
