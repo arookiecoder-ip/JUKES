@@ -495,7 +495,8 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("settings/power") {
                                 com.example.juke.ui.screens.PowerToolsScreen(
-                                    onNavigateBack = { navController.popBackStack() }
+                                    onNavigateBack = { navController.popBackStack() },
+                                    bottomPadding = bottomPadding
                                 )
                             }
                             composable("settings/purge") {

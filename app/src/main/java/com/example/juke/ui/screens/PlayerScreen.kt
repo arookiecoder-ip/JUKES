@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -280,6 +281,10 @@ fun PlayerScreen(
         containerColor = Color.Transparent, // Transparent to show the ambient glass backdrop
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxSize(),
+        // The sheet reserves the navigation-bar inset by default, which left a strip at the bottom
+        // where the screen behind (mini player, tab bar) showed through. The backdrop must reach the
+        // screen edge; the content already pads itself with safeDrawingPadding below.
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         dragHandle = null
     ) {
         JUKETheme(darkTheme = true, extractedColors = uiState.extractedColors) {

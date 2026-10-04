@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,7 +44,7 @@ import kotlinx.coroutines.launch
 
 /** Advanced settings, gesture shortcuts and diagnostics for people who want to tune the app. */
 @Composable
-fun PowerToolsScreen(onNavigateBack: () -> Unit) {
+fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
     val context = LocalContext.current
     val haptic = rememberJukeHaptics()
     val scope = rememberCoroutineScope()
@@ -68,7 +69,7 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit) {
         context.startActivity(Intent.createChooser(send, subject))
     }
 
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxSize()) {
         GlassTopAppBar(
             title = { Text("Power Tools", fontWeight = FontWeight.Bold) },
             navigationIcon = {
@@ -78,7 +79,10 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit) {
             }
         )
         LazyColumn(
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp),
+            // Weighted so the list owns the remaining height and scrolls; the bottom inset keeps the last
+            // card clear of the floating mini player and tab bar.
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 100.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item {
@@ -134,6 +138,17 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit) {
                         power.edit().putBoolean("mini_long_press_favorite", it).apply()
                     }
                     Label("Also built in", "Tap Search again to select your query and type. Swipe the mini player to change songs. Queue ⋮ menu: shuffle, sort, clear played, save as playlist.")
+                }
+            }
+
+            item {
+                Section("Lock") {
+                    Label("Hide Power Tools", "Locks this page again. Unlock it by tapping the version in Audio Control 7 times.")
+                    GlassButton(onClick = {
+                        haptic.confirm()
+                        power.edit().putBoolean("power_tools_unlocked", false).apply()
+                        onNavigateBack()
+                    }) { Text("Lock Power Tools") }
                 }
             }
 
