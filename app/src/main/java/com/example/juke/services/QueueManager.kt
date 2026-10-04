@@ -63,6 +63,9 @@ class QueueManager private constructor(private val context: Context) {
         @Volatile
         private var instance: QueueManager? = null
 
+        /** Plays in one day after which a song counts as "on repeat" and is no longer held back. */
+        private const val INDULGE_PLAYS = 2
+
         fun getInstance(context: Context): QueueManager {
             return instance ?: synchronized(this) {
                 instance ?: QueueManager(context.applicationContext).also { instance = it }
@@ -107,6 +110,31 @@ class QueueManager private constructor(private val context: Context) {
     val downloadingTracks: StateFlow<List<DownloadInfo>> = _downloadingTracks.asStateFlow()
 
     private val playedTracksHistory = java.util.LinkedList<Track>()
+
+    // Per-day play counts by song key. Survives restarts and resets itself when the date changes,
+    // so recommendations can tell "heard once earlier today" from "on repeat today".
+    private val dailyPrefs = context.getSharedPreferences("daily_plays", Context.MODE_PRIVATE)
+
+    private fun today(): String = java.time.LocalDate.now().toString()
+
+    @Synchronized
+    private fun dailyPlayCount(key: String): Int =
+        if (dailyPrefs.getString("date", null) == today()) dailyPrefs.getInt(key, 0) else 0
+
+    /** Count one qualifying play (the caller decides what qualifies) of the track [uuid] today. */
+    @Synchronized
+    fun recordQualifiedPlay(uuid: String) {
+        val track = (_currentQueue.value + playedTracksHistory).firstOrNull { it.uuid == uuid } ?: return
+        val key = songKey(track)
+        val day = today()
+        val fresh = dailyPrefs.getString("date", null) != day
+        val count = if (fresh) 0 else dailyPrefs.getInt(key, 0)
+        dailyPrefs.edit {
+            if (fresh) clear()
+            putString("date", day)
+            putInt(key, count + 1)
+        }
+    }
 
     // External downloads tracking (downloaded outside QueueManager, e.g. Instant Play)
     // Key: "Title-Artist" to prevent adding them as recommendations
@@ -380,6 +408,8 @@ class QueueManager private constructor(private val context: Context) {
     private val sessionGen = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var seedVideoId: String? = null
+    /** Radio seeds already pulled this session; a radio returns the same list, so never repeat one. */
+    private val usedSeeds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /** How many resolved songs to keep ahead of the playing one (Audio Settings). */
     private fun lookahead(): Int = settingsPrefs.getInt("recommendation_count", 5).coerceIn(1, 49)
@@ -392,6 +422,7 @@ class QueueManager private constructor(private val context: Context) {
         reserve.clear()
         seen.clear()
         claimed.clear()
+        usedSeeds.clear()
         seedVideoId = null
         _recStatus.value = RecStatus()
         _downloadingTracks.update { list -> list.filterNot { it.source == "recommendation" } }
@@ -399,9 +430,18 @@ class QueueManager private constructor(private val context: Context) {
 
     private fun songKey(track: Track) = RecommenderApi.songKey(track.title, track.artist)
 
-    /** Keys of everything that must not be queued again: queue, history and the playing song. */
-    private fun queuedKeys(current: Track): Set<String> =
-        (_currentQueue.value + playedTracksHistory.toList() + current).mapTo(HashSet()) { songKey(it) }
+    /**
+     * Keys that must not be queued again: the queue and the playing song always, and recently
+     * played songs unless the listener has replayed them today (then they may come back).
+     */
+    private fun queuedKeys(current: Track): Set<String> {
+        val keys = (_currentQueue.value + current).mapTo(HashSet()) { songKey(it) }
+        playedTracksHistory.toList().forEach {
+            val key = songKey(it)
+            if (dailyPlayCount(key) < INDULGE_PLAYS) keys += key
+        }
+        return keys
+    }
 
     /** Songs queued after [current], using the larger of our own count and the caller's. */
     private fun upcomingAfter(current: Track, reported: Int): Int {
@@ -463,11 +503,19 @@ class QueueManager private constructor(private val context: Context) {
             val queued = queuedKeys(current)
             val batch = mutableListOf<RecommenderApi.YouTubeRecommendation>()
             val batchKeys = mutableSetOf<String>()
+            val heardToday = mutableListOf<RecommenderApi.YouTubeRecommendation>()
             while (batch.size < need) {
                 val rec = reserve.pollFirst() ?: break
                 val key = RecommenderApi.songKey(rec.title, rec.artist)
-                if (key in queued || !batchKeys.add(key)) continue
+                if (key in queued) continue
+                // Heard once earlier today: hold it back, use it only if nothing fresh is left.
+                if (dailyPlayCount(key) in 1 until INDULGE_PLAYS) { heardToday += rec; continue }
+                if (!batchKeys.add(key)) continue
                 batch += rec
+            }
+            for (rec in heardToday) {
+                if (batch.size < need && batchKeys.add(RecommenderApi.songKey(rec.title, rec.artist))) batch += rec
+                else reserve.addLast(rec) // back to the bottom of the reserve
             }
             if (batch.isEmpty()) continue // reserve drained by duplicates → refill next round
 
@@ -497,18 +545,41 @@ class QueueManager private constructor(private val context: Context) {
         }
     }
 
-    /** Pull one YouTube Music radio into the reserve. Returns how many new songs it added. */
+    /**
+     * Refill the reserve from YouTube Music radios. Starts from the newest seed (the last song we
+     * queued) and, when that radio has nothing new, reseeds from the last few songs in the queue
+     * and then recent history, so a drained radio is continued from where the listening is now
+     * instead of falling back to the library. Each seed is used once per session.
+     * Returns how many new songs were added.
+     */
     private suspend fun refillReserve(current: Track): Int {
         queuedKeys(current).forEach { seen.add("k:$it") }
         current.ytVideoId?.let { seen.add("yt:$it") }
 
-        val seedId = seedVideoId ?: current.ytVideoId
-            ?: RecommenderApi.getBestVideoMatch("${current.title} ${current.artist}")
-            ?: return 0
-        seen.add("yt:$seedId")
-
-        val radio = RecommenderApi.fetchFullRadioQueue(seedId)
         val blacklist = BlacklistManager.getBlacklistedArtists(context)
+        var added = 0
+
+        seedVideoId?.let { if (usedSeeds.add(it)) added += pullRadio(it, current, blacklist) }
+
+        val candidates = (listOf(current) + _currentQueue.value.asReversed().take(4) +
+                playedTracksHistory.toList().asReversed().take(10)).distinctBy { it.uuid }
+        for (track in candidates) {
+            if (added >= lookahead()) break
+            val id = track.ytVideoId
+                ?: RecommenderApi.getBestVideoMatch("${track.title} ${track.artist}", track.durationSec, track.artist)
+                ?: continue
+            if (!usedSeeds.add(id)) continue
+            added += pullRadio(id, current, blacklist)
+        }
+        Log.d(TAG, "Reserve refill: $added new songs → reserve ${reserve.size}")
+        return added
+    }
+
+    /** One radio for [seedId] into the reserve, skipping everything already seen or queued. */
+    private suspend fun pullRadio(seedId: String, current: Track, blacklist: Set<String>): Int {
+        seen.add("yt:$seedId")
+        val radio = RecommenderApi.fetchFullRadioQueue(seedId)
+        val blocked = queuedKeys(current)
         var added = 0
         for (rec in radio) {
             if (RecommenderApi.isSpamTitle(rec.title)) continue
@@ -517,12 +588,18 @@ class QueueManager private constructor(private val context: Context) {
                         BlacklistManager.titleContainsBlacklistedArtist(context, rec.title, blacklist))
             ) continue
             // Both ids must be new: same video, or same song under another upload.
-            if (!seen.add("yt:${rec.id}")) continue
-            if (!seen.add("k:${RecommenderApi.songKey(rec.title, rec.artist)}")) continue
+            // Songs replayed today are on repeat, so the session's seen-set no longer blocks them
+            // (the queue itself still does, via queuedKeys).
+            val key = RecommenderApi.songKey(rec.title, rec.artist)
+            val onRepeat = dailyPlayCount(key) >= INDULGE_PLAYS
+            val newVideo = seen.add("yt:${rec.id}")
+            val newSong = seen.add("k:$key")
+            if ((!newVideo || !newSong) && !onRepeat) continue
+            if (key in blocked) continue
             reserve.addLast(rec)
             added++
         }
-        Log.d(TAG, "Radio for seed $seedId: ${radio.size} items, $added new → reserve ${reserve.size}")
+        Log.d(TAG, "Radio for seed $seedId: ${radio.size} items, $added new")
         return added
     }
 
@@ -586,9 +663,12 @@ class QueueManager private constructor(private val context: Context) {
      * - +5:  Shared collaborating artist (small nudge toward collaborative tracks)
      * - +8:  Same album (albumSpotifyId match)
      * - +10: Is a favourite
-     * - +5 per 10 plays: High play count (capped at +25)
-     * - -10: Recently played in the last 24 hours
+     * - up to +25: play count, log-scaled so a few plays already count and a thousand don't dominate
+     * - up to +15: artist affinity, from total plays of that artist across the library
+     * - +6 / +3: played within the last 2 weeks / 2 months (current rotation); +4 never played (explore)
+     * - +5 replayed today (on repeat); -10 heard once today or in the last 24 hours
      * - -20: Artist was recently played (last 10 tracks) — prevents same-artist flooding
+     * - small random jitter, and picks are spread out so one artist can't fill the batch
      *
      * Tracks already in the queue or with no local file are excluded.
      * If no tracks score above 0, falls back to favourites / most-played.
@@ -615,6 +695,14 @@ class QueueManager private constructor(private val context: Context) {
             val oneDayMs = 24 * 60 * 60 * 1000L
 
             data class ScoredTrack(val track: Track, val score: Int)
+
+            // Total plays per primary artist, so favourite artists rank above one-off plays.
+            val artistPlays = HashMap<String, Int>()
+            allDownloaded.forEach { e ->
+                val a = parseArtistNames(e.artist).firstOrNull() ?: return@forEach
+                artistPlays[a] = (artistPlays[a] ?: 0) + e.playCount
+            }
+            val blocked = queuedKeys(currentTrack)
 
             // ── Artist Blacklist Filter (offline) ────────────────
             val blacklist = BlacklistManager.getBlacklistedArtists(context)
@@ -673,12 +761,33 @@ class QueueManager private constructor(private val context: Context) {
                     // +10: Is favourite
                     if (track.isFavourite) score += 10
 
-                    // +5 per 10 plays (capped at +25)
-                    score += minOf(25, (track.playCount / 10) * 5)
+                    // Play count, log-scaled: 5 plays ≈ +11, 20 ≈ +18, 100 ≈ +25 (capped)
+                    score += minOf(25, (kotlin.math.ln(1.0 + track.playCount) * 6).toInt())
 
-                    // -10: Recently played in last 24 hours
+                    // Artist affinity from the whole library's listening
+                    val primary = trackArtistNames.firstOrNull()
+                    if (primary != null) {
+                        score += minOf(15, (kotlin.math.ln(1.0 + (artistPlays[primary] ?: 0)) * 3).toInt())
+                    }
+
+                    // Current rotation vs. forgotten vs. never heard
+                    val lastMs = track.lastPlayedAt?.toLongOrNull()
+                    if (track.playCount == 0) {
+                        score += 4
+                    } else if (lastMs != null) {
+                        val days = (now - lastMs) / oneDayMs
+                        if (days in 1..13) score += 6 else if (days in 14..60) score += 3
+                    }
+
+                    // Variety: the same top songs must not win every time
+                    score += kotlin.random.Random.nextInt(0, 5)
+
+                    // Replayed today (on repeat): +5. Otherwise -10 if heard today or in the last 24 hours.
+                    val playsToday = dailyPlayCount(songKey(track))
                     val lastPlayedMs = track.lastPlayedAt?.toLongOrNull()
-                    if (lastPlayedMs != null && (now - lastPlayedMs) < oneDayMs) {
+                    if (playsToday >= INDULGE_PLAYS) {
+                        score += 5
+                    } else if (playsToday > 0 || (lastPlayedMs != null && (now - lastPlayedMs) < oneDayMs)) {
                         score -= 10
                     }
 
@@ -691,7 +800,7 @@ class QueueManager private constructor(private val context: Context) {
 
                     ScoredTrack(track, score)
                 }
-                .filter { it.score > 0 }
+                .filter { it.score > 0 && songKey(it.track) !in blocked }
                 .sortedByDescending { it.score }
 
             Log.d(
@@ -700,7 +809,17 @@ class QueueManager private constructor(private val context: Context) {
             )
 
             val selected = if (scored.isNotEmpty()) {
-                scored.take(targetCount).map { it.track }
+                // Greedy pick: each song already chosen by the same artist costs 8 points.
+                val pool = scored.toMutableList()
+                val picked = mutableListOf<Track>()
+                while (picked.size < targetCount && pool.isNotEmpty()) {
+                    val best = pool.maxByOrNull { c ->
+                        c.score - 8 * picked.count { ArtistUtils.areArtistsEqual(it.artist, c.track.artist) }
+                    }!!
+                    picked += best.track
+                    pool.remove(best)
+                }
+                picked
             } else {
                 // Last resort: favourites first, then most played
                 Log.d(TAG, "Offline fallback: no scored candidates, using favourites/most-played")

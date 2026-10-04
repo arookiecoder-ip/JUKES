@@ -343,26 +343,26 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val isExpanded = LocalConfiguration.current.screenWidthDp >= 600
+                // Artist/album/playlist are child screens: they can be opened on top of any tab
+                // (and on top of each other), so a tab tap must first dispose of all of them.
+                fun isDetailRoute(route: String?) =
+                    route != null && (route.startsWith("artist/") ||
+                        route.startsWith("album/") || route.startsWith("playlist/"))
+
                 val onNavigate: (Screen) -> Unit = { screen ->
+                    val wasDetail = isDetailRoute(currentRoute)
+                    if (wasDetail) {
+                        activityViewModelProvider[SearchViewModel::class.java].clearArtistDetail()
+                        activityViewModelProvider[AlbumDetailViewModel::class.java].clearAlbumDetail()
+                        activityViewModelProvider[PlaylistDetailViewModel::class.java].clearPlaylistDetail()
+                        // Pop before navigating so saveState never captures a child screen.
+                        while (isDetailRoute(navController.currentDestination?.route) &&
+                            navController.popBackStack()
+                        ) { /* keep popping */ }
+                    }
 
-                    if (currentMainTab == screen.route) {
-                        if (currentRoute != screen.route) {
-                            navController.popBackStack(
-                                screen.route,
-                                inclusive = false
-                            )
-
-                            if (currentRoute?.startsWith("artist/") == true) {
-                                activityViewModelProvider[SearchViewModel::class.java]
-                                    .clearArtistDetail()
-                            } else if (currentRoute?.startsWith("album/") == true) {
-                                activityViewModelProvider[AlbumDetailViewModel::class.java]
-                                    .clearAlbumDetail()
-                            } else if (currentRoute?.startsWith("playlist/") == true) {
-                                activityViewModelProvider[PlaylistDetailViewModel::class.java]
-                                    .clearPlaylistDetail()
-                            }
-                        } else if (screen == Screen.Search) {
+                    if (navController.currentDestination?.route == screen.route) {
+                        if (!wasDetail && screen == Screen.Search) {
                             if (searchResetTrigger > 0 && searchFocusTrigger == searchResetTrigger) {
                                 searchFocusTrigger++
                             } else {

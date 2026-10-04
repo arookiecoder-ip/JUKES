@@ -1693,7 +1693,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             Log.d("MusicViewModel", "Async fetching YT video ID for: ${track.title}")
             try {
                 val ytVideoId = withContext(Dispatchers.IO) {
-                    RecommenderApi.getBestVideoMatch("${track.title} ${track.artist}")
+                    RecommenderApi.getBestVideoMatch("${track.title} ${track.artist}", track.durationSec, track.artist)
                 }
 
                 if (ytVideoId.isNullOrBlank()) {
