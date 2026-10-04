@@ -39,8 +39,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _backendError = MutableStateFlow<String?>(null)
     val backendError = _backendError.asStateFlow()
     private var backendJob: Job? = null
+    private var backendGeneration = 0
 
     fun fetchBackendHome(refresh: Boolean = false) {
+        val generation = ++backendGeneration
         backendJob?.cancel()
         backendJob = viewModelScope.launch {
             _backendLoading.value = true
@@ -52,12 +54,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 _backendError.value = "Couldn't load Alexa recommendations. Pull to refresh to retry."
             } finally {
-                _backendLoading.value = false
+                if (generation == backendGeneration) _backendLoading.value = false
             }
         }
     }
 
     fun clearBackendHome() {
+        backendGeneration++
         backendJob?.cancel()
         _backendShelves.value = emptyList()
         _backendLoading.value = false

@@ -271,7 +271,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val current = _uiState.value.currentTrack ?: continue
                 if (current.isStream && current.spotifyId == null && current.ytVideoId != null) {
                     try {
-                        val window = withContext(Dispatchers.IO) { queueManager.refreshAlexaQueue(current) }
+                        val playing = _uiState.value.isPlaying
+                        val position = playbackManager.getCurrentPosition()
+                        val window = withContext(Dispatchers.IO) {
+                            AlexaBackendApi.updateQueue("current", requireNotNull(current.ytVideoId), emptyList(),
+                                playing = playing, positionMs = position)
+                            queueManager.refreshAlexaQueue(current)
+                        }
                         if (window != null) applyAlexaWindow(window)
                     } catch (e: CancellationException) {
                         throw e
