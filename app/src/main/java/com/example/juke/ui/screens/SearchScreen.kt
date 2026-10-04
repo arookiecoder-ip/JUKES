@@ -110,6 +110,7 @@ import com.example.juke.ui.components.GlassButton
 import com.example.juke.ui.components.SearchHeader
 import com.example.juke.ui.components.TrackListSkeleton
 import com.example.juke.utils.rememberJukeHaptics
+import com.example.juke.viewmodels.MusicSource
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.SearchViewModel
 import kotlinx.coroutines.launch
@@ -128,6 +129,8 @@ fun SearchScreen(
 ) {
     val uiState by searchViewModel.uiState.collectAsStateWithLifecycle()
     val isStreamMode by musicViewModel.isStreamMode.collectAsStateWithLifecycle()
+    val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
+    val isAlexaMode = musicSource == MusicSource.ALEXA
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = rememberJukeHaptics()
@@ -135,7 +138,9 @@ fun SearchScreen(
     var previousFocusTrigger by remember { mutableIntStateOf(searchFocusTrigger) }
     var selectedFilter by rememberSaveable { mutableStateOf("All") }
     var active by rememberSaveable { mutableStateOf(false) }
-    val filters = listOf("All", "Tracks", "Artists", "Playlists", "Albums")
+    // Alexa mode returns tracks only: hide Artists/Playlists/Albums chips.
+    val filters = if (isAlexaMode) listOf("All", "Tracks")
+    else listOf("All", "Tracks", "Artists", "Playlists", "Albums")
 
     // Warm the YT suggestions connection once when search screen is opened.
     LaunchedEffect(Unit) {
@@ -242,6 +247,7 @@ fun SearchScreen(
                                 SearchResultsList(
                                     uiState = uiState,
                                     selectedFilter = selectedFilter,
+                                    isAlexaMode = isAlexaMode,
                                     musicViewModel = musicViewModel,
                                     searchViewModel = searchViewModel,
                                     scope = scope,
@@ -252,7 +258,7 @@ fun SearchScreen(
                                     bottomPadding = bottomPadding,
                                     keyboardController = keyboardController
                                 )
-                            } else if (uiState.isPlaylistUrl && uiState.playlists.isNotEmpty() && !uiState.isImportingPlaylist) {
+                            } else if (!isAlexaMode && uiState.isPlaylistUrl && uiState.playlists.isNotEmpty() && !uiState.isImportingPlaylist) {
                                 val playlist = uiState.playlists.first()
                                 ImportPlaylistCard(
                                     playlist = playlist,

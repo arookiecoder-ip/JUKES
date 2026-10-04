@@ -19,6 +19,7 @@ import com.example.juke.models.SpotifyPlaylist
 import com.example.juke.models.SpotifyTrack
 import com.example.juke.models.Track
 import com.example.juke.network.ApiClient
+import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.SpotifyApi
 import com.example.juke.services.QueueManager
 import io.ktor.client.request.header
@@ -48,6 +49,7 @@ data class SearchUiState(
     val suggestions: List<String> = emptyList(),
     val isShowingSuggestions: Boolean = false,
     val tracks: List<SpotifyTrack> = emptyList(),
+    val alexaTracks: List<Track> = emptyList(),
     val localTracks: List<Track> = emptyList(),
     val artists: List<SpotifyArtist> = emptyList(),
     val playlists: List<SpotifyPlaylist> = emptyList(),
@@ -92,6 +94,12 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     private val searchPrefs =
         application.getSharedPreferences("search_history", android.content.Context.MODE_PRIVATE)
+    private val settingsPrefs =
+        application.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)
+
+    /** True when the Settings music-source toggle is on ALEXA. */
+    fun isAlexaMode(): Boolean =
+        settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA"
 
     private val _uiState = MutableStateFlow(
         SearchUiState(
@@ -161,6 +169,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 suggestions = emptyList(),
                 isShowingSuggestions = false,
                 tracks = emptyList(),
+                alexaTracks = emptyList(),
                 localTracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
@@ -326,6 +335,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         if (trimmedQuery.isBlank()) {
             _uiState.value = _uiState.value.copy(
                 tracks = emptyList(),
+                alexaTracks = emptyList(),
                 localTracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
@@ -343,6 +353,27 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.value = _uiState.value.copy(isSearching = true, error = null)
 
             try {
+                // Alexa mode: skip parseSpotifyUrl, all Spotify URL handlers and
+                // SpotifyApi.search — backend returns tracks only.
+                if (isAlexaMode()) {
+                    if (!AlexaBackendApi.isConfigured()) {
+                        throw Exception("Alexa backend not configured")
+                    }
+                    val results = AlexaBackendApi.search(trimmedQuery)
+                    _uiState.value = _uiState.value.copy(
+                        tracks = emptyList(),
+                        alexaTracks = results,
+                        localTracks = emptyList(),
+                        artists = emptyList(),
+                        playlists = emptyList(),
+                        albums = emptyList(),
+                        isSearching = false,
+                        isPlaylistUrl = false,
+                        playlistId = null
+                    )
+                    return@launch
+                }
+
                 // Check if query is a Spotify URL
                 val urlInfo = parseSpotifyUrl(trimmedQuery)
 
@@ -353,6 +384,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                             val track = SpotifyApi.getTrack(urlInfo.id)
                             _uiState.value = _uiState.value.copy(
                                 tracks = listOf(track),
+                                alexaTracks = emptyList(),
                                 localTracks = emptyList(),
                                 artists = emptyList(),
                                 playlists = emptyList(),
@@ -367,6 +399,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                             val artist = SpotifyApi.getArtist(urlInfo.id)
                             _uiState.value = _uiState.value.copy(
                                 tracks = emptyList(),
+                                alexaTracks = emptyList(),
                                 localTracks = emptyList(),
                                 artists = listOf(artist),
                                 playlists = emptyList(),
@@ -381,6 +414,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                             val playlist = SpotifyApi.getPlaylist(urlInfo.id)
                             _uiState.value = _uiState.value.copy(
                                 tracks = emptyList(),
+                                alexaTracks = emptyList(),
                                 localTracks = emptyList(),
                                 artists = emptyList(),
                                 playlists = listOf(playlist),
@@ -395,6 +429,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                             val album = SpotifyApi.getAlbum(urlInfo.id)
                             _uiState.value = _uiState.value.copy(
                                 tracks = emptyList(),
+                                alexaTracks = emptyList(),
                                 localTracks = emptyList(),
                                 artists = emptyList(),
                                 playlists = emptyList(),
@@ -449,6 +484,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
                     _uiState.value = _uiState.value.copy(
                         tracks = filteredSpotifyTracks,
+                        alexaTracks = emptyList(),
                         artists = response.artists?.items ?: emptyList(),
                         playlists = response.playlists?.items?.filterNotNull() ?: emptyList(),
                         albums = response.albums?.items ?: emptyList(),
@@ -605,6 +641,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
      * and keeps going across screens, app restarts and network drops.
      */
     fun importPlaylist(playlistId: String) {
+        // importPlaylist stays Spotify-only.
+        if (isAlexaMode()) {
+            _uiState.value = _uiState.value.copy(error = "Playlist import is Spotify-only")
+            return
+        }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(error = null)
             try {

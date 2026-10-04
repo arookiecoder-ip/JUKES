@@ -49,6 +49,16 @@ android {
             "POSTHOG_HOST",
             "\"${properties.getProperty("POSTHOG_HOST", "")}\""
         )
+        buildConfigField(
+            "String",
+            "ALEXA_BASE_URL",
+            "\"${properties.getProperty("ALEXA_BASE_URL", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "ALEXA_API_KEY",
+            "\"${properties.getProperty("ALEXA_API_KEY", "")}\""
+        )
     }
 
     androidResources {
