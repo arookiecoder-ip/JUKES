@@ -117,32 +117,6 @@ fun SettingsScreen(
                 ) { Text("Sign out") }
             }
 
-            item {
-                GlassCard(Modifier.fillMaxWidth()) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Solid surfaces", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Turn off blur and transparency",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = GlassPrefs.solid,
-                            onCheckedChange = {
-                                haptic.toggle()
-                                GlassPrefs.solid = it
-                                context.getSharedPreferences("ui_prefs", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("solid_surfaces", it).apply()
-                            }
-                        )
-                    }
-                }
-            }
 
             if (powerUnlocked) {
                 item {

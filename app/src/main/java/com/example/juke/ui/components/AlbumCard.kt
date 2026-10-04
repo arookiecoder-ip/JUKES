@@ -39,7 +39,7 @@ fun AlbumCard(
     Column(
         modifier = modifier
             .width(148.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(androidx.compose.ui.graphics.RectangleShape)
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(album) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
@@ -48,7 +48,7 @@ fun AlbumCard(
             contentDescription = album.title,
             modifier = Modifier
                 .size(148.dp)
-                .clip(RoundedCornerShape(14.dp)),
+                .clip(androidx.compose.ui.graphics.RectangleShape),
             contentScale = ContentScale.Crop
         )
         Spacer(modifier = Modifier.height(8.dp))

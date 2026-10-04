@@ -457,11 +457,8 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         if (currentRoute != "settings") {
                             Column(
-                                modifier = Modifier
-                                    .navigationBarsPadding()
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface),
+                                verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
                                 if (!isExpanded) {
