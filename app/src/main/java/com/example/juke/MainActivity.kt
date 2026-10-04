@@ -362,14 +362,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (navController.currentDestination?.route == screen.route) {
-                        if (!wasDetail && screen == Screen.Search) {
-                            if (searchResetTrigger > 0 && searchFocusTrigger == searchResetTrigger) {
-                                searchFocusTrigger++
-                            } else {
-                                searchResetTrigger++
-                                searchFocusTrigger = searchResetTrigger
-                            }
-                        }
+                        // Already on Search: select the query and open the keyboard for typing.
+                        if (!wasDetail && screen == Screen.Search) searchFocusTrigger++
                     } else {
                         navController.navigate(screen.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -493,7 +487,15 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onNavigateToPurge = {
                                         navController.navigate("settings/purge")
+                                    },
+                                    onNavigateToPowerTools = {
+                                        navController.navigate("settings/power")
                                     }
+                                )
+                            }
+                            composable("settings/power") {
+                                com.example.juke.ui.screens.PowerToolsScreen(
+                                    onNavigateBack = { navController.popBackStack() }
                                 )
                             }
                             composable("settings/purge") {

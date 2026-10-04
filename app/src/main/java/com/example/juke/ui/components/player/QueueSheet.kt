@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,7 +75,11 @@ fun QueueBottomSheetContent(
     onMoveTrack: (fromIndex: Int, toIndex: Int) -> Unit,
     onRemoveTrack: (trackId: String) -> Unit,
     onPlayTrack: (track: com.example.juke.models.Track) -> Unit,
-    statusText: String? = null
+    statusText: String? = null,
+    onShuffleUpcoming: () -> Unit = {},
+    onSortUpcoming: () -> Unit = {},
+    onClearPlayed: () -> Unit = {},
+    onSaveAsPlaylist: () -> Unit = {}
 ) {
     val haptic = rememberJukeHaptics()
 
@@ -101,8 +106,30 @@ fun QueueBottomSheetContent(
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center
             )
-            // Spacer to balance the layout
-            Spacer(modifier = Modifier.width(48.dp))
+            var showTools by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { haptic.click(); showTools = true }) {
+                    Icon(Icons.Filled.MoreVert, "Queue tools")
+                }
+                androidx.compose.material3.DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("Shuffle upcoming") },
+                        onClick = { showTools = false; onShuffleUpcoming() }
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("Sort upcoming A–Z") },
+                        onClick = { showTools = false; onSortUpcoming() }
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("Clear played") },
+                        onClick = { showTools = false; onClearPlayed() }
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("Save queue as playlist") },
+                        onClick = { showTools = false; onSaveAsPlaylist() }
+                    )
+                }
+            }
         }
         if (statusText != null) {
             Text(

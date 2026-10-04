@@ -85,7 +85,8 @@ import kotlin.math.roundToInt
 fun AudioSettingsScreen(
     musicViewModel: MusicViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToPurge: () -> Unit
+    onNavigateToPurge: () -> Unit,
+    onNavigateToPowerTools: () -> Unit = {}
 ) {
     val isBoosterEnabled by musicViewModel.isBoosterEnabled.collectAsStateWithLifecycle()
     val boosterLevel by musicViewModel.boosterLevel.collectAsStateWithLifecycle()
@@ -621,6 +622,25 @@ fun AudioSettingsScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
+                }
+
+                item {
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { haptic.click(); onNavigateToPowerTools() }
+                    ) {
+                        CompactItem(
+                            headlineContent = {
+                                Text("Power Tools", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            },
+                            supportingContent = { Text("Sources, repeat threshold, gestures, diagnostics and backup") },
+                            leadingContent = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                            trailingContent = {
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        )
                     }
                 }
 

@@ -561,7 +561,7 @@ class MusicService(private val context: Context) {
         val songKey = RecommenderApi.songKey(song.title, song.artist)
         var resolvedSource = Source.SPOTSAVER
         val resolvedRequest = try {
-            if (sourceMemory.avoided(songKey).isNotEmpty()) {
+            if (sourceMemory.avoided(songKey).isNotEmpty() || sourceMemory.preferred != null) {
                 // The user rejected a source for this song: go through the providers one at a time,
                 // rejected ones last, instead of racing them.
                 var found: SpotifyApi.DirectDownloadRequest? = null

@@ -529,7 +529,11 @@ fun PlayerScreen(
                 onClose = { showQueue = false },
                 onMoveTrack = { from, to -> musicViewModel.moveInQueue(from, to) },
                 onRemoveTrack = { id -> musicViewModel.removeFromQueue(id) },
-                onPlayTrack = { track -> musicViewModel.playTrackFromQueue(track) }
+                onPlayTrack = { track -> musicViewModel.playTrackFromQueue(track) },
+                onShuffleUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SHUFFLE_UPCOMING) },
+                onSortUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SORT_UPCOMING) },
+                onClearPlayed = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.CLEAR_PLAYED) },
+                onSaveAsPlaylist = { musicViewModel.saveQueueAsPlaylist() }
             )
         }
     }
