@@ -65,6 +65,8 @@ data class ArtistDetailUiState(
     val singles: List<BrowseItem> = emptyList(),
     val related: List<BrowseItem> = emptyList(),
     val subscriptionBusy: Boolean = false,
+    val allSongsLoaded: Boolean = false,
+    val songsLoading: Boolean = false,
     val isSubscribed: Boolean? = null,
     val isLoading: Boolean = false,
     val error: String? = null
@@ -102,6 +104,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     private var searchJob: Job? = null
     private var artistJob: Job? = null
+    private var songsJob: Job? = null
     private val suggestionRequestNonce = AtomicLong(0L)
     private val warmupRequestNonce = AtomicLong(0L)
     private val suggestionPrefixCache =
@@ -376,6 +379,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Open an artist page. [artist] carries the channel id and what is already known. */
     fun loadArtistDetails(artist: BrowseItem) {
+        songsJob?.cancel()
         artistJob?.cancel()
         _artistDetailState.value = ArtistDetailUiState(artist = artist, imageUrl = artist.image, isLoading = true)
         artistJob = viewModelScope.launch {
@@ -410,6 +414,24 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: Exception) {
                 _artistDetailState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load artist") }
             }
+        }
+    }
+
+    fun loadAllArtistSongs() {
+        val state = _artistDetailState.value
+        val artist = state.artist ?: return
+        if (state.songsLoading || state.allSongsLoaded || state.topSongsBrowseId.isBlank()) return
+        _artistDetailState.update { it.copy(songsLoading = true, error = null) }
+        songsJob = viewModelScope.launch {
+            try {
+                val data = Backend.get("/api/artist/${artist.id}/songs", mapOf("browse_id" to state.topSongsBrowseId)).objectOrEmpty()
+                val songs = data.array("songs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }.filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value) }
+                check(songs.isNotEmpty()) { "No artist songs available" }
+                _artistDetailState.update { it.copy(topTracks = songs, allSongsLoaded = true) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+            catch (e: Exception) { _artistDetailState.update { it.copy(error = e.message ?: "Could not load artist songs") } }
+            finally { _artistDetailState.update { it.copy(songsLoading = false) } }
         }
     }
 
@@ -473,6 +495,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun clearArtistDetail() {
+        songsJob?.cancel()
         artistJob?.cancel()
         _artistDetailState.value = ArtistDetailUiState()
     }

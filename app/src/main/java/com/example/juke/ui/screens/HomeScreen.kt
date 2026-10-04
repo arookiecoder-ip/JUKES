@@ -117,7 +117,8 @@ fun HomeScreen(
     val serial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
     val device = devices.firstOrNull { it.serial == serial }
     val alexaStatus = when {
-        !connected -> "Alexa · Disconnected"
+        connected == null -> "Alexa · Checking"
+        connected == false -> "Alexa · Disconnected"
         device == null -> "Alexa · No device"
         !device.online -> "Alexa · Offline"
         else -> "Alexa · Online"

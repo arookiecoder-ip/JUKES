@@ -54,7 +54,7 @@ fun ArtistDetailScreen(
                     artist?.let { TextButton(onClick = { searchViewModel.loadArtistDetails(it) }) { Text("Retry") } }
                 }
             }
-            state.isLoading || artist == null -> MediaDetailSkeleton(Modifier.padding(padding), contentPadding = PaddingValues(20.dp))
+            state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.padding(padding), contentPadding = PaddingValues(20.dp))
             else -> LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(bottom = 24.dp + bottomPadding),
@@ -89,7 +89,15 @@ fun ArtistDetailScreen(
                             FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
                         }
                     }
-                    if (state.topTracks.size > 5) item { TextButton(onClick = { allSongs = !allSongs }, modifier = Modifier.padding(horizontal = 12.dp)) { Text(if (allSongs) "Show less" else "Show all songs") } }
+                    if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {
+                        TextButton(enabled = !state.songsLoading, onClick = {
+                            allSongs = !allSongs
+                            if (allSongs) searchViewModel.loadAllArtistSongs()
+                        }, modifier = Modifier.padding(horizontal = 12.dp)) {
+                            if (state.songsLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Text(if (allSongs) "Show less" else "Show all songs")
+                        }
+                    }
                 }
                 fun releases(title: String, releases: List<BrowseItem>) {
                     if (releases.isEmpty()) return
