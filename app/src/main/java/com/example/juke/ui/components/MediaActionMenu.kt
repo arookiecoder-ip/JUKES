@@ -72,7 +72,10 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     }
                     action("Save to Playlist") {
                         saveTrack = track; playlists = null
-                        resolve { playlists = library.editablePlaylists() }
+                        resolve {
+                            try { playlists = library.editablePlaylists() }
+                            catch (e: Exception) { saveTrack = null; throw e }
+                        }
                     }
                     if (music.uiState.value.queue.any { it.uuid == track.uuid }) {
                         action("Remove from queue") { music.removeFromQueue(track.uuid) }

@@ -443,6 +443,7 @@ class MainActivity : ComponentActivity() {
                 val mediaMenu = remember { com.example.juke.ui.components.MediaMenuController() }
                 CompositionLocalProvider(LocalHazeState provides hazeState, com.example.juke.ui.components.LocalMediaMenu provides mediaMenu) {
                 com.example.juke.ui.components.MediaActionMenuHost(mediaMenu, musicViewModel, libraryViewModel, onOpen = { item ->
+                    showPlayerModal = false
                     when (item.kind) {
                         "artist" -> { searchViewModel.loadArtistDetails(item); navController.navigate("artist/${item.id}") }
                         "album" -> { activityViewModelProvider[AlbumDetailViewModel::class.java].loadAlbumDetails(item); navController.navigate("album/${item.id}") }
