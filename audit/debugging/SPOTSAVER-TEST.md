@@ -27,4 +27,4 @@ adb -s emulator-5554 exec-out run-as com.example.juke \
   cat files/spotsaver-live-results.json
 ```
 
-Live result: OK (1 test containing two cold sessions), 7.545 s. Default device regression suite remains passing with the live test skipped. No app playback provider integration added and no changes pushed.
+Live result: OK (1 test containing two cold sessions), 7.545 s. Default device regression suite remains passing with the live test skipped. The original probe added no app playback provider integration. See SPOTSAVER-INTEGRATION.md for the subsequent integration and production-client verification.
