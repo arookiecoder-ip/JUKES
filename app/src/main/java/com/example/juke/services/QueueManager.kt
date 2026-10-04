@@ -490,6 +490,7 @@ class QueueManager private constructor(private val context: Context) {
         // (refillReserve/resolveRecommendation/matchOnSpotify all require Spotify):
         // extend the queue from the backend /get_radio/ instead.
         if (isAlexaTrack(current)) {
+            if (isRemoteWorkspace()) return
             requestAlexaFill(current)
             return
         }
@@ -515,12 +516,16 @@ class QueueManager private constructor(private val context: Context) {
     private fun isAlexaTrack(track: Track): Boolean =
         track.spotifyId == null && track.ytVideoId != null
 
+    private fun isRemoteWorkspace(): Boolean =
+        settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA" &&
+            settingsPrefs.getBoolean("alexa_remote_enabled", true)
+
     /** Refresh a bounded window in the server's current order, including removals. */
     suspend fun refreshAlexaQueue(current: Track): AlexaQueueWindow? {
-        if (!isAlexaTrack(current) || !AlexaBackendApi.isConfigured()) return null
+        if (isRemoteWorkspace() || !isAlexaTrack(current) || !AlexaBackendApi.isConfigured()) return null
         val gen = sessionGen.get()
         return fillMutex.withLock {
-            if (gen != sessionGen.get()) return@withLock null
+            if (gen != sessionGen.get() || isRemoteWorkspace()) return@withLock null
             val videoId = requireNotNull(current.ytVideoId)
             val target = lookahead()
             // next_track is consulted at request time, rather than trusting the old phone queue.
@@ -530,7 +535,7 @@ class QueueManager private constructor(private val context: Context) {
                 try {
                     val radio = AlexaBackendApi.getRadio(videoId)
                     coroutineContext.ensureActive()
-                    if (gen != sessionGen.get()) return@withLock null
+                    if (gen != sessionGen.get() || isRemoteWorkspace()) return@withLock null
                     if (radio.isNotEmpty()) AlexaBackendApi.updateQueue("extend", videoId, radio.take(200))
                     if (gen != sessionGen.get()) return@withLock null
                     alexaRadioSeeds.add(videoId)
