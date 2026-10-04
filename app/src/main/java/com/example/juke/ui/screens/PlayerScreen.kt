@@ -330,6 +330,8 @@ fun PlayerScreen(
                             )
                         },
                         onRefreshLyrics = { musicViewModel.refreshLyrics(currentTrack) },
+                        onRefetchSong = { musicViewModel.refetchTrack(currentTrack) },
+                        canRefetchSong = currentTrack.spotifyId != null,
                         onToggleRomanizedLyrics = { musicViewModel.toggleRomanizedLyrics() },
                         isRomanizedLyricsEnabled = romanizeLyrics,
                         showMenuOption = true,
@@ -617,6 +619,8 @@ fun PlayerHeader(
     onShowSleepTimer: () -> Unit,
     onNavigateToAlbum: () -> Unit,
     onRefreshLyrics: () -> Unit,
+    onRefetchSong: () -> Unit = {},
+    canRefetchSong: Boolean = false,
     onToggleRomanizedLyrics: () -> Unit,
     isRomanizedLyricsEnabled: Boolean,
     showMenuOption: Boolean,
@@ -701,6 +705,18 @@ fun PlayerHeader(
                             onRefreshLyrics()
                         }
                     )
+                    if (canRefetchSong) {
+                        DropdownMenuItem(
+                            text = { Text("Wrong song? Refetch") },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.Refresh, contentDescription = null)
+                            },
+                            onClick = {
+                                showMenu = false
+                                onRefetchSong()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = {
                             Text(

@@ -2006,6 +2006,43 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val refetchingUuids = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * The audio of [track] is the wrong song: refetch it from a different source and swap it into the
+     * queue in place (same position). The rejected source is remembered for later pulls of this song.
+     */
+    fun refetchTrack(track: Track) {
+        if (!refetchingUuids.add(track.uuid)) return
+        viewModelScope.launch {
+            Toast.makeText(getApplication(), "Fetching \"${track.title}\" from another source…", Toast.LENGTH_SHORT).show()
+            try {
+                val updated = withContext(Dispatchers.IO) {
+                    musicService.refetchTrack(track).also { fresh ->
+                        // Streams are not persisted by the service; keep the queue entry restorable.
+                        if (fresh.isStream) trackDao.insertTrack(fresh.toEntity())
+                    }
+                }
+                playbackManager.replaceTrackInQueue(track.uuid, updated, seamlessIfPlaying = false)
+                queueManager.replaceTrackInQueue(track.uuid, updated)
+                _uiState.update { state ->
+                    state.copy(
+                        currentTrack = if (state.currentTrack?.uuid == track.uuid) updated else state.currentTrack,
+                        queue = state.queue.map { if (it.uuid == track.uuid) updated else it }
+                    )
+                }
+                Toast.makeText(getApplication(), "Replaced with a new source", Toast.LENGTH_SHORT).show()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Refetch failed for ${track.title}: ${e.message}", e)
+                Toast.makeText(getApplication(), "Couldn't refetch: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                refetchingUuids.remove(track.uuid)
+            }
+        }
+    }
+
     fun promoteTrackToDownload(track: Track) {
         if (!track.isStream) return
 
