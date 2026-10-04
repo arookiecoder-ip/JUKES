@@ -227,6 +227,7 @@ object AlexaBackendApi {
         requireConfigured()
         val response: HttpResponse = ApiClient.httpClient.get("${baseUrl()}/get_radio/") {
             parameter("video_id", videoId)
+            parameter("update_queue", 0)
             parameter("key", apiKey())
         }
         if (response.status.value !in 200..299) {
@@ -241,7 +242,13 @@ object AlexaBackendApi {
     data class QueueTracksResponse(val tracks: List<BackendTrack> = emptyList())
 
     @Serializable
-    data class QueueUpdate(val action: String, val after: String, val tracks: List<BackendTrack>)
+    data class QueueUpdate(
+        val action: String,
+        val after: String,
+        val tracks: List<BackendTrack>,
+        val playing: Boolean? = null,
+        @SerialName("position_ms") val positionMs: Long? = null
+    )
 
     suspend fun queueTracks(afterVideoId: String, limit: Int): List<BackendTrack> {
         requireConfigured()
@@ -254,12 +261,15 @@ object AlexaBackendApi {
         return response.body<QueueTracksResponse>().tracks
     }
 
-    suspend fun updateQueue(action: String, afterVideoId: String, tracks: List<BackendTrack>) {
+    suspend fun updateQueue(
+        action: String, afterVideoId: String, tracks: List<BackendTrack>,
+        playing: Boolean? = null, positionMs: Long? = null
+    ) {
         requireConfigured()
         val response = ApiClient.httpClient.post("${baseUrl()}/api/app/queue/") {
             parameter("key", apiKey())
             contentType(ContentType.Application.Json)
-            setBody(QueueUpdate(action, afterVideoId, tracks))
+            setBody(QueueUpdate(action, afterVideoId, tracks, playing, positionMs))
         }
         check(response.status.value in 200..299) { "Queue update failed (${response.status.value})" }
     }
