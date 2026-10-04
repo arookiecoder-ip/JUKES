@@ -12,6 +12,7 @@ import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.OfflineException
 import com.example.juke.network.RecommenderApi
 import com.example.juke.network.SpotifyApi
+import com.example.juke.network.toAppTrack
 import com.example.juke.network.isOffline
 import com.example.juke.utils.ArtistUtils
 import com.example.juke.utils.BlacklistManager
@@ -566,7 +567,7 @@ class QueueManager private constructor(private val context: Context) {
                 if (_externalDownloads.contains("${item.title.lowercase()}-${item.artist.lowercase()}")) continue
                 try {
                     val audioUrl = AlexaBackendApi.getStreamUrl(item.videoId)
-                    val track = item.toTrack(audioUrl = audioUrl)
+                    val track = item.toAppTrack(audioUrl)
                     trackDao.insertTrack(track.toEntity())
                     addToQueue(track)
                     added++

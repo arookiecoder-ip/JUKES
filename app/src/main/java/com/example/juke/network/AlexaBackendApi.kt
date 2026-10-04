@@ -77,8 +77,7 @@ object AlexaBackendApi {
         val track: BackendTrack? = null
     )
 
-    fun thumbnailUrl(raw: JsonElement?): String? {
-        if (raw == null) return null
+    fun thumbnailUrl(raw: JsonElement?): String? {        if (raw == null) return null
         return try {
             // Plain string
             raw.jsonPrimitive.let {
@@ -91,20 +90,6 @@ object AlexaBackendApi {
                 null
             }
         }
-    }
-
-    fun BackendTrack.toTrack(audioUrl: String? = null, resolvedAudioUrl: String? = null): Track {
-        val streamUrl = resolvedAudioUrl ?: audioUrl ?: ""
-        return Track(
-            uuid = UUID.randomUUID().toString(),
-            title = title.ifBlank { "Unknown title" },
-            artist = artist.ifBlank { "Unknown artist" },
-            thumbnailUri = thumbnailUrl(thumbnail),
-            durationSec = (durationMs / 1000).toInt().coerceAtLeast(0),
-            localUri = streamUrl.ifBlank { null },
-            ytVideoId = videoId.ifBlank { null },
-            isStream = true
-        )
     }
 
     private fun requireConfigured() {
@@ -135,7 +120,7 @@ object AlexaBackendApi {
         val seedMeta = parsed.songInfo?.metadata
         val out = mutableListOf<Track>()
         if (seedMeta != null && seedMeta.videoId.isNotBlank()) {
-            out += seedMeta.toTrack(audioUrl = seedAudio)
+            out += seedMeta.toAppTrack(audioUrl = seedAudio)
         }
         // Remaining playlist items have no stream yet; resolve lazily at play time
         // via get_stream so search stays fast. Keep items with a video_id only.
@@ -143,7 +128,7 @@ object AlexaBackendApi {
             if (item.videoId.isNotBlank() && out.none { it.ytVideoId == item.videoId }) {
                 // Skip duplicating the seed (already has stream URL attached)
                 if (seedMeta?.videoId == item.videoId) return@forEach
-                out += item.toTrack(audioUrl = null)
+                out += item.toAppTrack()
             }
         }
         Log.d(TAG, "search '$query' -> ${out.size} tracks (seed stream=${!seedAudio.isNullOrBlank()})")
@@ -192,4 +177,24 @@ object AlexaBackendApi {
         val parsed: NextTrackResponse = response.body()
         return parsed.track?.takeIf { it.videoId.isNotBlank() }
     }
+}
+
+/**
+ * Map a backend item into the app [Track] model: `video_id` → `ytVideoId`,
+ * `audio_url` → `localUri` with `isStream = true`, `thumbnail` →
+ * `thumbnailUri`, `duration_ms / 1000` → `durationSec`, fresh random `uuid`.
+ *
+ * Top-level (not an object member) so call sites only need the file import.
+ */
+fun AlexaBackendApi.BackendTrack.toAppTrack(audioUrl: String? = null): Track {
+    return Track(
+        uuid = UUID.randomUUID().toString(),
+        title = title.ifBlank { "Unknown title" },
+        artist = artist.ifBlank { "Unknown artist" },
+        thumbnailUri = AlexaBackendApi.thumbnailUrl(thumbnail),
+        durationSec = (durationMs / 1000).toInt().coerceAtLeast(0),
+        localUri = audioUrl?.ifBlank { null },
+        ytVideoId = videoId.ifBlank { null },
+        isStream = true
+    )
 }
