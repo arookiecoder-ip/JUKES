@@ -2,6 +2,7 @@ package com.example.juke.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +46,7 @@ fun HeroTrackCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
 
     val hazeState = remember { HazeState() }
 
@@ -53,7 +55,7 @@ fun HeroTrackCard(
             .fillMaxWidth()
             .aspectRatio(1.5f)
             .glassPane(GlassShapes.Card, GlassLevel.Thick)
-            .clickable(onClickLabel = "Play ${track.title}", role = Role.Button) {
+            .combinedClickable(onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options", onClickLabel = "Play ${track.title}", role = Role.Button) {
                 haptic.click()
                 onClick()
             }

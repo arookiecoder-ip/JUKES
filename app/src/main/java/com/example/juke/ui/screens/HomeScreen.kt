@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.LocalMediaMenu
+
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.os.Build
@@ -11,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -109,6 +112,16 @@ fun HomeScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
+    val connected by musicViewModel.echo.amazonConnected.collectAsStateWithLifecycle()
+    val devices by musicViewModel.echo.devices.collectAsStateWithLifecycle()
+    val serial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
+    val device = devices.firstOrNull { it.serial == serial }
+    val alexaStatus = when {
+        !connected -> "Alexa · Disconnected"
+        device == null -> "Alexa · No device"
+        !device.online -> "Alexa · Offline"
+        else -> "Alexa · Online"
+    }
     val haptic = rememberJukeHaptics()
 
     LaunchedEffect(Unit) {
@@ -124,6 +137,7 @@ fun HomeScreen(
         // Frozen header
         HomeHeader(
             greeting = uiState.greeting,
+            alexaStatus = alexaStatus,
             onSettingsClick = {
                 haptic.click()
                 onSettingsClick()
@@ -184,6 +198,7 @@ fun HomeScreen(
 @Composable
 private fun HomeHeader(
     greeting: String,
+    alexaStatus: String,
     onSettingsClick: () -> Unit
 ) {
     Row(
@@ -201,6 +216,9 @@ private fun HomeHeader(
             modifier = Modifier.weight(1f)
         )
 
+        Text(alexaStatus, style = MaterialTheme.typography.labelSmall,
+            color = if (alexaStatus.endsWith("Online")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 8.dp).clickable(onClick = onSettingsClick))
         GlassIconButton(
             onClick = onSettingsClick,
             contentDescription = "Settings"
@@ -460,6 +478,7 @@ private fun MusicCard(
     onClick: () -> Unit
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -488,9 +507,11 @@ private fun MusicCard(
                     }
                 }
             }
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 role = Role.Button,
+                onLongClick = { menu?.show(track) },
+                onLongClickLabel = "Song options",
                 onClickLabel = "Play ${track.title}"
             ) {
                 haptic.click()
@@ -587,6 +608,7 @@ private fun CollectionCard(
     onClick: () -> Unit
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -605,10 +627,12 @@ private fun CollectionCard(
             .semantics(mergeDescendants = true) {
                 contentDescription = "${item.title}, ${item.kind}"
             }
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.Button,
+                onLongClick = { menu?.show(item) },
+                onLongClickLabel = "Collection options",
                 onClickLabel = "Open ${item.title}"
             ) {
                 haptic.click()
@@ -643,7 +667,8 @@ private fun CollectionCard(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
+            maxLines = 2,
+            minLines = 2,
             overflow = TextOverflow.Ellipsis
         )
         if (item.subtitle.isNotBlank()) {

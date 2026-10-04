@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.LocalMediaMenu
+
 import com.example.juke.ui.theme.glassPane
 import com.example.juke.ui.theme.GlassShapes
 import com.example.juke.ui.theme.GlassLevel
@@ -12,6 +14,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +100,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.juke.models.Track
+import com.example.juke.network.toTrack
 import com.example.juke.network.BrowseItem
 import com.example.juke.ui.components.AlbumCard
 import com.example.juke.ui.components.ArtistCard
@@ -112,7 +116,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 internal fun hasResults(uiState: com.example.juke.viewmodels.SearchUiState): Boolean {
-    return uiState.tracks.isNotEmpty() ||
+    return uiState.topResult != null || uiState.tracks.isNotEmpty() ||
             uiState.artists.isNotEmpty() ||
             uiState.playlists.isNotEmpty() ||
             uiState.albums.isNotEmpty()
@@ -141,6 +145,33 @@ internal fun SearchResultsList(
         contentPadding = PaddingValues(bottom = bottomPadding + 24.dp),
         modifier = Modifier.nestedScroll(hideKeyboardOnScrollConnection)
     ) {
+        if (selectedFilter == "All") {
+            val hero = uiState.topResult
+            if (hero != null) item(key = "top-result") {
+                SectionHeader("Top result")
+                if (hero.kind == "track") {
+                    com.example.juke.ui.components.HeroTrackCard(track = hero.toTrack(com.example.juke.services.AccountRepository.liked.value), onClick = { musicViewModel.playTrack(hero.toTrack()) }, modifier = Modifier.padding(horizontal = 20.dp))
+                } else {
+                    val menu = LocalMediaMenu.current
+                    val open = { when (hero.kind) {
+                        "artist" -> onNavigateToArtist(hero)
+                        "album" -> onNavigateToAlbum(hero)
+                        else -> onNavigateToPlaylist(hero)
+                    } }
+                    Column(Modifier.padding(horizontal = 20.dp).combinedClickable(onClick = open, onLongClick = { menu?.show(hero) }, onLongClickLabel = "More options")) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AsyncImage(hero.image, hero.title, modifier = Modifier.size(120.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+                            Column(Modifier.padding(start = 16.dp).weight(1f)) {
+                                Text(hero.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(hero.subtitle.ifBlank { hero.kind.replaceFirstChar { it.uppercase() } }, style = MaterialTheme.typography.bodyMedium)
+                                androidx.compose.material3.TextButton(onClick = open) { Text("Open ${hero.kind}") }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
         // ── Songs ────────────────────────────────────────────────────────
         if ((selectedFilter == "All" || selectedFilter == "Tracks") && uiState.tracks.isNotEmpty()) {
             item { SectionHeader("Songs") }
@@ -234,11 +265,12 @@ internal fun LocalTrackItem(
     onClick: () -> Unit,
     showAccentBar: Boolean = true
 ) {
+    val menu = LocalMediaMenu.current
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick),
+                .combinedClickable(onClick = onClick, onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options"),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Primary-colored left accent bar

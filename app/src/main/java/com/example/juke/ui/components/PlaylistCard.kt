@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import com.example.juke.ui.theme.GlassCard
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,14 +35,12 @@ fun PlaylistCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
     Column(
         modifier = modifier
             .width(148.dp)
             .clip(RoundedCornerShape(16.dp))
-            .clickable {
-                haptic.click()
-                onClick()
-            }
+            .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(playlist) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
         AsyncImage(
@@ -57,7 +56,8 @@ fun PlaylistCard(
             text = playlist.title,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
+            maxLines = 2,
+            minLines = 2,
             overflow = TextOverflow.Ellipsis
         )
         Text(

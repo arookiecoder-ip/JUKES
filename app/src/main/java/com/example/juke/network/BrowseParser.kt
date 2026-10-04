@@ -32,7 +32,7 @@ object BrowseParser {
         val target = raw["target"].objectOrEmpty()
         val play = raw["play"].objectOrEmpty()
         val video = raw.text("video_id", "videoId").ifBlank { play.text("videoId") }
-        val browse = target.text("id").ifBlank { raw.text("browseId", "channel_id", "channelId", "id") }
+        val browse = target.text("id").ifBlank { raw.text("browseId", "browse_id", "channel_id", "channelId", "id") }
         val playlist = raw.text("playlistId", "playlist_id", "audioPlaylistId").ifBlank { play.text("playlistId") }
         val declared = raw.text("kind", "type", "resultType").lowercase()
         val kind = when {
@@ -46,14 +46,14 @@ object BrowseParser {
         }
         val artists = raw.array("artists")
         val credit = artists.mapNotNull { (it as? JsonObject)?.text("name")?.takeIf(String::isNotBlank) }.joinToString(", ")
-        val artist = raw.text("artist", "author").ifBlank { credit }.ifBlank { raw.text("subtitle", "description") }
+        val artist = raw.text("artist", "author", "owner").ifBlank { credit }.ifBlank { raw.text("subtitle", "description") }
         val artistId = raw.text("artistId", "artist_id", "channel_id", "channelId").ifBlank { artists.firstOrNull().objectOrEmpty().text("id", "browseId") }
         val albumId = raw.text("albumId", "album_id", "albumBrowseId").ifBlank { raw["album"].objectOrEmpty().text("id", "browseId") }
         val clockDuration = raw.text("duration").split(":").mapNotNull { it.toLongOrNull() }.fold(0L) { seconds, part -> seconds * 60 + part } * 1000
         val duration = raw.number("duration_ms").takeIf { it > 0 } ?: (raw.number("duration_seconds").takeIf { it > 0 } ?: raw.number("durationSec")) * 1000
         val durationMs = duration.takeIf { it > 0 } ?: clockDuration
         return BrowseItem(video.ifBlank { browse.ifBlank { playlist.ifBlank { raw.text("params") } } }, kind,
-            raw.text("title", "name").ifBlank { "Untitled" }, artist,
+            raw.text("title", "name").ifBlank { if (kind == "artist") raw.text("artist") else "" }.ifBlank { "Untitled" }, artist,
             listOf("image", "thumbnail", "thumbnail_url", "thumbnails", "images").firstNotNullOfOrNull { imageUrl(raw[it]).takeIf(String::isNotBlank) }.orEmpty(),
             video, playlist.ifBlank { if (kind == "playlist") browse.removePrefix("VL") else "" }, durationMs,
             artistId, albumId, raw.flag("editable"), raw)

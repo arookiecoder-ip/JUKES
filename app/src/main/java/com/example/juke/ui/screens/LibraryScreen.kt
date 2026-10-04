@@ -107,6 +107,7 @@ fun LibraryScreen(
     val uiState by libraryViewModel.uiState.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
     val context = LocalContext.current
+    val mediaMenu = com.example.juke.ui.components.LocalMediaMenu.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
 
     fun performHapticFeedback() {
@@ -507,7 +508,7 @@ fun LibraryScreen(
                                     },
                                     onLongClick = {
                                         performHapticFeedback()
-                                        libraryViewModel.toggleTrackSelection(track.uuid)
+                                        mediaMenu?.show(track)
                                     },
                                     onToggleFavorite = { libraryViewModel.toggleFavorite(track) },
                                     trailingIcon = Icons.Default.AddCircle,

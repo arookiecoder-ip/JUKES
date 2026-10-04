@@ -20,6 +20,8 @@ import com.example.juke.models.Track
 import com.example.juke.models.fetchLyricsWithRetry
 import com.example.juke.models.withUpdatedLyrics
 import com.example.juke.network.AlexaBackendApi
+import com.example.juke.network.flag
+import com.example.juke.network.number
 import com.example.juke.network.Backend
 import com.example.juke.network.BackendAuthException
 import com.example.juke.network.LyricsApi
@@ -150,7 +152,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var signedIn = false
     private var signInJob: Job? = null
 
-    val uiState: StateFlow<MusicUiState> = combine(
+    private val _echoRequests = MutableStateFlow(0)
+    private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow) { switching, requests, buffering ->
+        switching || requests > 0 || (buffering && !isAlexa)
+    }
+    private val combinedState: StateFlow<MusicUiState> = combine(
         _output,
         _uiState,
         echo.state,
@@ -163,6 +169,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             queue = state.queue.map { it.withLike(liked) },
             extractedColors = colors
         )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
+
+    val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy) { state, busy ->
+        state.copy(isLoading = state.isLoading || busy)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
 
     private fun Track.withLike(liked: Set<String>) =
@@ -184,6 +194,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             queue = state.queue.map { if (it.uuid == current?.uuid) current else it },
             queueIndex = state.index,
             isPlaying = state.playing,
+            isLoading = state.playing && !state.confirmed,
             position = state.livePosition(),
             duration = state.durationMs
         )
@@ -740,7 +751,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun launchEcho(block: suspend () -> Unit) {
-        viewModelScope.launch { runEcho(block) }
+        viewModelScope.launch {
+            _echoRequests.update { it + 1 }
+            try { runEcho(block) } finally { _echoRequests.update { (it - 1).coerceAtLeast(0) } }
+        }
     }
 
     /** Play one song; the queue continues with its radio. */
@@ -750,6 +764,56 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch { phoneSetQueue(listOf(track), 0) }
+    }
+
+    fun startRadio(track: Track) {
+        if (isAlexa) { launchEcho { echo.playSong(track, radio = true) }; return }
+        viewModelScope.launch {
+            phoneSetQueue(listOf(track), 0, throwOnFailure = false)
+            if (_uiState.value.currentTrack?.ytVideoId == track.ytVideoId) {
+                queueManager.initializeQueue(listOf(_uiState.value.currentTrack!!), isRadioMode = true)
+            }
+        }
+    }
+
+    private suspend fun collectionTracks(item: com.example.juke.network.BrowseItem): List<Track> {
+        val path = if (item.kind == "album") "/api/album/${item.id}" else "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
+        val tracks = mutableListOf<Track>()
+        var offset = 0L
+        do {
+            val data = Backend.get(path, if (item.kind == "album") emptyMap() else mapOf("limit" to "100", "offset" to offset.toString())).objectOrEmpty()
+            tracks += data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }.filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value, item.image) }
+            if (item.kind == "album" || !data.flag("has_more")) break
+            val next = data.number("next_offset")
+            check(next > offset) { "Could not load the rest of this playlist" }
+            offset = next
+        } while (true)
+        return tracks
+    }
+
+    fun playCollection(item: com.example.juke.network.BrowseItem, shuffle: Boolean = false) {
+        viewModelScope.launch {
+            _echoRequests.update { it + 1 }
+            try {
+                val tracks = collectionTracks(item).let { if (shuffle) it.shuffled() else it }
+                check(tracks.isNotEmpty()) { "This collection is empty" }
+                if (isAlexa) runEcho { echo.playQueue(tracks, 0) } else phoneSetQueue(tracks, 0)
+            } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+            catch (e: Exception) { _messages.tryEmit(e.message ?: "Could not load collection") }
+            finally { _echoRequests.update { (it - 1).coerceAtLeast(0) } }
+        }
+    }
+
+    fun queueCollection(item: com.example.juke.network.BrowseItem, next: Boolean) {
+        viewModelScope.launch {
+            try {
+                val tracks = collectionTracks(item)
+                if (next) addNext(tracks) else addToQueue(tracks)
+            } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+            catch (e: Exception) { _messages.tryEmit(e.message ?: "Could not load collection") }
+        }
     }
 
     /** Mix: replace the upcoming songs with a fresh radio from the current song. */

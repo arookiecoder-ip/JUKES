@@ -202,6 +202,7 @@ private fun TrackItem(
     onClick: () -> Unit
 ) {
     FlatTrackRow(
+        track = track,
         imageUrl = track.thumbnailUri,
         title = track.title,
         subtitle = track.artist,

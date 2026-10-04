@@ -118,13 +118,15 @@ fun PlayerControls(
                 .scale(playButtonScale.value)
                 .glassPane(CircleShape, GlassLevel.Thick, accent)
                 .background(accent.copy(alpha = 0.9f))
-                .clickable(role = Role.Button) {
+                .clickable(enabled = !uiState.isLoading, role = Role.Button) {
                     haptic.heavyClick()
                     musicViewModel.togglePlayPause()
                 },
             contentAlignment = Alignment.Center
         ) {
-            Crossfade(
+            if (uiState.isLoading) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(resolvedIconSize).semantics { stateDescription = "Loading playback" }, color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 3.dp)
+            } else Crossfade(
                 targetState = uiState.isPlaying,
                 animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
                 label = "playPauseIcon"

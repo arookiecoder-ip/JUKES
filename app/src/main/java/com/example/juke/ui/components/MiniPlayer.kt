@@ -130,6 +130,7 @@ fun MiniPlayer(
     val isRomanizedLyricsEnabled by musicViewModel.isRomanizedLyricsEnabled.collectAsStateWithLifecycle()
     val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
     val context = LocalContext.current
     // Power tools → Gestures: optional double-tap and long-press shortcuts on the mini player.
     val gesturePrefs = remember { context.getSharedPreferences("power_prefs", android.content.Context.MODE_PRIVATE) }
@@ -265,7 +266,7 @@ fun MiniPlayer(
                     } else null,
                     onLongClick = if (gesturePrefs.getBoolean("mini_long_press_favorite", false)) {
                         { haptic.confirm(); musicViewModel.toggleFavorite(currentTrack) }
-                    } else null,
+                    } else { { haptic.heavyClick(); menu?.show(currentTrack) } },
                     onClick = {
                         haptic.click()
                         onExpand()
@@ -425,6 +426,7 @@ fun MiniPlayer(
                         miniPlayScale.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
                     }
                     IconButton(
+                        enabled = !uiState.isLoading,
                         onClick = {
                             haptic.heavyClick()
                             musicViewModel.togglePlayPause()
@@ -433,7 +435,9 @@ fun MiniPlayer(
                             .size(40.dp)
                             .scale(miniPlayScale.value)
                     ) {
-                        Crossfade(
+                        if (uiState.isLoading) {
+                            androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else Crossfade(
                             targetState = uiState.isPlaying,
                             animationSpec = tween(
                                 durationMillis = 180,

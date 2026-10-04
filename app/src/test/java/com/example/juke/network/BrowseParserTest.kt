@@ -45,4 +45,24 @@ class BrowseParserTest {
         assertEquals(listOf("track","mood","album"),page.shelves.flatMap { it.items }.map { it.kind })
         assertEquals("abc123",page.shelves[1].items.single().id)
     }
+    @Test fun normalizedSearchBrowseIdsKeepArtistsAlbumsAndPlaylistsNavigable() {
+        val artist = BrowseParser.item(Json.parseToJsonElement("""{"browse_id":"UC123","name":"Singer","thumbnail":"art"}""") as kotlinx.serialization.json.JsonObject, "artists")
+        assertEquals("UC123", artist.id)
+        assertEquals("Singer", artist.title)
+        assertEquals("artist", artist.kind)
+        val album = BrowseParser.item(Json.parseToJsonElement("""{"browse_id":"MPRE123","playlist_id":"OLAK123","title":"Album"}""") as kotlinx.serialization.json.JsonObject, "albums")
+        assertEquals("MPRE123", album.id)
+        assertEquals("OLAK123", album.playlistId)
+        val playlist = BrowseParser.item(Json.parseToJsonElement("""{"browse_id":"VLPL123","owner":"Owner","title":"Playlist"}""") as kotlinx.serialization.json.JsonObject, "playlists")
+        assertEquals("PL123", playlist.playlistId)
+        assertEquals("Owner", playlist.subtitle)
+    }
+    @Test fun unfilteredArtistHeroRetainsItsNameAndAlbumRadioKeepsPlaylistRouting() {
+        val artist = item("""{"category":"Top result","resultType":"artist","browseId":"UC123","artist":"Singer"}""")
+        assertEquals("Singer", artist.title)
+        assertEquals("artist", artist.kind)
+        val station = BrowseParser.item(Json.parseToJsonElement("""{"browse_id":"VLRD123","title":"Mix"}""") as kotlinx.serialization.json.JsonObject, "albums")
+        assertEquals("playlist", station.kind)
+        assertEquals("RD123", station.playlistId)
+    }
 }

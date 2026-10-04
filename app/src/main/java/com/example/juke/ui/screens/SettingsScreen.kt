@@ -47,6 +47,7 @@ import com.example.juke.viewmodels.AccountViewModel
 @Composable
 fun SettingsScreen(
     account: AccountViewModel,
+    music: com.example.juke.viewmodels.MusicViewModel,
     onNavigateBack: () -> Unit,
     onNavigateToPowerTools: () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
@@ -54,6 +55,10 @@ fun SettingsScreen(
     val context = LocalContext.current
     val haptic = rememberJukeHaptics()
     val state by account.state.collectAsStateWithLifecycle()
+    val boostEnabled by music.isBoosterEnabled.collectAsStateWithLifecycle()
+    val volume by music.boosterLevel.collectAsStateWithLifecycle()
+    val bass by music.bassLevel.collectAsStateWithLifecycle()
+    val miniLyrics by music.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val powerPrefs = remember { context.getSharedPreferences("power_prefs", Context.MODE_PRIVATE) }
     var powerUnlocked by remember { mutableStateOf(powerPrefs.getBoolean("power_tools_unlocked", false)) }
     var versionTaps by remember { mutableIntStateOf(0) }
@@ -76,6 +81,31 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item { AccountStatusCard(state, account) }
+            item {
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Volume and bass boost", fontWeight = FontWeight.SemiBold)
+                                Text("For playback on this phone", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(checked = boostEnabled, onCheckedChange = music::toggleVolumeBooster)
+                        }
+                        Text("Volume boost · $volume%")
+                        androidx.compose.material3.Slider(value = volume.toFloat(), onValueChange = { music.setVolumeBoosterLevel(it.toInt()) }, valueRange = 0f..100f, enabled = boostEnabled)
+                        Text("Bass boost · $bass%")
+                        androidx.compose.material3.Slider(value = bass.toFloat(), onValueChange = { music.setBassLevel(it.toInt()) }, valueRange = 0f..100f, enabled = boostEnabled)
+                    }
+                }
+            }
+            item {
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Mini-player lyrics", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Switch(checked = miniLyrics, onCheckedChange = music::toggleMiniPlayerLyrics)
+                    }
+                }
+            }
 
             item {
                 GlassButton(

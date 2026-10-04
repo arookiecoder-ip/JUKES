@@ -46,6 +46,7 @@ data class SearchUiState(
     val isShowingSuggestions: Boolean = false,
     val tracks: List<Track> = emptyList(),
     val artists: List<BrowseItem> = emptyList(),
+    val topResult: BrowseItem? = null,
     val playlists: List<BrowseItem> = emptyList(),
     val albums: List<BrowseItem> = emptyList(),
     val isSearching: Boolean = false,
@@ -62,6 +63,8 @@ data class ArtistDetailUiState(
     val topSongsBrowseId: String = "",
     val albums: List<BrowseItem> = emptyList(),
     val singles: List<BrowseItem> = emptyList(),
+    val related: List<BrowseItem> = emptyList(),
+    val subscriptionBusy: Boolean = false,
     val isSubscribed: Boolean? = null,
     val isLoading: Boolean = false,
     val error: String? = null
@@ -143,7 +146,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 tracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
-                albums = emptyList()
+                albums = emptyList(), topResult = null
             )
         }
     }
@@ -305,7 +308,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 tracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
-                albums = emptyList()
+                albums = emptyList(), topResult = null
             )
             return
         }
@@ -321,6 +324,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 fun rows(key: String) = result.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, key) } }
                 _uiState.value = _uiState.value.copy(
                     tracks = rows("songs").filter { it.videoId.isNotBlank() }.map { it.toTrack(liked) },
+                    topResult = rows("all").firstOrNull { it.raw.text("category").equals("Top result", true) && it.id.isNotBlank() }
+                        ?: rows("all").firstOrNull { it.id.isNotBlank() },
                     artists = rows("artists").filter { it.id.isNotBlank() },
                     albums = rows("albums").filter { it.id.isNotBlank() },
                     playlists = rows("playlists").filter { it.playlistId.isNotBlank() || it.id.isNotBlank() },
@@ -335,7 +340,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 val noResults = e.message?.contains("no results", ignoreCase = true) == true
                 _uiState.value = _uiState.value.copy(
                     isSearching = false,
-                    tracks = emptyList(), artists = emptyList(), albums = emptyList(), playlists = emptyList(),
+                    tracks = emptyList(), artists = emptyList(), albums = emptyList(), playlists = emptyList(), topResult = null,
                     error = if (noResults) null else e.message ?: "Search failed"
                 )
             }
@@ -391,9 +396,12 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                     topSongsBrowseId = data.text("topSongsBrowseId"),
                     albums = releases("albums"),
                     singles = releases("singles"),
-                    isSubscribed = subscribedArtists()?.contains(artist.id),
+                    related = data.array("related").mapNotNull { (it as? JsonObject)?.let { row -> BrowseParser.item(row, "related") } }.filter { it.id.isNotBlank() },
+                    isSubscribed = null,
                     isLoading = false
                 )
+                val subscribed = subscribedArtists()?.contains(artist.id)
+                _artistDetailState.update { it.copy(isSubscribed = subscribed) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: BackendAuthException) {
@@ -443,9 +451,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleSubscription() {
         val state = _artistDetailState.value
         val artist = state.artist ?: return
+        if (state.subscriptionBusy || state.isSubscribed == null) return
         val subscribe = state.isSubscribed != true
         viewModelScope.launch {
-            _artistDetailState.update { it.copy(isSubscribed = subscribe) }
+            _artistDetailState.update { it.copy(isSubscribed = subscribe, subscriptionBusy = true) }
             try {
                 val body = JsonObject(mapOf("channel_id" to kotlinx.serialization.json.JsonPrimitive(artist.id)))
                 if (subscribe) Backend.post("/api/subscribed_artists/", body) else Backend.delete("/api/subscribed_artists/", body)
@@ -453,6 +462,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 throw e
             } catch (e: Exception) {
                 _artistDetailState.update { it.copy(isSubscribed = !subscribe, error = e.message) }
+            } finally {
+                _artistDetailState.update { it.copy(subscriptionBusy = false) }
             }
         }
     }

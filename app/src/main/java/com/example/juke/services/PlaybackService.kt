@@ -1113,6 +1113,8 @@ class PlaybackManager private constructor(private val context: Context) {
     private var playerListener: Player.Listener? = null
     private val _isPlaying = MutableStateFlow(false)
     val isPlayingFlow: StateFlow<Boolean> = _isPlaying.asStateFlow()
+    private val _isBuffering = MutableStateFlow(false)
+    val isBufferingFlow: StateFlow<Boolean> = _isBuffering.asStateFlow()
     private val database: MusicDatabase = MusicDatabase.getDatabase(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -1229,6 +1231,7 @@ class PlaybackManager private constructor(private val context: Context) {
                         }
 
                         override fun onPlaybackStateChanged(playbackState: Int) {
+                            _isBuffering.value = playbackState == Player.STATE_BUFFERING
                             Log.d(TAG, "PlayerListener playbackStateChanged: $playbackState")
                             if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
                                 savePlaybackState()
@@ -1237,6 +1240,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
                         override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
                             if (error == null) return
+                            _isBuffering.value = false
                             Log.e(TAG, "Player error: ${error.message}", error)
                             val trackId = controller?.currentMediaItem?.mediaId ?: return
                             recoverStream(trackId)
