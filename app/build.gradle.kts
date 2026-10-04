@@ -49,6 +49,17 @@ android {
             "POSTHOG_HOST",
             "\"${properties.getProperty("POSTHOG_HOST", "")}\""
         )
+        // Alexa skill backend (youtube-music-alexa-skill): first audio source when both are set.
+        buildConfigField(
+            "String",
+            "JUKE_BACKEND_URL",
+            "\"${properties.getProperty("JUKE_BACKEND_URL", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "JUKE_BACKEND_KEY",
+            "\"${properties.getProperty("JUKE_BACKEND_KEY", "")}\""
+        )
     }
 
     androidResources {
