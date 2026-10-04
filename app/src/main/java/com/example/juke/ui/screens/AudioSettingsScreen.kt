@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BatterySaver
+import androidx.core.content.edit
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lyrics
@@ -104,6 +106,8 @@ fun AudioSettingsScreen(
     val powerCtx = androidx.compose.ui.platform.LocalContext.current
     val powerPrefs = remember { powerCtx.getSharedPreferences("power_prefs", android.content.Context.MODE_PRIVATE) }
     var powerUnlocked by remember { mutableStateOf(powerPrefs.getBoolean("power_tools_unlocked", false)) }
+    val audioPrefs = remember { powerCtx.getSharedPreferences("audio_effects_prefs", android.content.Context.MODE_PRIVATE) }
+    var batterySaver by remember { mutableStateOf(audioPrefs.getBoolean("battery_saver_playback", false)) }
     var versionTaps by remember { mutableIntStateOf(0) }
     var lastVersionTapAt by remember { mutableLongStateOf(0L) }
     var lastBoosterTickBucket by remember { mutableIntStateOf((boosterLevel / 5).coerceIn(0, 20)) }
@@ -221,6 +225,43 @@ fun AudioSettingsScreen(
                                         onCheckedChange = {
                                             haptic.toggle()
                                             musicViewModel.toggleSkipSilence(it)
+                                        }
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(
+                                    containerColor = Color.Transparent
+                                )
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                            // Offloaded playback bypasses the in-app audio processing, so it only
+                            // engages while boost, stable volume and skip silence are off.
+                            val effectsActive = isBoosterEnabled || isNormalizationEnabled || isSkipSilenceEnabled
+                            CompactItem(
+                                headlineContent = {
+                                    Text(
+                                        "Battery Saver Playback",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(
+                                        if (batterySaver && effectsActive) "Paused while boost, stable volume or skip silence is on"
+                                        else "Decode on the audio chip so the CPU can sleep"
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Rounded.BatterySaver, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = batterySaver,
+                                        onCheckedChange = {
+                                            haptic.toggle()
+                                            batterySaver = it
+                                            audioPrefs.edit { putBoolean("battery_saver_playback", it) }
                                         }
                                     )
                                 },

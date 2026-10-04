@@ -200,11 +200,13 @@ fun PlayerScreen(
     val isTablet = screenWidth >= 600.dp
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner) {
+    // Poll the position only while playing; paused, one read is enough (no 300 ms wakeups).
+    LaunchedEffect(lifecycleOwner, uiState.isPlaying) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                musicViewModel.updateProgress()
+            musicViewModel.updateProgress()
+            while (uiState.isPlaying) {
                 delay(300)
+                musicViewModel.updateProgress()
             }
         }
     }
