@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -139,7 +140,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
                                 else state.page?.shelves?.flatMap { it.items }?.firstOrNull { it.videoId.isNotBlank() }?.let { remote.play(it) }
                             }, enabled = state.serial.isNotBlank()) { Text("Play") }
                             TextButton(onClick = { remote.queue(entity) }, enabled = state.serial.isNotBlank()) { Text("Add collection to queue") }
-                            if(entity.kind == "artist") {
+                            if(entity.kind == "artist" && !state.guest) {
                                 TextButton(onClick = { remote.subscribe(entity, true) }) { Text("Subscribe") }
                                 TextButton(onClick = { remote.subscribe(entity, false) }) { Text("Unsubscribe") }
                                 TextButton(onClick = remote::artistSongs) { Text("All songs") }
@@ -175,7 +176,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
     }
     menuItem?.let { item ->
         AlertDialog(onDismissRequest = { menuItem = null }, title = { Text(item.title) }, text = {
-            Column(Modifier.horizontalScroll(rememberScrollState())) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 TextButton(onClick = { remote.play(item); menuItem = null }) { Text("Play on Echo") }
                 if(item.videoId.isNotBlank() && !state.guest) {
                     TextButton(onClick = { remote.play(item, radio = true); menuItem = null }) { Text("Start radio") }
@@ -187,8 +188,8 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
                         scope.launch { runCatching { remote.playlists() }.onSuccess { playlists = it }.onFailure { playlistError = it.message } }
                     }) { Text("Add to playlist") }
                 }
-                if(!state.guest) TextButton(onClick = { remote.queue(item, true); menuItem = null }) { Text("Play next") }
-                if(!state.guest) TextButton(onClick = { remote.queue(item); menuItem = null }) { Text("Add to queue") }
+                TextButton(onClick = { remote.queue(item, true); menuItem = null }) { Text("Play next") }
+                TextButton(onClick = { remote.queue(item); menuItem = null }) { Text("Add to queue") }
                 if(item.editable) {
                     TextButton(onClick = { rename = item; menuItem = null }) { Text("Rename playlist") }
                     TextButton(onClick = { delete = item; menuItem = null }) { Text("Delete playlist") }
@@ -266,7 +267,7 @@ private fun remoteTime(ms: Long): String = "${ms / 60000}:${((ms / 1000) % 60).t
     val queue = state.nowPlaying.array("queue").map { AlexaRemoteParser.item(it.objectOrEmpty()) }
     var clear by remember { mutableStateOf(false) }
     Column {
-        Row { TextButton(onClick = { remote.queueEdit("shuffle") }, enabled = queue.isNotEmpty() && !state.guest) { Text("Shuffle") }; TextButton(onClick = { clear = true }, enabled = queue.isNotEmpty() && !state.guest) { Text("Clear queue") } }
+        Row { TextButton(onClick = { remote.queueEdit("shuffle") }, enabled = queue.isNotEmpty()) { Text("Shuffle") }; TextButton(onClick = { clear = true }, enabled = queue.isNotEmpty() && !state.guest) { Text("Clear queue") } }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if(queue.isEmpty()) item { Text("Queue is empty. Choose music from Home, Search or Library.") }
             itemsIndexed(queue) { index, item ->
@@ -274,9 +275,9 @@ private fun remoteTime(ms: Long): String = "${ms / 60000}:${((ms / 1000) % 60).t
                     if(index.toLong() == state.nowPlaying.number("queue_index")) Text("Current song", style = MaterialTheme.typography.labelMedium)
                     RemoteRow(item, state.liked.contains(item.videoId), { remote.play(item, index = index) }, { onMenu(item) })
                     Row {
-                        TextButton(onClick = { remote.queueEdit("move", index, index - 1) }, enabled = index > 0 && !state.busy && !state.guest) { Text("Move up") }
-                        TextButton(onClick = { remote.queueEdit("move", index, index + 1) }, enabled = index < queue.lastIndex && !state.busy && !state.guest) { Text("Move down") }
-                        TextButton(onClick = { remote.queueEdit("remove", index) }, enabled = !state.busy && !state.guest) { Text("Remove") }
+                        TextButton(onClick = { remote.queueEdit("move", index, index - 1) }, enabled = index > 0 && !state.busy) { Text("Move up") }
+                        TextButton(onClick = { remote.queueEdit("move", index, index + 1) }, enabled = index < queue.lastIndex && !state.busy) { Text("Move down") }
+                        TextButton(onClick = { remote.queueEdit("remove", index) }, enabled = !state.busy && index.toLong() != state.nowPlaying.number("queue_index")) { Text("Remove") }
                     }
                 }
             }

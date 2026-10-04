@@ -432,20 +432,18 @@ class MainActivity : ComponentActivity() {
                         if (isExpanded && currentRoute != "settings" && !remoteMode) {
                             GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
                         }
-                        if (remoteMode && currentRoute?.startsWith("settings") != true) {
-                            Box(Modifier.weight(1f)) {
+                        NavHost(
+                            navController = navController,
+                            startDestination = Screen.Home.route,
+                            modifier = Modifier.weight(1f).padding(contentPadding)
+                        ) {
+                            composable("alexa-remote") {
                                 AlexaRemoteScreen(
                                     server = remoteServer,
                                     onSettings = { navController.navigate("settings") },
                                     onPhoneMusic = { musicViewModel.setAlexaRemoteEnabled(false) }
                                 )
                             }
-                        } else {
-                        NavHost(
-                            navController = navController,
-                            startDestination = Screen.Home.route,
-                            modifier = Modifier.weight(1f).padding(contentPadding)
-                        ) {
                             composable(Screen.Home.route) {
                                 HomeScreen(
                                     musicViewModel = musicViewModel,
@@ -567,11 +565,23 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                        }
                     }
                     }
                     }
                 }
+                }
+
+                LaunchedEffect(remoteMode, currentRoute) {
+                    if (currentRoute?.startsWith("settings") != true) {
+                        if (remoteMode && currentRoute != "alexa-remote") {
+                            navController.navigate("alexa-remote") { launchSingleTop = true }
+                        } else if (!remoteMode && currentRoute == "alexa-remote") {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo("alexa-remote") { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
                 }
 
                 // Player Modal

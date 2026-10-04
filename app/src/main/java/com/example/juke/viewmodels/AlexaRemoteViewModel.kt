@@ -95,7 +95,9 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
         val serial = _state.value.serial
         if (serial.isBlank()) return
         val np = get("/alexa/now_playing/", mapOf("serial" to serial)).objectOrEmpty()
-        if (serial == _state.value.serial) _state.update { it.copy(nowPlaying = np) }
+        if (serial == _state.value.serial) _state.update {
+            it.copy(nowPlaying = np, error = np["playback_error"].objectOrEmpty().text("message").takeIf(String::isNotBlank) ?: it.error)
+        }
     }
     fun selectDevice(serial: String) = launchAction {
         prefs.edit().putString("alexa_remote_device", serial).apply()
@@ -171,6 +173,12 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
         if (item.videoId.isNotBlank()) send("/alexa/play_queue/", buildJsonObject {
             item.metadata().forEach { (k,v) -> put(k,v) }; put("serial", serial()); put("force_radio", radio)
             index?.let { put("queue_index", it) }
+            val collection = _state.value.destination.entity
+            if(!radio && index == null && collection != null) {
+                if(collection.kind == "playlist") put("playlist_id", collection.playlistId)
+                else if(collection.kind in listOf("album", "artist")) put("queue_items", JsonArray(_state.value.page?.shelves.orEmpty().flatMap { it.items }.filter { it.videoId.isNotBlank() }.map { it.metadata() }))
+                put("suppress_radio", true)
+            }
         }) else {
             val pl = item.playlistId.ifBlank { error("Open this collection to choose a song.") }
             send("/alexa/play/", buildJsonObject { put("serial", serial()); put("query", "https://music.youtube.com/playlist?list=$pl") })
@@ -189,7 +197,10 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     fun queueEdit(action: String, index: Int = 0, to: Int = 0) = launchAction {
         val path = when(action) { "remove" -> "queue_remove"; "move" -> "queue_reorder"; "shuffle" -> "shuffle_queue"; else -> "clear" }
         send("/alexa/$path/", buildJsonObject {
-            put("serial", serial()); if(action == "remove") put("index", index)
+            put("serial", serial()); if(action == "remove") {
+                put("index", index)
+                _state.value.nowPlaying.array("queue").getOrNull(index)?.objectOrEmpty()?.text("video_id", "videoId")?.let { put("video_id", it) }
+            }
             if(action == "move") { put("from_index", index); put("to_index", to) }
         }); refreshNow()
     }
