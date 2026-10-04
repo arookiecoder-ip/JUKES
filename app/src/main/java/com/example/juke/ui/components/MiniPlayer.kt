@@ -169,18 +169,23 @@ fun MiniPlayer(
                 romanizedSyncedLyrics = null
                 return@LaunchedEffect
             }
-            romanizedSyncedLyrics = currentTrack.romanizedSyncedLyrics ?: currentTrack.syncedLyrics?.let {
-                LyricsRomanizer.romanizeSyncedLyrics(it)
-            }
-
-            if (romanizedSyncedLyrics != null &&
-                romanizedSyncedLyrics != currentTrack.romanizedSyncedLyrics
-            ) {
-                musicViewModel.persistRomanizedLyrics(
-                    track = currentTrack,
-                    romanizedSyncedLyrics = romanizedSyncedLyrics,
-                    romanizedPlainLyrics = null
-                )
+            // Same rules as the full player: a saved result with non-Latin lines left is redone,
+            // failed lines are retried, and only a complete result is saved.
+            for (attempt in 0..3) {
+                if (attempt > 0) delay(5_000L * attempt)
+                val result = currentTrack.romanizedSyncedLyrics?.takeIf(LyricsRomanizer::isFullyRomanized)
+                    ?: currentTrack.syncedLyrics?.let { LyricsRomanizer.romanizeSyncedLyrics(it) }
+                romanizedSyncedLyrics = result
+                if (result == null) break
+                if (!LyricsRomanizer.isFullyRomanized(result)) continue
+                if (result != currentTrack.romanizedSyncedLyrics) {
+                    musicViewModel.persistRomanizedLyrics(
+                        track = currentTrack,
+                        romanizedSyncedLyrics = result,
+                        romanizedPlainLyrics = null
+                    )
+                }
+                break
             }
         }
 

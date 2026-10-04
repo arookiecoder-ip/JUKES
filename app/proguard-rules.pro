@@ -52,8 +52,10 @@
 
 
 
-# Keep network API response models (they also have @Serializable)
--keep class com.example.juke.network.** { *; }
+# Keep network API response models (@Serializable). The API classes themselves (SpotifyApi,
+# RecommenderApi, ...) are left to R8 so they can be shrunk and optimised; Gson only parses
+# into JsonObject, so it needs no keep on our classes.
+-keep @kotlinx.serialization.Serializable class com.example.juke.network.** { *; }
 
 # Keep attributes for serialization
 -keepattributes *Annotation*, InnerClasses
@@ -81,11 +83,17 @@
 -keep class com.google.gson.JsonObject { *; }
 -keep class com.google.gson.JsonArray { *; }
 
-# Strip unused Media3 extractors (~150-200KB savings)
--assumenosideeffects class androidx.media3.extractor.mkv.** { *; }
--assumenosideeffects class androidx.media3.extractor.flv.** { *; }
--assumenosideeffects class androidx.media3.extractor.wav.** { *; }
--assumenosideeffects class androidx.media3.extractor.ogg.** { *; }
--assumenosideeffects class androidx.media3.extractor.amr.** { *; }
--assumenosideeffects class androidx.media3.extractor.flac.** { *; }
--assumenosideeffects class androidx.media3.extractor.ts.** { *; }
+# Note: an earlier "-assumenosideeffects class androidx.media3.extractor.<fmt>.** { *; }" block
+# was removed. It saved nothing (DefaultExtractorsFactory still references every extractor) and
+# let R8 delete void calls such as init/seek/release inside the FLAC, OGG, WAV, MKV, TS, FLV and
+# AMR extractors, which would break playback of those files.
+
+# -----------------------------------------------------------------
+# 4. KOTLIN NULL CHECKS
+# -----------------------------------------------------------------
+# Parameter null checks on every public Kotlin function: dead weight in release (our own
+# code is Kotlin-to-Kotlin). Expression checks on Java return values are kept.
+-assumenosideeffects class kotlin.jvm.internal.Intrinsics {
+    public static void checkNotNullParameter(java.lang.Object, java.lang.String);
+    public static void checkParameterIsNotNull(java.lang.Object, java.lang.String);
+}
