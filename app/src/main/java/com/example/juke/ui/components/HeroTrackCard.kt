@@ -25,12 +25,12 @@ fun HeroTrackCard(track: Track, onClick: () -> Unit, modifier: Modifier = Modifi
     Column(modifier.fillMaxWidth().combinedClickable(onClickLabel = "Play ${track.title}", role = Role.Button, onLongClick = { haptic.heavyClick(); menu?.show(track) }, onLongClickLabel = "Song options", onClick = { haptic.click(); onClick() })) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.5f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             AsyncImage(track.thumbnailUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            FilledIconButton(onClick = { haptic.click(); onClick() }, modifier = Modifier.size(80.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                Icon(Icons.Filled.PlayArrow, "Play ${track.title}", Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onPrimary)
+            FilledIconButton(onClick = { haptic.click(); onClick() }, modifier = Modifier.size(56.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.24f))) {
+                Icon(Icons.Filled.PlayArrow, "Play ${track.title}", Modifier.size(34.dp), tint = androidx.compose.ui.graphics.Color.White)
             }
         }
         Spacer(Modifier.height(10.dp))
-        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

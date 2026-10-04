@@ -379,12 +379,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
 
-        viewModelScope.launch {
-            uiState.map { it.currentTrack?.thumbnailUri }
-                .distinctUntilChanged()
-                .collect { thumbnailUri -> extractColors(thumbnailUri) }
-        }
-
         // Synch UI queue with PlaybackManager source of truth
         viewModelScope.launch {
             playbackManager.queueFlow.collect { queueIds ->

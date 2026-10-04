@@ -55,17 +55,26 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
     if (track != null || item != null) {
         ModalBottomSheet(onDismissRequest = menu::dismiss, shape = RectangleShape, containerColor = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-                val artwork = track?.thumbnailUri ?: item?.image
-                Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp).aspectRatio(1.8f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                    if (!artwork.isNullOrBlank()) AsyncImage(artwork, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    else Icon(Icons.Filled.MusicNote, null, Modifier.size(64.dp))
+                MusicMenuHeader(track?.title ?: item!!.title, track?.artist ?: item?.subtitle.orEmpty(), track?.thumbnailUri ?: item?.image)
+                fun quick(run: () -> Unit) { menu.dismiss(); run() }
+                if (track != null) {
+                    val liked = track.ytVideoId in AccountRepository.liked.value
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                        MusicQuickAction(Icons.Filled.ThumbUp, if (liked) "Unlike" else "Like", Modifier.weight(1f), selected = liked) { quick { music.toggleFavorite(track) } }
+                        MusicQuickAction(Icons.Filled.SkipNext, "Next", Modifier.weight(1f)) { quick { music.addNext(track) } }
+                        MusicQuickAction(Icons.Filled.Add, "Queue", Modifier.weight(1f)) { quick { music.addToQueue(listOf(track)) } }
+                        MusicQuickAction(Icons.Filled.Radio, "Radio", Modifier.weight(1f)) { quick { music.startRadio(track) } }
+                    }
+                    HorizontalDivider()
+                } else if (item != null && item.kind in listOf("album", "playlist")) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                        MusicQuickAction(Icons.Filled.PlayArrow, "Play", Modifier.weight(1f)) { quick { music.playCollection(item) } }
+                        MusicQuickAction(Icons.Filled.Shuffle, "Shuffle", Modifier.weight(1f)) { quick { music.playCollection(item, shuffle = true) } }
+                        MusicQuickAction(Icons.Filled.SkipNext, "Next", Modifier.weight(1f)) { quick { music.queueCollection(item, next = true) } }
+                        MusicQuickAction(Icons.Filled.Add, "Queue", Modifier.weight(1f)) { quick { music.queueCollection(item, next = false) } }
+                    }
+                    HorizontalDivider()
                 }
-                Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                    Text(track?.title ?: item!!.title, style = MaterialTheme.typography.titleLarge)
-                    val subtitle = track?.artist ?: item?.subtitle.orEmpty()
-                    if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                HorizontalDivider()
                 @Composable fun action(label: String, run: () -> Unit) {
                     val icon = when (label) {
                         "Play" -> Icons.Filled.PlayArrow
@@ -80,19 +89,9 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         "Shuffle play" -> Icons.Filled.Shuffle
                         else -> Icons.Filled.OpenInNew
                     }
-                    Row(Modifier.fillMaxWidth().clickable { menu.dismiss(); run() }.padding(horizontal = 20.dp, vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(icon, null, Modifier.size(24.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text(label, style = MaterialTheme.typography.bodyLarge)
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    MusicMenuOption(icon, label) { menu.dismiss(); run() }
                 }
                 if (track != null) {
-                    action("Play") { music.playTrack(track) }
-                    action(if (track.ytVideoId in AccountRepository.liked.value) "Unlike" else "Like") { music.toggleFavorite(track) }
-                    action("Play next") { music.addNext(track) }
-                    action("Add to queue") { music.addToQueue(listOf(track)) }
-                    action("Play Radio") { music.startRadio(track) }
                     action("Go to artist") {
                         resolve {
                             val id = track.artistId ?: Backend.get("/api/artist/resolve/", mapOf("name" to track.artist)).objectOrEmpty().text("channel_id", "artist_id", "id")
@@ -119,12 +118,6 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     }
                 } else if (item != null) {
                     action("Open ${item.kind}") { onOpen(item) }
-                    if (item.kind in listOf("album", "playlist")) {
-                        action("Play") { music.playCollection(item) }
-                        action("Shuffle play") { music.playCollection(item, shuffle = true) }
-                        action("Play next") { music.queueCollection(item, next = true) }
-                        action("Add to queue") { music.queueCollection(item, next = false) }
-                    }
                 }
             }
         }

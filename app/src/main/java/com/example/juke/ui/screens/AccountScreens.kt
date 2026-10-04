@@ -123,7 +123,7 @@ fun SignInScreen(state: AccountUiState, account: AccountViewModel) {
             }
             Spacer(Modifier.height(20.dp))
             Text(
-                "JUKE",
+                "Music Box",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface

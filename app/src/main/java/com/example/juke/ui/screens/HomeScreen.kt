@@ -388,7 +388,7 @@ private fun RecentlyPlayedSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -420,7 +420,7 @@ private fun BrowseShelfRow(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -440,7 +440,7 @@ private fun ArtistShelf(
                 ArtistCircle(artist = artist, onClick = { onClick(artist) })
             }
         }
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -452,7 +452,7 @@ private fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -483,12 +483,12 @@ private fun MusicCard(track: Track, onClick: () -> Unit) {
     Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options")) {
         Box(Modifier.size(160.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             AsyncImage(track.thumbnailUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            androidx.compose.material3.FilledIconButton(onClick = onClick, modifier = Modifier.size(64.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                Icon(Icons.Filled.PlayArrow, "Play ${track.title}", Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onPrimary)
+            androidx.compose.material3.FilledIconButton(onClick = onClick, modifier = Modifier.size(48.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = 0.24f))) {
+                Icon(Icons.Filled.PlayArrow, "Play ${track.title}", Modifier.size(30.dp), tint = Color.White)
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -500,13 +500,13 @@ private fun CollectionCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> 
         Box(Modifier.size(160.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
             AsyncImage(item.image, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             if (item.kind in listOf("album", "playlist")) {
-                androidx.compose.material3.FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(48.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                    Icon(Icons.Filled.PlayArrow, "Play ${item.title}", Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                androidx.compose.material3.FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(40.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = 0.24f))) {
+                    Icon(Icons.Filled.PlayArrow, "Play ${item.title}", Modifier.size(26.dp), tint = Color.White)
                 }
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(item.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(item.subtitle.ifBlank { item.kind.replaceFirstChar { it.uppercase() } }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -620,7 +620,7 @@ private fun EmptyHomeState(
             }
             Spacer(modifier = Modifier.height(if (isShort) 12.dp else 24.dp))
             Text(
-                "Welcome to JUKE",
+                "Welcome to Music Box",
                 style = if (isShort) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center

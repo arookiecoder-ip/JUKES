@@ -15,9 +15,12 @@ import androidx.compose.ui.platform.LocalContext
 
 // Neutral, Apple-style surfaces: true black / soft off-white, grouped grays for raised layers.
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80,
+    primary = Color(0xFFFF8A3D),
+    onPrimary = Color.Black,
+    primaryContainer = Color(0xFF43200A),
+    onPrimaryContainer = Color(0xFFFFE1CC),
+    secondary = Color(0xFFFFB787),
+    tertiary = Color(0xFFF6C46F),
     background = Color.Black,
     surface = Color.Black,
     surfaceVariant = Color(0xFF2C2C2E),
@@ -34,9 +37,12 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
+    primary = Color(0xFFA83B00),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFFE0C6),
+    onPrimaryContainer = Color(0xFF341000),
+    secondary = Color(0xFF894C24),
+    tertiary = Color(0xFF765A0C),
     background = Color(0xFFF2F2F7),
     surface = Color(0xFFF2F2F7),
     surfaceVariant = Color(0xFFE5E5EA),
@@ -60,26 +66,8 @@ fun JUKETheme(
     extractedColors: ExtractedColors? = null,
     content: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-    val baseScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-    val colorScheme = extractedColors?.let { colors ->
-        val destination = if (darkTheme) android.graphics.Color.WHITE else android.graphics.Color.BLACK
-        var accent = colors.primary.toArgb()
-        for (step in 0..20) {
-            accent = androidx.core.graphics.ColorUtils.blendARGB(colors.primary.toArgb(), destination, step / 20f)
-            if (androidx.core.graphics.ColorUtils.calculateContrast(accent, baseScheme.surface.toArgb()) >= 4.5) break
-        }
-        val foreground = if (androidx.core.graphics.ColorUtils.calculateContrast(android.graphics.Color.WHITE, accent) >= 4.5)
-            Color.White else Color.Black
-        baseScheme.copy(primary = Color(accent), onPrimary = foreground)
-    } ?: baseScheme
-
-    val glassAccent = extractedColors?.primary ?: colorScheme.primary
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val glassAccent = colorScheme.primary
 
     CompositionLocalProvider(LocalGlassAccent provides glassAccent) {
         MaterialTheme(

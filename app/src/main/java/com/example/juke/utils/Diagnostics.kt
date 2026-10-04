@@ -14,7 +14,7 @@ object Diagnostics {
     /** Plain-text report for bug reports: versions, settings and recent app log lines. */
     suspend fun report(context: Context): String = withContext(Dispatchers.IO) {
         buildString {
-            appendLine("JUKE diagnostics")
+            appendLine("Music Box diagnostics")
             appendLine("Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine()
@@ -31,7 +31,7 @@ object Diagnostics {
     /** App settings as JSON. Contains no credentials; the library lives in the account. */
     suspend fun backupJson(context: Context): String = withContext(Dispatchers.IO) {
         val root = JSONObject()
-        root.put("app", "JUKE")
+        root.put("app", "Music Box")
         root.put("version", BuildConfig.VERSION_NAME)
         root.put("exportedAt", System.currentTimeMillis())
 

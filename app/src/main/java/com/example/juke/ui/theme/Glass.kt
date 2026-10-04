@@ -24,7 +24,7 @@ import dev.chrisbanes.haze.HazeState
 enum class GlassLevel { Thin, Regular, Thick }
 @Composable fun isGlassDark(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
-val LocalGlassAccent = compositionLocalOf { Color(0xFF8E7CFF) }
+val LocalGlassAccent = compositionLocalOf { Color(0xFFFF8A3D) }
 object GlassShapes {
     val Pill = RectangleShape
     val Control = RectangleShape

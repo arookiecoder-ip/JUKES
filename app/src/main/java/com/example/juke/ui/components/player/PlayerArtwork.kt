@@ -72,9 +72,7 @@ fun PlayerArtwork(
     // Use fillMaxHeight so the artwork is bounded by the parent Box's height constraint,
     // then use aspectRatio(1f) to ensure it stays square. This prevents overflow on small screens.
     // While lyrics are open the card fills the whole slot so lines have room to breathe.
-    val artworkModifier = if (showLyrics) modifier.fillMaxSize() else modifier
-        .fillMaxHeight()
-        .aspectRatio(1f)
+    val artworkModifier = modifier.fillMaxSize()
 
     if (queue.isEmpty()) {
         // Fallback if queue is empty for some reason
@@ -137,7 +135,7 @@ private fun ArtworkCard(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .glassPane(RoundedCornerShape(32.dp), GlassLevel.Thick)
+            .background(MaterialTheme.colorScheme.background)
             .clickable {
                 haptic.click()
                 onToggleLyrics()
@@ -173,6 +171,11 @@ private fun ArtworkCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+
+        if (!showLyrics) {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxSize().background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Transparent, MaterialTheme.colorScheme.background))))
         }
 
         if (showLyrics) {
