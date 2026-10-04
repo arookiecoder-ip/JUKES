@@ -91,6 +91,8 @@ import com.example.juke.ui.screens.AudioSettingsScreen
 import com.example.juke.ui.screens.HomeScreen
 import com.example.juke.ui.screens.LibraryScreen
 import com.example.juke.ui.screens.PlayerScreen
+import com.example.juke.ui.screens.AlexaRemoteScreen
+import com.example.juke.viewmodels.MusicSource
 import com.example.juke.ui.screens.PlaylistDetailScreen
 import com.example.juke.ui.screens.SearchScreen
 import com.example.juke.ui.theme.JUKETheme
@@ -147,6 +149,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val musicViewModel: MusicViewModel = viewModel()
             val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
+            val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
+            val remoteEnabled by musicViewModel.alexaRemoteEnabled.collectAsStateWithLifecycle()
+            val remoteServer by musicViewModel.alexaRemoteServer.collectAsStateWithLifecycle()
+            val remoteMode = musicSource == MusicSource.ALEXA && remoteEnabled
 
             JUKETheme(
                 extractedColors = uiState.extractedColors
@@ -392,7 +398,7 @@ class MainActivity : ComponentActivity() {
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
-                        if (currentRoute != "settings") {
+                        if (currentRoute != "settings" && !remoteMode) {
                             Column(
                                 modifier = Modifier
                                     .navigationBarsPadding()
@@ -423,9 +429,18 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                     Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
                     Row(modifier = Modifier.fillMaxSize()) {
-                        if (isExpanded && currentRoute != "settings") {
+                        if (isExpanded && currentRoute != "settings" && !remoteMode) {
                             GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
                         }
+                        if (remoteMode && currentRoute?.startsWith("settings") != true) {
+                            Box(Modifier.weight(1f)) {
+                                AlexaRemoteScreen(
+                                    server = remoteServer,
+                                    onSettings = { navController.navigate("settings") },
+                                    onPhoneMusic = { musicViewModel.setAlexaRemoteEnabled(false) }
+                                )
+                            }
+                        } else {
                         NavHost(
                             navController = navController,
                             startDestination = Screen.Home.route,
@@ -552,6 +567,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+                        }
                     }
                     }
                     }
@@ -559,7 +575,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Player Modal
-                if (showPlayerModal) {
+                if (showPlayerModal && !remoteMode) {
                     PlayerScreen(
                         musicViewModel = musicViewModel,
                         onDismiss = { showPlayerModal = false },

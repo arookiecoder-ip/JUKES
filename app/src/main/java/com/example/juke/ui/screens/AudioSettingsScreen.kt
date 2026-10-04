@@ -54,6 +54,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -103,6 +104,10 @@ fun AudioSettingsScreen(
     val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
     val isAlexaMode = musicSource == MusicSource.ALEXA
+    val remoteEnabled by musicViewModel.alexaRemoteEnabled.collectAsStateWithLifecycle()
+    val remoteServer by musicViewModel.alexaRemoteServer.collectAsStateWithLifecycle()
+    var remoteAddress by remember(remoteServer) { mutableStateOf(remoteServer) }
+    var remoteAddressError by remember { mutableStateOf<String?>(null) }
     val recommendationCount by musicViewModel.recommendationCount.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
     // Power Tools stay locked until the version line is tapped 7 times (like Android's developer options).
@@ -315,7 +320,9 @@ fun AudioSettingsScreen(
                                     )
                                 },
                                 supportingContent = {
-                                    Text(if (isAlexaMode) "Alexa backend" else "Spotify")
+                                    Text(if (isAlexaMode) {
+                                        if (remoteEnabled) "Echo remote and YouTube library" else "Backend playback on this phone"
+                                    } else "Spotify")
                                 },
                                 leadingContent = {
                                     Icon(Icons.Default.Public, contentDescription = null)
@@ -519,6 +526,41 @@ fun AudioSettingsScreen(
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+
+                if (isAlexaMode) {
+                    item {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Alexa workspace", style = MaterialTheme.typography.titleMedium)
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Echo remote")
+                                        Text("Use the same controls, current song and library as your browser.",
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Switch(checked = remoteEnabled, onCheckedChange = { musicViewModel.setAlexaRemoteEnabled(it) })
+                                }
+                                Text("Turn this off to keep using backend streams and the local library on your phone.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                OutlinedTextField(
+                                    value = remoteAddress,
+                                    onValueChange = { remoteAddress = it; remoteAddressError = null },
+                                    label = { Text("Alexa server") }, singleLine = true,
+                                    isError = remoteAddressError != null,
+                                    supportingText = { Text(remoteAddressError ?: "The HTTPS address you use in your browser.") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                GlassButton(onClick = {
+                                    runCatching { musicViewModel.setAlexaRemoteServer(remoteAddress) }
+                                        .onSuccess {
+                                            musicViewModel.setAlexaRemoteEnabled(true)
+                                            onNavigateBack()
+                                        }.onFailure { remoteAddressError = it.message ?: "Invalid server address" }
+                                }) { Text("Open Echo remote") }
                             }
                         }
                     }

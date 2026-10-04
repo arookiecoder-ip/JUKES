@@ -27,6 +27,7 @@ import com.example.juke.models.SpotifyTrack
 import com.example.juke.models.Track
 import com.example.juke.models.withUpdatedLyrics
 import com.example.juke.network.AlexaBackendApi
+import com.example.juke.network.AlexaRemotePolicy
 import com.example.juke.network.RecommenderApi
 import com.example.juke.network.SpotifyApi
 import com.example.juke.network.toAppTrack
@@ -268,6 +269,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (isActive) {
                 delay(5_000)
+                // The native remote owns Echo state; phone heartbeats must not replace it.
+                if (settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA" &&
+                    settingsPrefs.getBoolean("alexa_remote_enabled", true)) continue
                 val current = _uiState.value.currentTrack ?: continue
                 if (current.isStream && current.spotifyId == null && current.ytVideoId != null) {
                     try {
@@ -2050,6 +2054,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _musicSource.value = source
         settingsPrefs.edit { putString("music_source", source.name) }
         Log.d("MusicViewModel", "Music source set to $source")
+    }
+
+    // The native Echo remote and phone stream API use independent server settings.
+    private val _alexaRemoteEnabled = MutableStateFlow(settingsPrefs.getBoolean("alexa_remote_enabled", true))
+    val alexaRemoteEnabled = _alexaRemoteEnabled.asStateFlow()
+    private val _alexaRemoteServer = MutableStateFlow(
+        runCatching { AlexaRemotePolicy.server(settingsPrefs.getString("alexa_remote_server",
+            AlexaRemotePolicy.DEFAULT_SERVER) ?: AlexaRemotePolicy.DEFAULT_SERVER) }
+            .getOrDefault(AlexaRemotePolicy.DEFAULT_SERVER)
+    )
+    val alexaRemoteServer = _alexaRemoteServer.asStateFlow()
+
+    fun setAlexaRemoteEnabled(enabled: Boolean) {
+        settingsPrefs.edit { putBoolean("alexa_remote_enabled", enabled) }
+        _alexaRemoteEnabled.value = enabled
+    }
+
+    fun setAlexaRemoteServer(server: String) {
+        val normalized = AlexaRemotePolicy.server(server)
+        settingsPrefs.edit { putString("alexa_remote_server", normalized) }
+        _alexaRemoteServer.value = normalized
     }
 
     fun isAlexaMode(): Boolean = _musicSource.value == MusicSource.ALEXA
