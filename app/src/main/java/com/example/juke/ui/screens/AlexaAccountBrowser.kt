@@ -21,7 +21,18 @@ import com.example.juke.network.AlexaRemotePolicy
 fun AlexaAccountBrowser(server: String, url: String, cookies: List<String>, onClose: (String) -> Unit) {
     var browser by remember { mutableStateOf<WebView?>(null) }
     val manager = CookieManager.getInstance()
-    val close = { onClose(manager.getCookie(server).orEmpty()) }
+    fun clearCookies() {
+        listOf(server, "$server/youtube-login/").forEach { scope ->
+            manager.getCookie(scope).orEmpty().split(";").forEach { part ->
+                val name = part.trim().substringBefore('=')
+                if(name.isNotBlank()) manager.setCookie(scope, "$name=; Max-Age=0; Path=/; Secure")
+            }
+        }
+    }
+    val close = {
+        val values = manager.getCookie(server).orEmpty()
+        clearCookies(); onClose(values)
+    }
     DisposableEffect(Unit) { onDispose { browser?.stopLoading(); browser?.destroy() } }
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
@@ -39,6 +50,7 @@ fun AlexaAccountBrowser(server: String, url: String, cookies: List<String>, onCl
                         settings.allowContentAccess = false
                         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                         manager.setAcceptCookie(true)
+                        clearCookies()
                         cookies.forEach { manager.setCookie(server, it) }
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

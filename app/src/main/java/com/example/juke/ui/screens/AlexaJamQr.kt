@@ -29,7 +29,7 @@ import java.io.StringReader
             }
             parser.next()
         }
-        dimension to rectangles
+        dimension to rectangles.toList()
     }.getOrDefault(1f to emptyList()) }
     Canvas(Modifier.size(240.dp).background(Color.White)) {
         val scale = size.width / modules.first
