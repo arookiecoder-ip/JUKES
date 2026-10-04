@@ -89,7 +89,7 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
                 Section("Advanced") {
                     Label("First audio source", "Which provider is tried first. A source you reject with \"Wrong song? Refetch\" always goes last for that song.")
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val options = listOf<Source?>(null) + Source.entries
+                        val options = listOf<Source?>(null) + memory.available
                         options.forEach { option ->
                             GlassFilterChip(
                                 selected = preferred == option,
