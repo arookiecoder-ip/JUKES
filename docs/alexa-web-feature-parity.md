@@ -17,7 +17,7 @@ The original phone-only integration could not display Echo state: MusicViewModel
 | Amazon and Google authentication | Native setup controls; restricted account browser only for vendor login/noVNC |
 | Jam start/share/copy/QR/stop, guest join/leave | Jam, with isolated guest credentials |
 
-Native remote defaults to the production HTTPS address. Phone streams retain the Actions-configured staging URL/key. Production and staging accounts are independent. Users sign in as owner or enter the matching API key; owner sign-in is required for YouTube browser reconnect. Passwords and cookies stay in memory; API key preferences are excluded from backup. No keys appear in URLs or HTTP logs.
+Native remote defaults to the production HTTPS address and also accepts a staging base path. API keys are scoped to the selected server. Phone streams retain the Actions-configured staging URL/key. Production and staging accounts are independent. Users sign in as owner or enter the matching API key; owner sign-in is required for YouTube browser reconnect. Passwords and cookies stay in memory; API key preferences are excluded from backup. No keys appear in URLs or HTTP logs.
 
 The original plan intentionally limited phone Alexa mode to tracks. This native remote expands that scope under the user's subsequent request to rebuild web features. It does not remove that phone mode.
 

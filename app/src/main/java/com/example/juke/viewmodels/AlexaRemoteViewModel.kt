@@ -41,7 +41,7 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     private var likedVersion = -1L
 
     fun configure(address: String) {
-        val newKey = authPrefs.getString("api_key", "").orEmpty()
+        val newKey = authPrefs.getString("api_key:$address", "").orEmpty()
         if (api != null && address == server && newKey == key) return
         poll?.cancel(); browse?.cancel(); actionJobs.toList().forEach { it.cancel() }; actionJobs.clear()
         api?.close(); version++; connectionVersion++; likedVersion = -1L
@@ -51,7 +51,7 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
         initialize(); active(isVisible)
     }
     fun saveKey(value: String) {
-        authPrefs.edit().putString("api_key", value.trim()).apply()
+        authPrefs.edit().putString("api_key:$server", value.trim()).apply()
         configure(server)
     }
     private suspend fun get(path: String, query: Map<String, String> = emptyMap()) = requireNotNull(api).request(path, query = query)
@@ -151,6 +151,7 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun search(query: String) {
         if (query.isBlank()) return
+        if (query.startsWith("https://") || query.startsWith("http://")) { playLink(query); return }
         suggest?.cancel(); _state.update { it.copy(suggestions = emptyList()) }
         navigate(RemoteDestination("Search: $query", "/alexa/search/", mapOf("q" to query)))
     }
@@ -205,12 +206,12 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
             }
         }); refreshNow()
     }
-    fun queueEdit(action: String, index: Int = 0, to: Int = 0) = launchAction {
+    fun queueEdit(action: String, index: Int = 0, to: Int = 0, videoId: String = "") = launchAction {
         val path = when(action) { "remove" -> "queue_remove"; "move" -> "queue_reorder"; "shuffle" -> "shuffle_queue"; else -> "clear" }
         send("/alexa/$path/", buildJsonObject {
             put("serial", serial()); if(action == "remove") {
                 put("index", index)
-                _state.value.nowPlaying.array("queue").getOrNull(index)?.objectOrEmpty()?.text("video_id", "videoId")?.let { put("video_id", it) }
+                if(videoId.isNotBlank()) put("video_id", videoId)
             }
             if(action == "move") { put("from_index", index); put("to_index", to) }
         }); refreshNow()

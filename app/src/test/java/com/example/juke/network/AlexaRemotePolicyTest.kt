@@ -4,8 +4,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AlexaRemotePolicyTest {
-    @Test fun defaultsToTheWebServerRatherThanPhoneStaging() {
-        assertEquals("https://alexa.synthora.in/remote/", AlexaRemotePolicy.startUrl(AlexaRemotePolicy.DEFAULT_SERVER))
+    @Test fun defaultsToProductionWithIndependentPhoneConfiguration() {
+        assertEquals("https://alexa.synthora.in", AlexaRemotePolicy.DEFAULT_SERVER)
         assertEquals("https://example.com", AlexaRemotePolicy.server(" HTTPS://EXAMPLE.COM/ "))
     }
 
@@ -27,11 +27,18 @@ class AlexaRemotePolicyTest {
         assertFalse(AlexaRemotePolicy.trusted(root, "https://music.example.com/api/library/"))
     }
 
-    @Test fun rejectsStagingPathsAndCredentialsInsteadOfOpeningTheWrongLibrary() {
-        for (value in listOf("http://alexa.synthora.in", "https://alexa.synthora.in/staging",
+    @Test fun rejectsCredentialsAndAmbiguousServerAddresses() {
+        for (value in listOf("http://alexa.synthora.in", "https://alexa.synthora.in/staging/../",
             "https://alexa.synthora.in?key=secret", "https://user:password@alexa.synthora.in",
             "https://alexa.synthora.in/#library", "file:///tmp/remote", "https://example.com:99999")) {
             assertTrue(value, runCatching { AlexaRemotePolicy.server(value) }.isFailure)
         }
+    }
+    @Test fun nativeStagingServerKeepsAuthenticationInsideItsPrefix() {
+        val server = AlexaRemotePolicy.server("https://alexa.synthora.in/staging/")
+        assertEquals("https://alexa.synthora.in/staging",server)
+        assertTrue(AlexaRemotePolicy.trusted(server,"$server/youtube-login/vnc.html"))
+        assertFalse(AlexaRemotePolicy.trusted(server,"https://alexa.synthora.in/youtube-login/vnc.html"))
+        assertFalse(AlexaRemotePolicy.trusted(server,"https://alexa.synthora.in/staging-evil/login"))
     }
 }
