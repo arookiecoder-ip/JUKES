@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -78,6 +79,15 @@ class PlaylistImportManager private constructor(context: Context) {
             connectivity.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) { online.value = true }
                 override fun onLost(network: Network) { online.value = isOnlineNow() }
+                // Leaving the app, Android (and vivo's battery manager) blocks its network; coming
+                // back only lifts the block, with no onAvailable. Missing this kept the import
+                // waiting for a network that was already there.
+                override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                    online.value = !blocked && isOnlineNow()
+                }
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    online.value = isOnlineNow()
+                }
             })
         } catch (e: Exception) {
             Log.w(TAG, "No network callback: ${e.message}")
@@ -112,8 +122,17 @@ class PlaylistImportManager private constructor(context: Context) {
 
     /** Safe to call any time; does nothing if a run is already active or nothing is pending. */
     fun resume() {
+        online.value = isOnlineNow() // a stale "offline" must not keep a running import parked
         if (job?.isActive == true) return
         job = scope.launch { run() }
+    }
+
+    /** Wait for the network, re-checking now and then in case a connectivity callback never comes. */
+    private suspend fun awaitOnline() {
+        while (!online.value) {
+            withTimeoutOrNull(15_000L) { online.first { it } }
+            if (!online.value) online.value = isOnlineNow()
+        }
     }
 
     private suspend fun run() {
@@ -123,7 +142,7 @@ class PlaylistImportManager private constructor(context: Context) {
         while (true) {
             val batch = dao.nextPendingImports(PARALLEL * 2)
             if (batch.isEmpty()) break
-            online.first { it } // paused until the network is back
+            awaitOnline() // paused until the network is back
             var failed = false
             coroutineScope {
                 batch.map { item ->
