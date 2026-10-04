@@ -12,11 +12,11 @@ object AlexaRemotePolicy {
             "Enter the HTTPS address you use in your browser."
         }
         require(uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
-            (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")) {
-            "Use the server address without a path, username, key or query."
+            (uri.rawPath.isNullOrEmpty() || uri.rawPath.matches(Regex("(/[A-Za-z0-9_-]+)*/?")))) {
+            "Use an HTTPS server address without a username, key or query."
         }
         require(uri.port == -1 || uri.port in 1..65535) { "Invalid server port." }
-        return URI("https", null, uri.host.lowercase(), uri.port, null, null, null).toASCIIString()
+        return URI("https", null, uri.host.lowercase(), uri.port, uri.path.orEmpty().trimEnd('/').takeIf(String::isNotBlank), null, null).toASCIIString()
     }
 
     fun trusted(serverAddress: String, url: String?): Boolean = runCatching {
@@ -24,8 +24,8 @@ object AlexaRemotePolicy {
         val target = URI(requireNotNull(url))
         fun port(uri: URI) = if (uri.port < 0) 443 else uri.port
         target.scheme.equals("https", ignoreCase = true) && target.rawUserInfo == null &&
-            target.host.equals(root.host, ignoreCase = true) && port(target) == port(root)
+            target.host.equals(root.host, ignoreCase = true) && port(target) == port(root) &&
+            (root.path.isNullOrEmpty() || target.path == root.path || target.path.startsWith(root.path + "/"))
     }.getOrDefault(false)
 
-    fun startUrl(serverAddress: String): String = server(serverAddress) + "/remote/"
 }

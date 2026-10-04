@@ -60,7 +60,8 @@ fun AlexaAccountBrowser(server: String, url: String, cookies: List<String>, onCl
                                 val target = request.url.toString()
                                 if (!AlexaRemotePolicy.trusted(server, target)) return true
                                 // Account proxy/noVNC paths may navigate; core music routes cannot open here.
-                                val path = request.url.path.orEmpty()
+                                val prefix = java.net.URI(server).path.orEmpty().trimEnd('/')
+                                val path = request.url.path.orEmpty().removePrefix(prefix)
                                 val allowed = path.startsWith("/alexa/proxy/") || path.startsWith("/youtube-login/") || path.startsWith("/login/")
                                 if(!allowed && request.isForMainFrame) close()
                                 return !allowed

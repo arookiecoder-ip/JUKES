@@ -297,7 +297,7 @@ private fun remoteTime(ms: Long): String = "${ms / 60000}:${((ms / 1000) % 60).t
                     Row {
                         TextButton(onClick = { remote.queueEdit("move", index, index - 1) }, enabled = index > 0 && !state.busy) { Text("Move up") }
                         TextButton(onClick = { remote.queueEdit("move", index, index + 1) }, enabled = index < queue.lastIndex && !state.busy) { Text("Move down") }
-                        TextButton(onClick = { remote.queueEdit("remove", index) }, enabled = !state.busy && index.toLong() != state.nowPlaying.number("queue_index")) { Text("Remove") }
+                        TextButton(onClick = { remote.queueEdit("remove", index, videoId = item.videoId) }, enabled = !state.busy && index.toLong() != state.nowPlaying.number("queue_index")) { Text("Remove") }
                     }
                 }
             }
