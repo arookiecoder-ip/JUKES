@@ -20,6 +20,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,6 +104,11 @@ class QueueManager private constructor(private val context: Context) {
     // Queue state
     private val _currentQueue = MutableStateFlow<List<Track>>(emptyList())
     val currentQueue: StateFlow<List<Track>> = _currentQueue.asStateFlow()
+
+    data class AlexaQueueWindow(val currentUuid: String, val tracks: List<Track>)
+    private val _alexaQueueWindow = MutableStateFlow<AlexaQueueWindow?>(null)
+    val alexaQueueWindow = _alexaQueueWindow.asStateFlow()
+    private val alexaRadioSeeds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /** What the recommendation engine is doing: songs being resolved now and songs waiting in reserve. */
     data class RecStatus(val resolving: Int = 0, val reserve: Int = 0)
@@ -430,6 +437,8 @@ class QueueManager private constructor(private val context: Context) {
         claimed.clear()
         usedSeeds.clear()
         seedVideoId = null
+        _alexaQueueWindow.value = null
+        alexaRadioSeeds.clear()
         _recStatus.value = RecStatus()
         _downloadingTracks.update { list -> list.filterNot { it.source == "recommendation" } }
     }
@@ -481,7 +490,7 @@ class QueueManager private constructor(private val context: Context) {
         // (refillReserve/resolveRecommendation/matchOnSpotify all require Spotify):
         // extend the queue from the backend /get_radio/ instead.
         if (isAlexaTrack(current)) {
-            requestAlexaFill(current, remaining, ignoreQueue)
+            requestAlexaFill(current)
             return
         }
         val gen = sessionGen.get()
@@ -506,82 +515,59 @@ class QueueManager private constructor(private val context: Context) {
     private fun isAlexaTrack(track: Track): Boolean =
         track.spotifyId == null && track.ytVideoId != null
 
-    /**
-     * Alexa-mode recommendation fill: extend the queue from backend `/get_radio/`,
-     * resolving each item's `/proxy/` stream URL and feeding [addToQueue] directly.
-     * Never touches the `reserve`/`seen`/`claimed` sets or `matchOnSpotify`, and
-     * honors the session generation so a track change cancels stale fills.
-     */
-    private fun requestAlexaFill(current: Track, reported: Int, ignoreQueue: Boolean) {
+    /** Refresh a bounded window in the server's current order, including removals. */
+    suspend fun refreshAlexaQueue(current: Track): AlexaQueueWindow? {
+        if (!isAlexaTrack(current) || !AlexaBackendApi.isConfigured()) return null
         val gen = sessionGen.get()
-        sessionScope.launch {
-            fillMutex.withLock {
-                if (gen != sessionGen.get()) return@withLock
+        return fillMutex.withLock {
+            if (gen != sessionGen.get()) return@withLock null
+            val videoId = requireNotNull(current.ytVideoId)
+            val target = lookahead()
+            // next_track is consulted at request time, rather than trusting the old phone queue.
+            val next = AlexaBackendApi.nextTrack(videoId)
+            var items = if (next == null) emptyList() else AlexaBackendApi.queueTracks(videoId, target)
+            if (items.size < target && videoId !in alexaRadioSeeds) {
                 try {
-                    fetchAlexaRadioRecommendations(current, reported, ignoreQueue, gen)
+                    val radio = AlexaBackendApi.getRadio(videoId)
+                    coroutineContext.ensureActive()
+                    if (gen != sessionGen.get()) return@withLock null
+                    if (radio.isNotEmpty()) AlexaBackendApi.updateQueue("extend", videoId, radio.take(200))
+                    if (gen != sessionGen.get()) return@withLock null
+                    alexaRadioSeeds.add(videoId)
+                    items = AlexaBackendApi.queueTracks(videoId, target)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error filling Alexa radio window: ${e.message}", e)
+                    // Radio availability must not prevent existing web queue edits from syncing.
+                    Log.w(TAG, "Alexa radio extension failed: ${e.message}")
                 }
             }
+            val existing = _currentQueue.value + (_alexaQueueWindow.value?.tracks ?: emptyList())
+            val reusable = existing.distinctBy { it.uuid }.filter { it.uuid != current.uuid }
+                .groupBy { it.ytVideoId }.mapValues { it.value.toMutableList() }
+            val tracks = items.map { item ->
+                coroutineContext.ensureActive()
+                val cached = reusable[item.videoId]?.removeFirstOrNull()
+                cached?.takeIf { !it.localUri.isNullOrBlank() }
+                    ?: item.toAppTrack(AlexaBackendApi.getStreamUrl(item.videoId)).also {
+                        coroutineContext.ensureActive()
+                        if (gen == sessionGen.get()) trackDao.insertTrack(it.toEntity())
+                    }
+            }
+            coroutineContext.ensureActive()
+            if (gen != sessionGen.get()) return@withLock null
+            AlexaQueueWindow(current.uuid, tracks).also { _alexaQueueWindow.value = it }
         }
     }
 
-    private suspend fun fetchAlexaRadioRecommendations(
-        current: Track,
-        reported: Int,
-        ignoreQueue: Boolean,
-        gen: Int
-    ) {
-        val seedVideoId = current.ytVideoId
-        if (seedVideoId.isNullOrBlank()) {
-            Log.w(TAG, "Alexa radio: seed has no ytVideoId, skipping")
-            return
-        }
-        if (!AlexaBackendApi.isConfigured()) {
-            Log.w(TAG, "Alexa radio: backend not configured, skipping")
-            return
-        }
-        val target = lookahead()
-        val upcoming = if (ignoreQueue) 0 else upcomingAfter(current, reported)
-        val need = target - upcoming
-        if (need <= 0) return
-        try {
-            Log.d(TAG, "Fetching Alexa radio for videoId=$seedVideoId (need $need)")
-            val radio = AlexaBackendApi.getRadio(seedVideoId)
-            if (radio.isEmpty()) {
-                Log.w(TAG, "Alexa radio: empty playlist")
-                return
-            }
-            val blocked = if (ignoreQueue) emptySet() else queuedKeys(current)
-            var added = 0
-            for (item in radio) {
-                if (gen != sessionGen.get()) return
-                if (added >= need) break
-                val key = RecommenderApi.songKey(item.title, item.artist)
-                if (key == RecommenderApi.songKey(current.title, current.artist)) continue
-                if (key in blocked) continue
-                // _externalDownloads uses raw "title-artist" keys (see notifyDownloadStarted)
-                if (_externalDownloads.contains(key)) continue
-                if (_externalDownloads.contains("${item.title.lowercase()}-${item.artist.lowercase()}")) continue
-                try {
-                    val audioUrl = AlexaBackendApi.getStreamUrl(item.videoId)
-                    val track = item.toAppTrack(audioUrl)
-                    trackDao.insertTrack(track.toEntity())
-                    addToQueue(track)
-                    added++
-                    Log.d(TAG, "Alexa radio queued: ${track.title} by ${track.artist}")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Alexa radio: skipping ${item.title}: ${e.message}")
-                }
-            }
-            Log.d(TAG, "Alexa radio: added $added tracks")
-        } catch (e: Exception) {
-            if (e is OfflineException || e.isOffline()) {
-                Log.w(TAG, "Alexa radio: device offline")
-            } else {
-                Log.e(TAG, "Alexa radio failed: ${e.message}", e)
+    private fun requestAlexaFill(current: Track) {
+        sessionScope.launch {
+            try {
+                refreshAlexaQueue(current)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Alexa queue refresh failed: ${e.message}")
             }
         }
     }

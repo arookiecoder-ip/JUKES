@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toTrack
 import com.example.juke.models.Track
+import com.example.juke.network.AlexaBackendApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +31,38 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private val _backendShelves = MutableStateFlow<List<AlexaBackendApi.BackendShelf>>(emptyList())
+    val backendShelves = _backendShelves.asStateFlow()
+    private val _backendLoading = MutableStateFlow(false)
+    val backendLoading = _backendLoading.asStateFlow()
+    private val _backendError = MutableStateFlow<String?>(null)
+    val backendError = _backendError.asStateFlow()
+    private var backendJob: Job? = null
+
+    fun fetchBackendHome(refresh: Boolean = false) {
+        backendJob?.cancel()
+        backendJob = viewModelScope.launch {
+            _backendLoading.value = true
+            _backendError.value = null
+            try {
+                _backendShelves.value = AlexaBackendApi.getHome(refresh)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _backendError.value = "Couldn't load Alexa recommendations. Pull to refresh to retry."
+            } finally {
+                _backendLoading.value = false
+            }
+        }
+    }
+
+    fun clearBackendHome() {
+        backendJob?.cancel()
+        _backendShelves.value = emptyList()
+        _backendLoading.value = false
+        _backendError.value = null
+    }
 
     private fun buildGreeting(): String {
         val calendar = Calendar.getInstance()

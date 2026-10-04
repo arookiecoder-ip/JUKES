@@ -93,6 +93,7 @@ import com.example.juke.ui.theme.glassPane
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.HomeViewModel
 import com.example.juke.viewmodels.MusicViewModel
+import com.example.juke.viewmodels.MusicSource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -109,6 +110,16 @@ fun HomeScreen(
 ) {
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
+    val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
+    val backendShelves by homeViewModel.backendShelves.collectAsStateWithLifecycle()
+    val backendLoading by homeViewModel.backendLoading.collectAsStateWithLifecycle()
+    val backendError by homeViewModel.backendError.collectAsStateWithLifecycle()
+    val isAlexaMode = musicSource == MusicSource.ALEXA
+
+    LaunchedEffect(musicSource) {
+        if (isAlexaMode) homeViewModel.fetchBackendHome()
+        else homeViewModel.clearBackendHome()
+    }
 
     LaunchedEffect(Unit) {
         homeViewModel.loadHomeData()
@@ -132,12 +143,15 @@ fun HomeScreen(
         // Scrollable content with pull-to-refresh
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
-            onRefresh = { homeViewModel.refresh() },
+            onRefresh = {
+                homeViewModel.refresh()
+                if (isAlexaMode) homeViewModel.fetchBackendHome(refresh = true)
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
         ) {
-            if (uiState.recentlyPlayed.isEmpty() && uiState.mostPlayed.isEmpty() && uiState.favorites.isEmpty()) {
+            if (uiState.recentlyPlayed.isEmpty() && uiState.mostPlayed.isEmpty() && uiState.favorites.isEmpty() && !isAlexaMode) {
                 EmptyHomeState(
                     onSearchClick = onSearchClick,
                     modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
@@ -181,6 +195,30 @@ fun HomeScreen(
                                     musicViewModel.setQueue(uiState.favorites, index)
                                 }
                             )
+                        }
+                    }
+                    if (isAlexaMode) {
+                        if (backendLoading || backendError != null || backendShelves.isEmpty()) {
+                            item {
+                                Text(
+                                    text = if (backendLoading) "Loading Alexa recommendations…"
+                                        else backendError ?: "No Alexa recommendations yet. Pull to refresh to retry.",
+                                    modifier = Modifier.padding(24.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        backendShelves.forEach { shelf ->
+                            item {
+                                HorizontalTrackSection(
+                                    title = shelf.title,
+                                    tracks = shelf.tracks,
+                                    onSeeAllClick = null,
+                                    onTrackClick = { index ->
+                                        musicViewModel.playAlexaShelf(shelf.tracks, index)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -384,7 +422,7 @@ private fun RecentlyPlayedSection(
 private fun HorizontalTrackSection(
     title: String,
     tracks: List<Track>,
-    onSeeAllClick: () -> Unit,
+    onSeeAllClick: (() -> Unit)? = null,
     onTrackClick: (Int) -> Unit
 ) {
     Column {
