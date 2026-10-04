@@ -22,23 +22,13 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Load Spotify credentials from local.properties
+        // Load backend and analytics configuration from local.properties
         val properties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
             properties.load(FileInputStream(localPropertiesFile))
         }
 
-        buildConfigField(
-            "String",
-            "SPOTIFY_CLIENT_ID",
-            "\"${properties.getProperty("SPOTIFY_CLIENT_ID", "")}\""
-        )
-        buildConfigField(
-            "String",
-            "SPOTIFY_CLIENT_SECRET",
-            "\"${properties.getProperty("SPOTIFY_CLIENT_SECRET", "")}\""
-        )
         buildConfigField(
             "String",
             "POSTHOG_API_KEY",
@@ -58,17 +48,6 @@ android {
             "String",
             "ALEXA_API_KEY",
             "\"${properties.getProperty("ALEXA_API_KEY", "")}\""
-        )
-        // Optional backend audio provider for Spotify tracks (independent of Alexa source mode).
-        buildConfigField(
-            "String",
-            "JUKE_BACKEND_URL",
-            "\"${properties.getProperty("JUKE_BACKEND_URL", "")}\""
-        )
-        buildConfigField(
-            "String",
-            "JUKE_BACKEND_KEY",
-            "\"${properties.getProperty("JUKE_BACKEND_KEY", "")}\""
         )
     }
 

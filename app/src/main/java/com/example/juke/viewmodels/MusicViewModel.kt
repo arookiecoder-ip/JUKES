@@ -1,7 +1,5 @@
-﻿package com.example.juke.viewmodels
+package com.example.juke.viewmodels
 
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import android.app.Application
 import android.util.Log
 import android.widget.Toast
@@ -11,73 +9,57 @@ import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.palette.graphics.Palette
+import androidx.room.withTransaction
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import androidx.room.withTransaction
-import com.example.juke.models.mergeCompletedStream
-import com.example.juke.models.fetchLyricsWithRetry
 import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toEntity
 import com.example.juke.database.toTrack
-import com.example.juke.models.SpotdownSong
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifySimplifiedTrack
-import com.example.juke.models.SpotifyTrack
 import com.example.juke.models.Track
+import com.example.juke.models.fetchLyricsWithRetry
 import com.example.juke.models.withUpdatedLyrics
 import com.example.juke.network.AlexaBackendApi
-import com.example.juke.network.AlexaRemotePolicy
-import com.example.juke.network.RecommenderApi
-import com.example.juke.network.SpotifyApi
-import com.example.juke.network.toAppTrack
-import com.example.juke.services.MusicService
+import com.example.juke.network.Backend
+import com.example.juke.network.BackendAuthException
+import com.example.juke.network.LyricsApi
+import com.example.juke.network.BrowseParser
+import com.example.juke.network.array
+import com.example.juke.network.toTrack
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.services.AccountRepository
+import com.example.juke.services.EchoController
+import com.example.juke.services.EchoState
+import com.example.juke.services.transferPlayback
 import com.example.juke.services.PlaybackManager
 import com.example.juke.services.QueueManager
 import com.example.juke.ui.theme.ExtractedColors
-import com.example.juke.utils.DatabaseMigrationHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.UUID
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
-
-enum class DownloadStatus {
-    QUEUED,
-    DOWNLOADING,
-    COMPLETED,
-    FAILED
-}
-
-/**
- * Music source toggle. SPOTIFY is the default so existing behavior is unchanged;
- * ALEXA routes search + playback through the self-hosted backend.
- */
-enum class MusicSource {
-    SPOTIFY,
-    ALEXA
-}
-
-data class DownloadItem(
-    val id: String = UUID.randomUUID().toString(),
-    val song: SpotdownSong,
-    val status: DownloadStatus = DownloadStatus.QUEUED,
-    val error: String? = null,
-    val shouldPlayAfterDownload: Boolean = false
-)
+/** Where music plays: the selected Echo (through the server) or this phone. */
+enum class PlaybackOutput { ALEXA, PHONE }
 
 data class MusicUiState(
     val currentTrack: Track? = null,
@@ -88,8 +70,6 @@ data class MusicUiState(
     val duration: Long = 0,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val downloadQueue: List<DownloadItem> = emptyList(),
-    val currentDownload: DownloadItem? = null,
     val isQueueOperationInProgress: Boolean = false,
     val isShuffleEnabled: Boolean = false,
     val repeatMode: Int = androidx.media3.common.Player.REPEAT_MODE_OFF,
@@ -100,10 +80,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = MusicDatabase.getDatabase(application)
     private val trackDao = database.trackDao()
-    private val musicService by lazy { MusicService(application) }
     val playbackManager = PlaybackManager.getInstance(application)
     private val queueManager = QueueManager.getInstance(application)
     val recStatus = queueManager.recStatus
+
+    private val settingsPrefs = application.getSharedPreferences(
+        "music_settings_prefs",
+        android.content.Context.MODE_PRIVATE
+    )
 
     private val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
     private val _playbackSpeed = MutableStateFlow(1f)
@@ -129,50 +113,104 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         audioPrefs.edit().putBoolean("skip_silence_enabled", enabled).apply()
     }
 
-    // Stream Mode State
-    private val _isStreamMode = MutableStateFlow(queueManager.isStreamMode)
-    val isStreamMode: StateFlow<Boolean> = _isStreamMode.asStateFlow()
+    /** Phone player state; [uiState] shows it while the output is [PlaybackOutput.PHONE]. */
+    private val _uiState = MutableStateFlow(MusicUiState())
 
-    // Guard: tracks Spotify IDs (or "title-artist" keys) for which a stream is already in progress.
-    // Prevents double-tapping from launching duplicate stream downloads.
-    private val activeStreamRequests = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val _output = MutableStateFlow(
+        runCatching { PlaybackOutput.valueOf(settingsPrefs.getString(KEY_OUTPUT, "") ?: "") }
+            .getOrDefault(PlaybackOutput.PHONE)
+    )
+    val output: StateFlow<PlaybackOutput> = _output.asStateFlow()
+    private val outputChosen get() = settingsPrefs.contains(KEY_OUTPUT)
 
-    fun toggleStreamMode(enabled: Boolean) {
-        queueManager.isStreamMode = enabled
-        _isStreamMode.value = enabled
+    private val _isSwitchingOutput = MutableStateFlow(false)
+    val isSwitchingOutput: StateFlow<Boolean> = _isSwitchingOutput.asStateFlow()
+
+    /** Short messages for the user (Echo errors, queue failures). */
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
+
+    /** The server rejected the web session; the app must show the sign-in screen. */
+    private val _signedOut = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val signedOut: SharedFlow<Unit> = _signedOut.asSharedFlow()
+
+    val echo = EchoController(
+        scope = viewModelScope,
+        prefs = settingsPrefs,
+        onError = { _messages.tryEmit(it) },
+        onSignedOut = { _signedOut.tryEmit(Unit) }
+    )
+
+    // Ticks the Echo progress while the player screen asks for updates.
+    private val _tick = MutableStateFlow(0L)
+    private val _colors = MutableStateFlow<ExtractedColors?>(null)
+    /** Lyrics fetched for Echo songs, keyed by video id (phone songs keep theirs in the database). */
+    private val _echoLyrics = MutableStateFlow<Map<String, Track>>(emptyMap())
+    private var isForeground = true
+    private var signedIn = false
+    private var signInJob: Job? = null
+
+    val uiState: StateFlow<MusicUiState> = combine(
+        _output,
+        _uiState,
+        echo.state,
+        AccountRepository.liked,
+        combine(_tick, _colors, _echoLyrics) { _, colors, lyrics -> colors to lyrics }
+    ) { output, phone, echoState, liked, (colors, lyrics) ->
+        val state = if (output == PlaybackOutput.ALEXA) echoUiState(echoState, lyrics) else phone
+        state.copy(
+            currentTrack = state.currentTrack?.withLike(liked),
+            queue = state.queue.map { it.withLike(liked) },
+            extractedColors = colors
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
+
+    private fun Track.withLike(liked: Set<String>) =
+        if (isFavourite == (ytVideoId in liked)) this else copy(isFavourite = ytVideoId in liked)
+
+    private fun echoUiState(state: EchoState, lyrics: Map<String, Track>): MusicUiState {
+        fun Track.withLyrics(): Track {
+            val cached = lyrics[ytVideoId] ?: return this
+            return copy(
+                syncedLyrics = cached.syncedLyrics, plainLyrics = cached.plainLyrics,
+                romanizedSyncedLyrics = cached.romanizedSyncedLyrics,
+                romanizedPlainLyrics = cached.romanizedPlainLyrics,
+                lyricsOffsetMs = cached.lyricsOffsetMs
+            )
+        }
+        val current = state.track?.withLyrics()
+        return MusicUiState(
+            currentTrack = current,
+            queue = state.queue.map { if (it.uuid == current?.uuid) current else it },
+            queueIndex = state.index,
+            isPlaying = state.playing,
+            position = state.livePosition(),
+            duration = state.durationMs
+        )
     }
 
+    private val isAlexa get() = _output.value == PlaybackOutput.ALEXA
 
-    private val _uiState = MutableStateFlow(MusicUiState())
-    val uiState: StateFlow<MusicUiState> = _uiState.asStateFlow()
-
-    private var isProcessingQueue = false
     private var hasStartedDeferredStartupWork = false
-    private val pendingQueueOperations =
-        java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     fun saveLyricsOffset(track: Track, offsetMs: Long) {
+        if (track.uuid.startsWith(ECHO_PREFIX)) {
+            val videoId = track.ytVideoId ?: return
+            _echoLyrics.update { it + (videoId to (it[videoId] ?: track).copy(lyricsOffsetMs = offsetMs)) }
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             trackDao.updateLyricsOffset(track.uuid, offsetMs)
 
             _uiState.update { state ->
-                val updatedCurrentTrack = if (state.currentTrack?.uuid == track.uuid) {
-                    state.currentTrack.copy(lyricsOffsetMs = offsetMs)
-                } else {
-                    state.currentTrack
-                }
-
-                val updatedQueue = state.queue.map { queuedTrack ->
-                    if (queuedTrack.uuid == track.uuid) {
-                        queuedTrack.copy(lyricsOffsetMs = offsetMs)
-                    } else {
-                        queuedTrack
-                    }
-                }
-
                 state.copy(
-                    currentTrack = updatedCurrentTrack,
-                    queue = updatedQueue
+                    currentTrack = if (state.currentTrack?.uuid == track.uuid) {
+                        state.currentTrack.copy(lyricsOffsetMs = offsetMs)
+                    } else state.currentTrack,
+                    queue = state.queue.map { queuedTrack ->
+                        if (queuedTrack.uuid == track.uuid) queuedTrack.copy(lyricsOffsetMs = offsetMs)
+                        else queuedTrack
+                    }
                 )
             }
         }
@@ -180,17 +218,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateTrackInUiState(updatedTrack: Track) {
         _uiState.update { state ->
-            val updatedQueue = state.queue.map { queuedTrack ->
-                if (queuedTrack.uuid == updatedTrack.uuid) updatedTrack else queuedTrack
-            }
-
             state.copy(
-                currentTrack = if (state.currentTrack?.uuid == updatedTrack.uuid) {
-                    updatedTrack
-                } else {
-                    state.currentTrack
-                },
-                queue = updatedQueue
+                currentTrack = if (state.currentTrack?.uuid == updatedTrack.uuid) updatedTrack else state.currentTrack,
+                queue = state.queue.map { queuedTrack ->
+                    if (queuedTrack.uuid == updatedTrack.uuid) updatedTrack else queuedTrack
+                }
             )
         }
     }
@@ -201,6 +233,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         romanizedPlainLyrics: String?
     ) {
         if (romanizedSyncedLyrics.isNullOrBlank() && romanizedPlainLyrics.isNullOrBlank()) {
+            return
+        }
+        if (track.uuid.startsWith(ECHO_PREFIX)) {
+            val videoId = track.ytVideoId ?: return
+            _echoLyrics.update {
+                val base = it[videoId] ?: track
+                it + (videoId to base.copy(
+                    romanizedSyncedLyrics = romanizedSyncedLyrics ?: base.romanizedSyncedLyrics,
+                    romanizedPlainLyrics = romanizedPlainLyrics ?: base.romanizedPlainLyrics
+                ))
+            }
             return
         }
 
@@ -261,35 +304,30 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             queueManager.alexaQueueWindow.collect { window ->
-                if (window != null) applyAlexaWindow(window)
+                if (window != null && signedIn && !isAlexa && !_isSwitchingOutput.value) applyAlexaWindow(window)
             }
         }
-        // Refresh while this ViewModel is alive. Notifications/background service keep
-        // using the last resolved window; no networking is added to PlaybackService.
+        // While the phone plays, report its song and position to the server so the shared queue
+        // (and the web remote) follow it, and pick up queue edits made elsewhere.
         viewModelScope.launch {
             while (isActive) {
                 delay(5_000)
-                // The native remote owns Echo state; phone heartbeats must not replace it.
-                if (settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA" &&
-                    settingsPrefs.getBoolean("alexa_remote_enabled", true)) continue
+                if (!signedIn || isAlexa || _isSwitchingOutput.value) continue
                 val current = _uiState.value.currentTrack ?: continue
-                if (current.isStream && current.spotifyId == null && current.ytVideoId != null) {
-                    try {
-                        val playing = _uiState.value.isPlaying
-                        val position = playbackManager.getCurrentPosition()
-                        val window = withContext(Dispatchers.IO) {
-                            if (settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA" &&
-                                settingsPrefs.getBoolean("alexa_remote_enabled", true)) return@withContext null
-                            AlexaBackendApi.updateQueue("current", requireNotNull(current.ytVideoId), emptyList(),
-                                playing = playing, positionMs = position)
-                            queueManager.refreshAlexaQueue(current)
-                        }
-                        if (window != null) applyAlexaWindow(window)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w("MusicViewModel", "Shared queue refresh failed: ${e.message}")
+                val videoId = current.ytVideoId ?: continue
+                try {
+                    val playing = _uiState.value.isPlaying
+                    val position = playbackManager.getCurrentPosition()
+                    val window = withContext(Dispatchers.IO) {
+                        AlexaBackendApi.updateQueue("current", videoId, emptyList(),
+                            playing = playing, positionMs = position)
+                        queueManager.refreshAlexaQueue(current)
                     }
+                    if (window != null && signedIn && !isAlexa && !_isSwitchingOutput.value) applyAlexaWindow(window)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Shared queue refresh failed: ${e.message}")
                 }
             }
         }
@@ -297,110 +335,31 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // Observe restored state and update UI with saved queue
         viewModelScope.launch {
             playbackManager.hasRestoredState.collect { hasState ->
-                if (hasState) {
-                    Log.d("MusicViewModel", "Playback state restored, updating UI")
-                    // Load the restored queue from PlaybackManager
-                    loadRestoredQueue()
-
-                    // No need to call checkAndFetchRecommendations() here
-                    // PlaybackService.restorePlaybackState() already initialized QueueManager
-                    // and it will auto-fetch recommendations if queue size <= 2
-                }
+                if (hasState) loadRestoredQueue()
             }
         }
 
-        // Observe playback state changes coming from the MediaController (notifications/external)
         viewModelScope.launch {
             playbackManager.isPlayingFlow.collect { playing ->
                 _uiState.update { it.copy(isPlaying = playing) }
             }
         }
 
-        // Observe shuffle state changes
         viewModelScope.launch {
             playbackManager.isShuffleEnabledFlow.collect { shuffleEnabled ->
                 _uiState.update { it.copy(isShuffleEnabled = shuffleEnabled) }
             }
         }
 
-        // Observe repeat mode changes
         viewModelScope.launch {
             playbackManager.repeatModeFlow.collect { mode ->
                 _uiState.update { it.copy(repeatMode = mode) }
             }
         }
 
-        // Observe favourite changes from PlaybackManager (e.g. from Notification or other UI parts)
+        // Lyrics for whatever is playing, on the phone or the Echo.
         viewModelScope.launch {
-            playbackManager.favouriteChangedFlow.collect { (uuid, isFavourite) ->
-                // Update current track if it matches
-                _uiState.update { state ->
-                    val updatedCurrentTrack = if (state.currentTrack?.uuid == uuid) {
-                        state.currentTrack.copy(isFavourite = isFavourite)
-                    } else {
-                        state.currentTrack
-                    }
-
-                    // Update the track in the queue list if present
-                    val updatedQueue = state.queue.map { track ->
-                        if (track.uuid == uuid) {
-                            track.copy(isFavourite = isFavourite)
-                        } else {
-                            track
-                        }
-                    }
-
-                    state.copy(
-                        currentTrack = updatedCurrentTrack,
-                        queue = updatedQueue
-                    )
-                }
-            }
-        }
-
-        // Observe track promotions (stream → download) triggered from the notification.
-        // Re-fetches the promoted track from DB so isStream is reflected in the UI.
-        viewModelScope.launch {
-            playbackManager.trackPromotedFlow.collect { uuid ->
-                withContext(Dispatchers.IO) {
-                    val updatedTrack = trackDao.getTrackByUuid(uuid)?.toTrack() ?: return@withContext
-                    // Pre-warm the singleton Coil memory cache with the new local thumbnail
-                    // so AsyncImage gets an instant cache hit when the state update triggers
-                    // recomposition — this prevents the brief blank/flash during the transition.
-                    val newThumbnailUri = updatedTrack.thumbnailUri
-                    if (newThumbnailUri != null) {
-                        val request = ImageRequest.Builder(getApplication<Application>())
-                            .data(newThumbnailUri)
-                            .build()
-                        getApplication<Application>().imageLoader.execute(request)
-                    }
-                    _uiState.update { state ->
-                        val newQueue = state.queue.map { if (it.uuid == uuid) updatedTrack else it }
-                        state.copy(
-                            currentTrack = if (state.currentTrack?.uuid == uuid) updatedTrack else state.currentTrack,
-                            queue = newQueue
-                        )
-                    }
-                    Log.d("MusicViewModel", "trackPromotedFlow: updated track ${updatedTrack.title} isStream=${updatedTrack.isStream}")
-                }
-            }
-        }
-
-
-        // Observe current track changes from PlaybackManager
-        viewModelScope.launch {
-            playbackManager.currentTrackIdFlow.collect { trackId ->
-                trackId?.let { id ->
-                    Log.d("MusicViewModel", "Current track ID changed to: $id")
-                    // Note: Actual UI state update is now handled by currentQueueIndexFlow
-                    // to support duplicate tracks correctly.
-                }
-            }
-        }
-
-        // Covers local/cached playback, restored queues and automatic next-track transitions.
-        viewModelScope.launch {
-            _uiState.map { it.currentTrack }
+            uiState.map { it.currentTrack }
                 .distinctUntilChanged { old, new -> old?.uuid == new?.uuid }
                 .collect { track ->
                     if (track != null && track.syncedLyrics.isNullOrBlank() && track.plainLyrics.isNullOrBlank()) {
@@ -409,15 +368,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
 
-        // Observe current track changes to extract colors
         viewModelScope.launch {
-            _uiState.map { it.currentTrack?.thumbnailUri }
+            uiState.map { it.currentTrack?.thumbnailUri }
                 .distinctUntilChanged()
-                .collect { thumbnailUri ->
-                    extractColors(thumbnailUri)
-                }
+                .collect { thumbnailUri -> extractColors(thumbnailUri) }
         }
-
 
         // Synch UI queue with PlaybackManager source of truth
         viewModelScope.launch {
@@ -425,12 +380,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (queueIds.isEmpty()) return@collect
 
                 withContext(Dispatchers.IO) {
-                    // Always resync queue items from DB when PlaybackManager timeline changes.
-                    // Queue IDs can remain the same while metadata (e.g. thumbnail URI) changes.
                     val currentTrackMap = _uiState.value.queue.associateBy { it.uuid }
                     val existingQueue = _uiState.value.queue
-                    val existingIds = existingQueue.map { it.uuid }
-                    val idsChanged = existingIds != queueIds
+                    val idsChanged = existingQueue.map { it.uuid } != queueIds
 
                     val newQueue = queueIds.mapNotNull { id ->
                         try {
@@ -443,29 +395,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     if (newQueue != existingQueue || idsChanged) {
                         _uiState.update { state ->
                             val currentIndex = state.queueIndex
-                            val newCurrentTrack =
-                                if (currentIndex >= 0 && currentIndex < newQueue.size) {
-                                    newQueue[currentIndex]
-                                } else {
-                                    state.currentTrack
-                                }
-
                             state.copy(
                                 queue = newQueue,
-                                currentTrack = newCurrentTrack
+                                currentTrack = newQueue.getOrNull(currentIndex) ?: state.currentTrack
                             )
                         }
-                        Log.d(
-                            "MusicViewModel",
-                            "Synced UI queue with PlaybackManager: ${newQueue.size} tracks (idsChanged=$idsChanged)"
-                        )
                     }
                 }
             }
         }
 
-        // Observe current queue index changes from PlaybackManager
-        // This is the source of truth for "what is playing" to handle duplicate tracks
+        // The playback manager's index is the source of truth for "what is playing" on the phone.
         viewModelScope.launch {
             playbackManager.currentQueueIndexFlow.collect { index ->
                 val currentState = _uiState.value
@@ -477,88 +417,35 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         trackDao.getTrackByUuid(queueTrack.uuid)?.toTrack() ?: queueTrack
                     }
 
-                    // Only update if something changed
                     if (
                         currentState.queueIndex != index ||
                         currentState.currentTrack?.uuid != track.uuid ||
                         currentState.currentTrack != track
                     ) {
-                        _uiState.update {
-                            it.copy(
-                                currentTrack = track,
-                                queueIndex = index
-                            )
-                        }
-                        Log.d(
-                            "MusicViewModel",
-                            "Updated UI state - Index: $index, Track: ${track.title} (deduced from index)"
-                        )
-
-                        // Keep the user's lookahead of resolved songs topped up as each one starts.
-                        val remainingTracks = currentQueue.size - index - 1
-                        queueManager.onPlaybackAdvanced(track, remainingTracks)
+                        _uiState.update { it.copy(currentTrack = track, queueIndex = index) }
+                        queueManager.onPlaybackAdvanced(track, currentQueue.size - index - 1)
                     }
-                } else if (currentQueue.isNotEmpty()) {
-                    Log.w(
-                        "MusicViewModel",
-                        "Queue index $index out of bounds (size: ${currentQueue.size})"
-                    )
                 }
             }
         }
 
-        // Observe recommendation queue changes
+        // Upcoming songs from the server queue that the phone player doesn't have yet.
         viewModelScope.launch {
             queueManager.currentQueue.collect { recommendedTracks ->
-                Log.d(
-                    "MusicViewModel",
-                    "QueueManager queue updated: ${recommendedTracks.size} tracks"
-                )
-
-                // Add recommended tracks to the main queue if they're not already there
                 val currentQueue = _uiState.value.queue
-
-                // If current queue is empty (e.g. app restart), sync with QueueManager but DON'T add to PlaybackManager
-                // because PlaybackManager/Restoration logic is what populated QueueManager in the first place.
                 if (currentQueue.isEmpty()) {
                     if (recommendedTracks.isNotEmpty()) {
-                        Log.d(
-                            "MusicViewModel",
-                            "Syncing UI queue from QueueManager (Startup/Restoration)"
-                        )
                         _uiState.update { it.copy(queue = recommendedTracks) }
                     }
                     return@collect
                 }
-
                 val newTracks = recommendedTracks.filter { recommended ->
-                    !currentQueue.any { existing -> existing.uuid == recommended.uuid }
+                    currentQueue.none { existing -> existing.uuid == recommended.uuid }
                 }
-
                 if (newTracks.isNotEmpty()) {
-                    val updatedQueue = currentQueue + newTracks
-                    _uiState.update { it.copy(queue = updatedQueue) }
-
-                    // Add new tracks to the playback queue without interrupting current playback
+                    _uiState.update { it.copy(queue = currentQueue + newTracks) }
                     playbackManager.addToQueue(newTracks)
-
-                    Log.d(
-                        "MusicViewModel",
-                        "Added ${newTracks.size} recommended tracks to main queue. Total queue size: ${updatedQueue.size}"
-                    )
-                } else {
-                    Log.d("MusicViewModel", "No new tracks to add from recommendations")
                 }
-            }
-        }
-
-        // Observe downloading tracks from recommendations
-        viewModelScope.launch {
-            queueManager.downloadingTracks.collect { downloading ->
-                Log.d(
-                    "MusicViewModel",
-                    "Recommendation downloads in progress: ${downloading.size} tracks"
-                )
             }
         }
     }
@@ -566,32 +453,194 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun startDeferredStartupWork() {
         if (hasStartedDeferredStartupWork) return
         hasStartedDeferredStartupWork = true
-
-        val application = getApplication<Application>()
-
-        viewModelScope.launch {
-            DatabaseMigrationHelper.fixDownloadTimestamps(application)
-        }
-
+        // Downloads from earlier versions are no longer part of the app; free their storage.
         viewModelScope.launch(Dispatchers.IO) {
-            val prefs = application.getSharedPreferences(
-                "playback_state_prefs",
-                android.content.Context.MODE_PRIVATE
-            )
-            val savedIds = prefs.getString("queue_track_ids", "")
-                ?.split(",")
-                ?.filter { it.isNotBlank() }
-                ?.toSet() ?: emptySet()
-            musicService.purgeStaleStreamEntries(preserveUuids = savedIds)
+            val legacyMusic = java.io.File(getApplication<Application>().filesDir, "music")
+            if (legacyMusic.exists()) legacyMusic.deleteRecursively()
         }
     }
+
+    // ---------- Account session ----------
+
+    /**
+     * Called once the web session is open: loads the Echo list and liked songs, and picks the
+     * output. The first time, playback goes to the Echo when one is connected; after that the
+     * last choice is kept.
+     */
+    fun onSignedIn() {
+        signedIn = true
+        signInJob?.cancel()
+        signInJob = viewModelScope.launch {
+            launch { runEcho { AccountRepository.refreshLiked() } }
+            val hasEcho = try {
+                echo.loadDevices()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BackendAuthException) {
+                _signedOut.tryEmit(Unit)
+                return@launch
+            } catch (e: Exception) {
+                Log.w(TAG, "Echo list failed: ${e.message}")
+                false
+            }
+            if (!outputChosen) setOutputPreference(if (hasEcho) PlaybackOutput.ALEXA else PlaybackOutput.PHONE)
+            updatePolling()
+        }
+    }
+
+    fun onSignedOut() {
+        signedIn = false
+        signInJob?.cancel()
+        echo.clear()
+        AccountRepository.clear()
+        playbackManager.pause()
+    }
+
+    /** The app moved to the foreground or background: poll the Echo every 3 s or 10 s. */
+    fun setForeground(foreground: Boolean) {
+        isForeground = foreground
+        updatePolling()
+    }
+
+    private fun updatePolling() {
+        if (signedIn && isAlexa && echo.serial.value.isNotBlank()) echo.startPolling(isForeground) else echo.stopPolling()
+    }
+
+    private fun setOutputPreference(output: PlaybackOutput) {
+        _output.value = output
+        settingsPrefs.edit { putString(KEY_OUTPUT, output.name) }
+    }
+
+    fun refreshDevices() {
+        viewModelScope.launch {
+            runEcho { echo.loadDevices() }
+            updatePolling()
+        }
+    }
+
+    // ---------- Output switching ----------
+
+    /**
+     * Play on [serial] (an Echo) or, when null, on this phone. The current queue, song, position
+     * and play/pause state move with it.
+     */
+    fun switchOutput(serial: String?) {
+        if (_isSwitchingOutput.value) return
+        val toPhone = serial == null
+        if (toPhone && !isAlexa) return
+        if (!toPhone && isAlexa && serial == echo.serial.value) return
+        viewModelScope.launch {
+            _isSwitchingOutput.value = true
+            try {
+                when {
+                    toPhone -> moveEchoToPhone()
+                    isAlexa -> {
+                        // Echo to another Echo: start the same queue there.
+                        val from = echo.state.value
+                        val sourceSerial = echo.serial.value
+                        if (from.track == null) {
+                            echo.select(serial!!)
+                            echo.refresh(force = true)
+                        } else {
+                            transferPlayback(
+                                pauseSource = { if (from.playing) echo.command("pause") },
+                                startTarget = {
+                                    echo.select(serial!!)
+                                    moveQueueToEcho(from.queue, from.index, from.track, from.livePosition(), from.playing)
+                                },
+                                restoreSource = {
+                                    echo.select(sourceSerial)
+                                    if (from.playing) echo.command("play")
+                                },
+                                stopTarget = { echo.command("pause") },
+                                commit = { updatePolling() }
+                            )
+                        }
+                    }
+                    else -> {
+                        echo.select(serial!!)
+                        movePhoneToEcho()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BackendAuthException) {
+                _signedOut.tryEmit(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Output switch failed: ${e.message}", e)
+                _messages.tryEmit(e.message ?: "Couldn't switch playback")
+            } finally {
+                _isSwitchingOutput.value = false
+            }
+        }
+    }
+
+    private suspend fun moveEchoToPhone() {
+        echo.refresh()
+        val state = echo.state.value
+        val wasPlaying = state.playing
+        val track = state.track
+        if (track == null) {
+            setOutputPreference(PlaybackOutput.PHONE)
+            updatePolling()
+            return
+        }
+        val queue = state.queue.ifEmpty { listOf(track) }
+        val index = state.index.takeIf { it in queue.indices } ?: 0
+        transferPlayback(
+            pauseSource = { if (wasPlaying) echo.command("pause") },
+            startTarget = {
+                phoneSetQueue(queue.map { it.copy(uuid = java.util.UUID.randomUUID().toString()) }, index,
+                    positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
+            },
+            restoreSource = { if (wasPlaying) echo.command("play") },
+            stopTarget = { playbackManager.pause() },
+            commit = { setOutputPreference(PlaybackOutput.PHONE); updatePolling() }
+        )
+    }
+
+    private suspend fun movePhoneToEcho() {
+        val phone = _uiState.value
+        val wasPlaying = phone.isPlaying
+        val position = playbackManager.getCurrentPosition()
+        val track = phone.currentTrack
+        if (track == null) {
+            echo.refresh(force = true)
+            setOutputPreference(PlaybackOutput.ALEXA)
+            updatePolling()
+            return
+        }
+        transferPlayback(
+            pauseSource = { playbackManager.pause() },
+            startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying) },
+            restoreSource = { if (wasPlaying) playbackManager.togglePlayPause() },
+            stopTarget = { echo.command("pause") },
+            commit = { setOutputPreference(PlaybackOutput.ALEXA); updatePolling() }
+        )
+    }
+
+    private suspend fun moveQueueToEcho(queue: List<Track>, index: Int, track: Track, positionMs: Long, play: Boolean) {
+        val items = queue.ifEmpty { listOf(track) }
+        val start = index.takeIf { it in items.indices && items[it].ytVideoId == track.ytVideoId }
+            ?: items.indexOfFirst { it.ytVideoId == track.ytVideoId }.coerceAtLeast(0)
+        echo.playQueue(items, start)
+        val videoId = track.ytVideoId ?: return
+        if (echo.awaitPlaying(videoId)) {
+            if (positionMs > 5_000) echo.seek(positionMs)
+            if (!play) echo.command("pause")
+        } else {
+            error("The Echo did not confirm playback. Playback stayed on the original device.")
+        }
+    }
+
+    // ---------- Colors ----------
 
     private var paletteJob: Job? = null
 
     private fun extractColors(thumbnailUri: String?) {
         paletteJob?.cancel()
         if (thumbnailUri == null) {
-            _uiState.update { it.copy(extractedColors = null) }
+            _colors.value = null
             return
         }
 
@@ -610,7 +659,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (bitmap != null) {
                     val palette = Palette.from(bitmap).generate()
                     ensureActive()
-                    // Robust color extraction with fallbacks
                     val vibrant = palette.vibrantSwatch
                     val lightVibrant = palette.lightVibrantSwatch
                     val darkVibrant = palette.darkVibrantSwatch
@@ -640,20 +688,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         vibrant?.bodyTextColor ?: android.graphics.Color.WHITE
                     }
 
-                    // Secondary color priority: Dark Vibrant -> Muted -> Dark Muted -> Dominant -> Default
                     val secondaryInt = darkVibrant?.rgb
                         ?: muted?.rgb
                         ?: palette.darkMutedSwatch?.rgb
                         ?: dominant?.rgb
                         ?: 0xFF625b71.toInt()
 
-                    // Tertiary color priority: Light Vibrant -> Light Muted -> Dominant -> Default
                     val tertiaryInt = lightVibrant?.rgb
                         ?: palette.lightMutedSwatch?.rgb
                         ?: dominant?.rgb
                         ?: 0xFF7D5260.toInt()
 
-                    val extracted = ExtractedColors(
+                    _colors.value = ExtractedColors(
                         primary = Color(finalPrimaryInt),
                         secondary = Color(secondaryInt),
                         tertiary = Color(tertiaryInt),
@@ -665,83 +711,76 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         onBackground = Color.White,
                         onSurface = Color.White
                     )
-                    _uiState.update { it.copy(extractedColors = extracted) }
                 } else {
-                    _uiState.update { it.copy(extractedColors = null) }
+                    _colors.value = null
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to extract colors", e)
-                _uiState.update { it.copy(extractedColors = null) }
+                Log.e(TAG, "Failed to extract colors", e)
+                _colors.value = null
             }
         }
     }
 
+    // ---------- Playback (routed to the Echo or the phone) ----------
 
+    /** Run an Echo request, reporting failures and an expired session. */
+    private suspend fun <T> runEcho(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: BackendAuthException) {
+        _signedOut.tryEmit(Unit)
+        null
+    } catch (e: Exception) {
+        Log.w(TAG, "Echo request failed: ${e.message}")
+        _messages.tryEmit(e.message ?: "The Echo didn't respond")
+        null
+    }
+
+    private fun launchEcho(block: suspend () -> Unit) {
+        viewModelScope.launch { runEcho(block) }
+    }
+
+    /** Play one song; the queue continues with its radio. */
     fun playTrack(track: Track) {
-        viewModelScope.launch {
-            // Set up the queue with the current track
-            _uiState.update {
-                it.copy(
-                    currentTrack = track,
-                    queue = listOf(track), // Initialize queue with current track
-                    queueIndex = 0, // Current track is at index 0
-                    isPlaying = true,
-                    duration = track.durationSec.toLong() * 1000
-                )
-            }
-
-            // Set the queue in the playback manager (starts playing automatically)
-            playbackManager.setQueue(listOf(track), 0)
-
-            // Initialize recommendation queue for this track
-            // This automatically cancels any pending recommendations from the previous song
-            // and starts fetching fresh recommendations for the new track
-            Log.d("MusicViewModel", "Playing track: ${track.title}, initializing recommendations")
-            queueManager.initializeQueue(listOf(track))
+        if (isAlexa) {
+            launchEcho { echo.playSong(track, radio = false) }
+            return
         }
+        viewModelScope.launch { phoneSetQueue(listOf(track), 0) }
     }
 
+    /** Mix: replace the upcoming songs with a fresh radio from the current song. */
     fun startRadio() {
-        val current = _uiState.value.currentTrack ?: return
+        val current = uiState.value.currentTrack ?: return
+        if (isAlexa) {
+            launchEcho { echo.playSong(current, radio = true) }
+            return
+        }
         viewModelScope.launch {
-            Log.d("MusicViewModel", "Starting radio for: ${current.title}")
-
-            // 1. Remove all other tracks from playback queue to avoid interrupting current song
             playbackManager.keepOnlyCurrentTrack()
-
-            // 2. Clear QueueManager and re-initialize with just this song
-            // This triggers the recommendation fetch
-            queueManager.initializeQueue(listOf(current))
-
-            // 3. Update UI state immediately
-            _uiState.update {
-                it.copy(
-                    queue = listOf(current),
-                    queueIndex = 0
-                )
-            }
+            queueManager.initializeQueue(listOf(current), isRadioMode = true)
+            _uiState.update { it.copy(queue = listOf(current), queueIndex = 0) }
         }
     }
 
     fun playTrackFromQueue(track: Track) {
+        if (isAlexa) {
+            val index = uiState.value.queue.indexOfFirst { it.uuid == track.uuid }
+            if (index >= 0) launchEcho { echo.playQueueIndex(track, index) }
+            return
+        }
         viewModelScope.launch {
             val currentState = _uiState.value
             val queue = currentState.queue
             val shouldResumePlayback = playbackManager.shouldResumeAfterTrackChange()
 
-            // Find the track index in the current queue
             val trackIndex = queue.indexOfFirst { it.uuid == track.uuid }
-            if (trackIndex == -1) {
-                Log.w("MusicViewModel", "Track ${track.title} not found in current queue")
-                return@launch
-            }
+            if (trackIndex == -1) return@launch
 
-            // Seek to the track in the playback manager
             playbackManager.seekToIndex(trackIndex)
-
-            // Update UI state to reflect the new current track
             _uiState.update {
                 it.copy(
                     currentTrack = track,
@@ -751,549 +790,218 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            Log.d("MusicViewModel", "Playing track from queue: ${track.title} at index $trackIndex")
-
-            // Sync QueueManager to the new position while preserving session history
             val remainingTracks = queue.drop(trackIndex)
-            val historyTracks = queue.take(trackIndex)
             if (remainingTracks.isNotEmpty()) {
-                queueManager.updateHistory(historyTracks)
                 queueManager.initializeQueue(remainingTracks, isRadioMode = false, preserveHistory = true)
             }
         }
     }
 
+    /** Play [tracks] (a shelf, album, playlist or list) starting at [startIndex]. */
     fun setQueue(tracks: List<Track>, startIndex: Int = 0) {
-        viewModelScope.launch {
-            playbackManager.setQueue(tracks, startIndex)
-            _uiState.update {
-                it.copy(
-                    queue = tracks,
-                    queueIndex = startIndex,
-                    currentTrack = tracks.getOrNull(startIndex),
-                    isPlaying = true
-                )
-            }
+        if (startIndex !in tracks.indices) return
+        if (isAlexa) {
+            launchEcho { echo.playQueue(tracks, startIndex) }
+            return
+        }
+        viewModelScope.launch { phoneSetQueue(tracks, startIndex) }
+    }
 
-            // setQueue means starting a fresh listening session (user picked a song
-            // from search / artist / album / playlist / library / home). Always
-            // reinitialize QueueManager so the previous session's history,
-            // first-played track, and recent artists do not poison the new queue's
-            // recommendations. Without this, e.g. switching from Hindi to English
-            // rap leaves Hindi seeds in the ensemble and pollutes the new radio.
-            val remainingTracks = tracks.drop(startIndex)
-            if (remainingTracks.isNotEmpty()) {
-                Log.d(
-                    "MusicViewModel",
-                    "Resetting QueueManager for new session: ${remainingTracks.size} tracks, seed='${remainingTracks.first().title}'"
-                )
-                queueManager.initializeQueue(
-                    remainingTracks,
-                    isRadioMode = false,
-                    preserveHistory = false
-                )
+    /** Play a whole account playlist (the server loads every page of it). */
+    fun playPlaylist(playlistId: String, tracks: List<Track>, startIndex: Int = 0) {
+        if (isAlexa && startIndex == 0) {
+            launchEcho { echo.playPlaylist(playlistId) }
+            return
+        }
+        if (tracks.isNotEmpty()) {
+            setQueue(tracks, startIndex)
+            return
+        }
+        // Played from a playlist chip: load its songs first.
+        viewModelScope.launch {
+            try {
+                val data = Backend.get("/api/library/playlists/$playlistId", mapOf("limit" to "100")).objectOrEmpty()
+                val songs = data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                    .filter { it.videoId.isNotBlank() }
+                    .map { it.toTrack() }
+                if (songs.isNotEmpty()) setQueue(songs, 0) else _messages.tryEmit("This playlist is empty")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BackendAuthException) {
+                _signedOut.tryEmit(Unit)
+            } catch (e: Exception) {
+                _messages.tryEmit("Couldn't load the playlist: ${e.message}")
             }
         }
     }
 
+    /**
+     * Phone queue: the first song gets a freshly warmed stream from the server, the rest use
+     * their proxy URLs. The shared queue on the server is replaced so the Echo and the web
+     * remote see the same songs.
+     */
+    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = false) {
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        try {
+            val playable = withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
+            val start = playable[startIndex]
+            withContext(Dispatchers.IO) {
+                // The shared queue holds at most 200 songs; keep a window around the start.
+                val from = (startIndex - 20).coerceAtLeast(0)
+                AlexaBackendApi.updateQueue("start", requireNotNull(start.ytVideoId),
+                    playable.subList(from, (from + 200).coerceAtMost(playable.size))
+                        .map { AlexaBackendApi.backendTrack(it) })
+            }
+            playbackManager.setQueue(playable, startIndex,
+                startPositionMs = if (positionMs > 0) positionMs else androidx.media3.common.C.TIME_UNSET,
+                playWhenReady = play)
+            _uiState.update {
+                it.copy(
+                    queue = playable,
+                    queueIndex = startIndex,
+                    currentTrack = start,
+                    isPlaying = play,
+                    duration = start.durationSec * 1000L
+                )
+            }
+            queueManager.initializeQueue(playable.drop(startIndex))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (throwOnFailure) throw e
+            Log.e(TAG, "Phone playback failed: ${e.message}", e)
+            _uiState.update { it.copy(error = "Playback failed: ${e.message}") }
+            _messages.tryEmit("Playback failed: ${e.message}")
+        } finally {
+            _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    private suspend fun resolveForPhone(tracks: List<Track>, startIndex: Int): List<Track> =
+        tracks.mapIndexed { i, track ->
+            val videoId = requireNotNull(track.ytVideoId) { "${track.title} can't be played" }
+            val url = track.localUri?.takeIf { it.startsWith("http") }
+                ?: if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.proxyUrl(videoId)
+            track.copy(localUri = url, isStream = true)
+        }.also { resolved -> trackDao.insertTracks(resolved.map { it.toEntity() }) }
+
     fun togglePlayPause() {
+        if (isAlexa) {
+            val playing = echo.state.value.playing
+            launchEcho { echo.command(if (playing) "pause" else "play") }
+            return
+        }
         playbackManager.togglePlayPause()
-        // rely on playbackManager.isPlayingFlow to update UI via collector
     }
 
     fun toggleShuffle() {
+        if (isAlexa) {
+            launchEcho { echo.shuffle() }
+            return
+        }
         playbackManager.toggleShuffle()
-        // rely on playbackManager.isShuffleEnabledFlow to update UI via collector
     }
 
     fun toggleRepeat() {
+        if (isAlexa) return
         playbackManager.toggleRepeatMode()
     }
 
+    fun addNext(track: Track) = addNext(listOf(track))
 
-    /**
-     * Insert a track so it plays immediately after the current track.
-     */
-    fun addNext(track: Track) {
-        addNext(listOf(track))
-    }
-
-    /**
-     * Insert a list of tracks so they play immediately after the current track.
-     *
-     * Incoming tracks are deduplicated by `uuid` against the existing queue (except the
-     * currently playing item), using a set-based filter to avoid repeated linear scans.
-     */
+    /** Insert songs right after the current one. */
     fun addNext(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-
+        if (isAlexa) {
+            launchEcho { echo.queueAdd(tracks, next = true) }
+            return
+        }
+        val current = _uiState.value.currentTrack
+        if (current == null || _uiState.value.queueIndex < 0) {
+            setQueue(tracks, 0)
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isQueueOperationInProgress = true) }
-
             try {
-                val currentState = _uiState.value
-                val currentQueue = currentState.queue.toMutableList()
-                val currentTrack = currentState.currentTrack
-                val currentPosition = playbackManager.getCurrentPosition()
-
-                // Maintain single entry per track UUID while preserving the currently playing track
-                if (tracks.isNotEmpty()) {
-                    val incomingUuids = tracks.map { it.uuid }.toSet()
-                    currentQueue.removeAll { item ->
-                        incomingUuids.contains(item.uuid) && item.uuid != currentTrack?.uuid
+                val resolved = withContext(Dispatchers.IO) { resolveForPhone(tracks, -1) }
+                val state = _uiState.value
+                val insertIndex = (state.queueIndex + 1).coerceAtMost(state.queue.size)
+                if (playbackManager.addToQueueAt(resolved, insertIndex)) {
+                    val queue = state.queue.toMutableList().apply { addAll(insertIndex, resolved) }
+                    _uiState.update { it.copy(queue = queue) }
+                    resolved.forEachIndexed { i, track -> queueManager.insertQueueItem(1 + i, track) }
+                }
+                current.ytVideoId?.let { videoId ->
+                    withContext(Dispatchers.IO) {
+                        AlexaBackendApi.updateQueue("next", videoId,
+                            resolved.take(200).map { AlexaBackendApi.backendTrack(it) })
                     }
                 }
-
-                if (currentQueue.isEmpty() || currentState.queueIndex < 0) {
-                    // Nothing playing yet; start a queue with these tracks
-                    setQueue(tracks, 0)
-                } else {
-                    val currentQueueIndex = currentState.queueIndex
-
-                    // Simple insert for batch to avoid complex index shifting with moves
-                    // We just insert them right after current
-
-                    val insertIndex = (currentQueueIndex + 1).coerceAtMost(currentQueue.size)
-                    currentQueue.addAll(insertIndex, tracks)
-
-                    Log.d(
-                        "MusicViewModel",
-                        "Inserting ${tracks.size} tracks at index $insertIndex"
-                    )
-
-                    val inserted = playbackManager.addToQueueAt(tracks, insertIndex)
-                    if (inserted) {
-                        // Also insert into QueueManager if it's within the range it cares about
-                        val queueManagerIndex = insertIndex - currentQueueIndex
-                        if (queueManagerIndex >= 0) {
-                            // QueueManager might not support batch insert yet?
-                            // It does not seem to have batch insert based on previous reads, but we can loop.
-                            // Actually QueueManager logic in addNext(Track) calls insertQueueItem.
-                            // We should probably add batch support there too or loop.
-                            // looping is fine for small batches.
-                            tracks.forEachIndexed { i, track ->
-                                queueManager.insertQueueItem(queueManagerIndex + i, track)
-                            }
-                        }
-                    } else {
-                        // Fallback: reset full queue to keep UI and player in sync.
-                        // keepShuffleMode=false: ExoPlayer's native shuffle is always off;
-                        // shuffle ordering is handled by pre-shuffling before calling setQueue.
-                        playbackManager.setQueue(
-                            currentQueue,
-                            currentState.queueIndex,
-                            currentPosition,
-                            keepShuffleMode = false
-                        )
-                    }
-
-                    _uiState.update {
-                        it.copy(
-                            queue = currentQueue
-                        )
-                    }
-                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to add next batch: ${e.message}", e)
+                Log.e(TAG, "Play next failed: ${e.message}", e)
+                _messages.tryEmit("Couldn't add to the queue: ${e.message}")
             } finally {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
             }
         }
     }
 
-    /**
-     * Appends tracks to the queue while preserving current playback position.
-     *
-     * Incoming tracks are de-duplicated by UUID and the currently playing item is retained
-     * exactly once to avoid playback jumps after queue mutation.
-     * Deduplication uses a UUID set (`trackUuidsToAdd`) so queue cleanup is O(q + n)
-     * rather than repeated O(q * n) membership checks (q queue size, n incoming size).
-     */
+    /** Add songs to the end of the queue. */
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-
+        if (isAlexa) {
+            launchEcho { echo.queueAdd(tracks, next = false) }
+            return
+        }
+        val current = _uiState.value.currentTrack
+        if (current == null || _uiState.value.queueIndex < 0) {
+            setQueue(tracks, 0)
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isQueueOperationInProgress = true) }
             try {
-                // Update local UI state
-                val currentState = _uiState.value
-                val currentQueue = currentState.queue.toMutableList()
-                val currentTrack = currentState.currentTrack
-                val currentTrackUuid = currentTrack?.uuid
-
-                // Get current position before modification to maintain playback continuity
-                val currentPosition = playbackManager.getCurrentPosition()
-                // Use current index from simple calculation or reliable flow source if needed
-                // But since we are modifying structure, we must rely on UUID to find playing track location
-
-                // 1. Filter out the currently playing track from the incoming list
-                val tracksToAdd = tracks.filter { track ->
-                    currentTrackUuid == null || track.uuid != currentTrackUuid
-                }
-
-                if (tracksToAdd.isEmpty()) return@launch
-
-                // 2. Remove existing instances of these tracks from the current queue
-                // User requirement: "keep single entry of each song uuid not repetation"
-                val trackUuidsToAdd = tracksToAdd.map { it.uuid }.toSet()
-                currentQueue.removeAll { it.uuid in trackUuidsToAdd }
-
-                // 3. Add the tracks to the end of the queue
-                currentQueue.addAll(tracksToAdd)
-
-                // 4. Update UI State immediately
-                _uiState.update { it.copy(queue = currentQueue) }
-
-                // 5. Update PlaybackManager
-                // Calculate new index of the currently playing track in the modified queue
-                val newIndex = if (currentTrackUuid != null) {
-                    val index = currentQueue.indexOfFirst { it.uuid == currentTrackUuid }
-                    if (index != -1) index else currentState.queueIndex.coerceIn(
-                        0,
-                        currentQueue.size.coerceAtLeast(1) - 1
-                    )
-                } else {
-                    currentState.queueIndex
-                }
-
-                // Use setQueue with explicit position maintenance to prevent restarts or random jumps.
-                // keepShuffleMode=false: ExoPlayer's native shuffle is always off;
-                // shuffle ordering is handled by pre-shuffling before calling setQueue.
-                playbackManager.setQueue(
-                    currentQueue,
-                    newIndex,
-                    currentPosition,
-                    keepShuffleMode = false
-                )
-
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to add to queue batch: ${e.message}", e)
-            } finally {
-                _uiState.update { it.copy(isQueueOperationInProgress = false) }
-            }
-        }
-    }
-
-    private suspend fun resolveQueueTrack(spotdownSong: SpotdownSong, useStreamMode: Boolean): Track {
-        return if (useStreamMode) {
-            Log.d(
-                "MusicViewModel",
-                "Stream mode enabled, queueing stream track: ${spotdownSong.title}"
-            )
-
-            // Keep current queue entries pinned so stream cache eviction does not remove
-            // files that are about to be played.
-            val pinnedUuids = _uiState.value.queue.map { it.uuid }.toSet()
-            musicService.streamTrack(
-                song = spotdownSong,
-                pinnedUuids = pinnedUuids
-            ).also { streamedTrack ->
-                trackDao.insertTrack(streamedTrack.toEntity())
-            }
-        } else {
-            Log.d(
-                "MusicViewModel",
-                "Stream mode disabled, queueing permanent download: ${spotdownSong.title}"
-            )
-            musicService.smartDownloadAndIndex(spotdownSong)
-        }
-    }
-
-    /**
-     * Queue a Spotify track to play next.
-     * Honors stream mode immediately at the time of request.
-     *
-     * Duplicate suppression key: `"title-artist"` (lower-level request coalescing while
-     * operations are in-flight), plus active download-state checks.
-     */
-    fun queueSpotifyTrackNext(
-        spotifyTrack: SpotifyTrack,
-        useStreamMode: Boolean = queueManager.isStreamMode
-    ) {
-        val spotdownSong = SpotifyApi.spotifyTrackToSong(spotifyTrack)
-        val key = "${spotdownSong.title}-${spotdownSong.artist}"
-
-        // Check pending operations
-        if (pendingQueueOperations.contains(key)) {
-            Log.d("MusicViewModel", "Ignoring duplicate queue request for: $key")
-            return
-        }
-
-        // Check active download queue
-        val currentState = _uiState.value
-        val alreadyDownloading = currentState.downloadQueue.any {
-            it.song.title == spotdownSong.title && it.song.artist == spotdownSong.artist
-        } || (currentState.currentDownload?.song?.title == spotdownSong.title &&
-                currentState.currentDownload?.song?.artist == spotdownSong.artist)
-
-        if (alreadyDownloading) {
-            Log.d("MusicViewModel", "Song already downloading (queueSpotifyTrackNext): $key")
-            return
-        }
-
-        viewModelScope.launch {
-            pendingQueueOperations.add(key)
-            _uiState.update { it.copy(isQueueOperationInProgress = true) }
-
-            try {
-                // notify QueueManager to prevent double download
-                val trackToNotify = Track(
-                    uuid = UUID.randomUUID().toString(),
-                    title = spotdownSong.title,
-                    artist = spotdownSong.artist,
-                    localUri = null,
-                    durationSec = 0
-                )
-                queueManager.notifyDownloadStarted(trackToNotify)
-
-                val track = withContext(Dispatchers.IO) {
-                    resolveQueueTrack(spotdownSong, useStreamMode)
-                }
-                addNext(track)
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to queue Spotify track next: ${e.message}", e)
-                _uiState.update { it.copy(isQueueOperationInProgress = false) }
-            } finally {
-                queueManager.removeDownloadTracking(spotdownSong.title, spotdownSong.artist)
-                pendingQueueOperations.remove(key)
-                _uiState.update { it.copy(isQueueOperationInProgress = false) }
-            }
-        }
-    }
-
-    /**
-     * Play a Spotify track instantly (Stream) and download in background.
-     */
-    fun playInstant(spotifyTrack: SpotifyTrack) {
-        val spotdownSong = SpotifyApi.spotifyTrackToSong(spotifyTrack)
-        playInstant(spotdownSong)
-    }
-
-    /**
-     * Overload for SpotdownSong (used by Search/Artist/Album screens via downloadAndPlay)
-     */
-    fun playInstant(song: SpotdownSong) {
-        // De-duplicate: if a stream request is already live for this song, ignore the tap.
-        val requestKey = song.spotifyId?.takeIf { it.isNotBlank() }
-            ?: "${song.title.lowercase().trim()}-${song.artist.lowercase().trim()}"
-        if (!activeStreamRequests.add(requestKey)) {
-            Log.d("MusicViewModel", "playInstant ignored — already in progress for: ${song.title}")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                // 1. Check if already downloaded
-                val durationSec = SpotifyApi.parseDuration(song.duration)
-                val candidates = trackDao.findTracksByTitleAndDuration(song.title, durationSec)
-                val existingTrack = candidates.find {
-                    com.example.juke.utils.ArtistUtils.areArtistsEqual(it.artist, song.artist)
-                }
-
-                if (existingTrack != null && existingTrack.localUri != null) {
-                    Log.d(
-                        "MusicViewModel",
-                        "Track exists locally, playing from storage: ${song.title}"
-                    )
-                    playTrack(existingTrack.toTrack())
-                    return@launch
-                }
-
-                // 2. Not downloaded -> Stream instantly from direct HTTP URL.
-                // ExoPlayer's CacheDataSource streams from the network URL immediately
-                // while FastDownloader saves the full file to disk in the background.
-                Log.d(
-                    "MusicViewModel",
-                    "Track not local, starting instant HTTP stream: ${song.title}"
-                )
-                _uiState.update { it.copy(isLoading = true) }
-
-                try {
-                    val pinnedUuids = _uiState.value.queue.map { it.uuid }.toSet()
-
-                    val httpTrack = withContext(Dispatchers.IO) {
-                        musicService.streamTrackInstant(
-                            song = song,
-                            forceSpotmateFirst = true,
-                            pinnedUuids = pinnedUuids,
-                            awaitPlaybackStarted = { trackId ->
-                                kotlinx.coroutines.flow.combine(
-                                    playbackManager.currentTrackIdFlow,
-                                    playbackManager.isPlayingFlow
-                                ) { currentId, playing -> currentId == trackId && playing }
-                                    .first { it }
-                            },
-                            onLocalFileReady = { completedTrack ->
-                                val localTrack = withContext(Dispatchers.IO) {
-                                    database.withTransaction {
-                                        val latest = trackDao.getTrackByUuid(completedTrack.uuid)?.toTrack() ?: completedTrack
-                                        val merged = mergeCompletedStream(completedTrack, latest)
-                                        trackDao.insertTrack(merged.toEntity())
-                                        merged
-                                    }
-                                }
-                                // Background download finished — swap ExoPlayer source to local file.
-                                // seamlessIfPlaying=true keeps audio uninterrupted during the swap.
-                                val swapped = playbackManager.replaceTrackInQueue(
-                                    oldMediaId = localTrack.uuid,
-                                    newTrack = localTrack,
-                                    seamlessIfPlaying = true
-                                )
-                                // Update DB and in-memory queue with the local file path
-                                queueManager.replaceTrackInQueue(localTrack.uuid, localTrack)
-                                _uiState.update { state ->
-                                    val newQueue = state.queue.map {
-                                        if (it.uuid == localTrack.uuid) localTrack else it
-                                    }
-                                    state.copy(
-                                        queue = newQueue,
-                                        currentTrack = if (state.currentTrack?.uuid == localTrack.uuid) localTrack else state.currentTrack
-                                    )
-                                }
-                                Log.d("MusicViewModel", "Swapped to local file for '${localTrack.title}' (swapped=$swapped)")
-                            }
-                        ).also { track ->
-                            // Persist the HTTP-URI track to DB so queue survives app restart
-                            trackDao.insertTrack(track.toEntity())
-                        }
+                val resolved = withContext(Dispatchers.IO) { resolveForPhone(tracks, -1) }
+                playbackManager.addToQueue(resolved)
+                _uiState.update { it.copy(queue = it.queue + resolved) }
+                current.ytVideoId?.let { videoId ->
+                    withContext(Dispatchers.IO) {
+                        AlexaBackendApi.updateQueue("extend", videoId,
+                            resolved.take(200).map { AlexaBackendApi.backendTrack(it) })
                     }
-
-                    // Play immediately from the HTTP URL
-                    playTrack(httpTrack)
-
-                    // Hydrate lyrics and YT video ID off the critical path
-                    if (httpTrack.ytVideoId.isNullOrBlank()) {
-                        refreshYtVideoId(httpTrack)
-                    }
-
-                    _uiState.update { it.copy(isLoading = false) }
-                    queueManager.notifyDownloadStarted(httpTrack, addToUi = false)
-
-                    Log.d("MusicViewModel", "Instant HTTP stream playing: ${song.title}")
-
-                } catch (e: Exception) {
-                    Log.e("MusicViewModel", "Instant play failed (stream fetch): ${e.message}", e)
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = "Failed to stream: ${e.message}"
-                        )
-                    }
-
-                    // Fallback: Queue normal download (will play if user waits or clicks again)
-                    addToDownloadQueue(song, shouldPlayAfterDownload = true)
                 }
-
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Instant play failed: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false) }
+                Log.e(TAG, "Add to queue failed: ${e.message}", e)
+                _messages.tryEmit("Couldn't add to the queue: ${e.message}")
             } finally {
-                // Always release the guard so the user can retry after a failure
-                activeStreamRequests.remove(requestKey)
-            }
-        }
-    }
-
-    /**
-     * Download a simplified Spotify track (album context) and queue it to play next.
-     *
-     * Duplicate suppression key: `"title-artist"` while the operation is pending, with
-     * additional checks against active download state to avoid parallel duplicates.
-     */
-    fun queueSimplifiedTrackNext(track: SpotifySimplifiedTrack, album: SpotifyAlbum) {
-        val spotdownSong = SpotifyApi.simplifiedTrackToSong(track, album)
-        val key = "${spotdownSong.title}-${spotdownSong.artist}"
-
-        if (pendingQueueOperations.contains(key)) {
-            Log.d("MusicViewModel", "Ignoring duplicate queue request for: $key")
-            return
-        }
-
-        // Check active download queue
-        val currentState = _uiState.value
-        val alreadyDownloading = currentState.downloadQueue.any {
-            it.song.title == spotdownSong.title && it.song.artist == spotdownSong.artist
-        } || (currentState.currentDownload?.song?.title == spotdownSong.title &&
-                currentState.currentDownload?.song?.artist == spotdownSong.artist)
-
-        if (alreadyDownloading) {
-            Log.d("MusicViewModel", "Song already downloading (queueSimplifiedTrackNext): $key")
-            return
-        }
-
-        viewModelScope.launch {
-            pendingQueueOperations.add(key)
-            _uiState.update { it.copy(isQueueOperationInProgress = true) }
-
-            try {
-                // Skip download if already in library with a valid local file
-                val existing = withContext(Dispatchers.IO) {
-                    val durationSec = track.durationMs / 1000
-                    trackDao.findTracksByTitleAndDuration(spotdownSong.title, durationSec)
-                        .find {
-                            val localPath = it.localUri
-                            com.example.juke.utils.ArtistUtils.areArtistsEqual(
-                                it.artist,
-                                spotdownSong.artist
-                            ) &&
-                                    localPath != null &&
-                                    !localPath.startsWith("http", ignoreCase = true) &&
-                                    File(localPath).exists()
-                        }
-                        ?.toTrack()
-                }
-
-                if (existing != null) {
-                    Log.d(
-                        "MusicViewModel",
-                        "Album track already downloaded, inserting without re-download: ${existing.title}"
-                    )
-                    addNext(existing)
-                    return@launch
-                }
-
-                // spotdownSong created above
-                val trackToQueue = withContext(Dispatchers.IO) {
-                    // Notify QueueManager to prevent duplicate processing.
-                    queueManager.notifyDownloadStarted(
-                        Track(
-                            uuid = UUID.randomUUID().toString(),
-                            title = spotdownSong.title,
-                            artist = spotdownSong.artist,
-                            localUri = null,
-                            durationSec = 0
-                        )
-                    )
-                    resolveQueueTrack(
-                        spotdownSong,
-                        useStreamMode = queueManager.isStreamMode
-                    )
-                }
-                addNext(trackToQueue)
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to queue simplified track next: ${e.message}", e)
-            } finally {
-                queueManager.removeDownloadTracking(spotdownSong.title, spotdownSong.artist)
-                pendingQueueOperations.remove(key)
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
             }
         }
     }
 
     fun skipToNext() {
+        if (isAlexa) {
+            launchEcho { echo.command("next") }
+            return
+        }
         val current = _uiState.value.currentTrack
-        if (current?.isStream == true && current.spotifyId == null && current.ytVideoId != null) {
+        if (current?.ytVideoId != null) {
             viewModelScope.launch {
                 try {
                     val window = withContext(Dispatchers.IO) { queueManager.refreshAlexaQueue(current) }
                     if (_uiState.value.currentTrack?.uuid != current.uuid) return@launch
                     if (window != null) applyAlexaWindow(window)
-                    playbackManager.skipToNext()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _uiState.update { it.copy(error = "Couldn't refresh shared queue: ${e.message}") }
+                    Log.w(TAG, "Couldn't refresh shared queue: ${e.message}")
                 }
+                playbackManager.skipToNext()
             }
         } else {
             playbackManager.skipToNext()
@@ -1301,16 +1009,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun skipToPrevious() {
+        if (isAlexa) {
+            launchEcho { echo.command("previous") }
+            return
+        }
         playbackManager.skipToPrevious()
-        // UI state will be updated automatically via currentTrackIdFlow
     }
 
     fun seekTo(positionMs: Long) {
+        if (isAlexa) {
+            launchEcho { echo.seek(positionMs) }
+            return
+        }
         playbackManager.seekTo(positionMs)
         _uiState.update { it.copy(position = positionMs) }
     }
 
     fun updateProgress() {
+        if (isAlexa) {
+            _tick.value++
+            return
+        }
         val currentPos = playbackManager.getCurrentPosition()
         val durationMs = playbackManager.getDuration()
         _uiState.update { state ->
@@ -1321,412 +1040,40 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun downloadAndPlay(song: SpotdownSong) {
-        // Redirect to instant play logic
-        playInstant(song)
-    }
+    /** Echo volume (0–100), shown by the player's volume slider. */
+    val echoVolume: StateFlow<Int?> = echo.state.map { it.volume }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    suspend fun downloadSong(song: SpotdownSong): Track {
-        // Check if already exists
-        val durationSec = SpotifyApi.parseDuration(song.duration)
-        val candidates = trackDao.findTracksByTitleAndDuration(song.title, durationSec)
-        val existingTrack = candidates.find {
-            com.example.juke.utils.ArtistUtils.areArtistsEqual(it.artist, song.artist)
-        }
-
-        return if (existingTrack != null && existingTrack.localUri != null) {
-            // Already downloaded
-            existingTrack.toTrack()
-        } else {
-            // Download directly
-            musicService.smartDownloadAndIndex(song)
-        }
-    }
-
-    /**
-     * Play a backend (Alexa-mode) track. Bypasses playInstant's Spotmate/
-     * streamTrackInstant + FastDownloader path (Spotify-only): resolves the
-     * `/proxy/` stream URL via get_stream when missing, inserts the row with
-     * isStream=true, then uses the existing playTrack/setQueue path.
-     */
-    fun playAlexaTrack(track: Track) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            try {
-                var playable = track
-                if (playable.localUri.isNullOrBlank()) {
-                    val videoId = playable.ytVideoId
-                        ?: throw Exception("No stream available for ${track.title}")
-                    val audioUrl = withContext(Dispatchers.IO) {
-                        AlexaBackendApi.getStreamUrl(videoId)
-                    }
-                    playable = playable.copy(localUri = audioUrl, isStream = true)
-                } else {
-                    playable = playable.copy(isStream = true)
-                }
-                val toInsert = playable
-                withContext(Dispatchers.IO) {
-                    trackDao.insertTrack(toInsert.toEntity())
-                    AlexaBackendApi.updateQueue("start", requireNotNull(toInsert.ytVideoId),
-                        listOf(AlexaBackendApi.backendTrack(toInsert)))
-                }
-                _uiState.update { it.copy(isLoading = false) }
-                playTrack(toInsert)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Alexa play failed: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false, error = "Playback failed: ${e.message}") }
-            }
-        }
-    }
-
-    /** Resolve a home shelf before passing it to the existing queue playback path. */
-    fun playAlexaShelf(tracks: List<Track>, startIndex: Int) {
-        if (startIndex !in tracks.indices) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            try {
-                val playable = withContext(Dispatchers.IO) {
-                    tracks.map { track ->
-                        val videoId = requireNotNull(track.ytVideoId)
-                        track.copy(localUri = AlexaBackendApi.getStreamUrl(videoId), isStream = true)
-                            .also { trackDao.insertTrack(it.toEntity()) }
-                    }
-                }
-                withContext(Dispatchers.IO) {
-                    AlexaBackendApi.updateQueue("start", requireNotNull(playable[startIndex].ytVideoId),
-                        playable.map { AlexaBackendApi.backendTrack(it) })
-                }
-                setQueue(playable, startIndex)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Playback failed: ${e.message}") }
-            } finally {
-                _uiState.update { it.copy(isLoading = false) }
-            }
-        }
-    }
-
-    /** Convenience overload for raw backend items (stream resolved at play time). */
-    fun playAlexaTrack(
-        backendTrack: AlexaBackendApi.BackendTrack,
-        preResolvedStreamUrl: String? = null
-    ) {
-        playAlexaTrack(backendTrack.toAppTrack(preResolvedStreamUrl))
-    }
-
-    /**
-     * Queue a backend track to play next (Alexa-mode swipe action).
-     * Bypasses queueSpotifyTrackNext's Spotify resolution path.
-     */
-    fun queueAlexaTrackNext(track: Track) {
-        viewModelScope.launch {
-            try {
-                var playable = track
-                if (playable.localUri.isNullOrBlank()) {
-                    val videoId = playable.ytVideoId ?: return@launch
-                    val audioUrl = withContext(Dispatchers.IO) {
-                        AlexaBackendApi.getStreamUrl(videoId)
-                    }
-                    playable = playable.copy(localUri = audioUrl, isStream = true)
-                } else {
-                    playable = playable.copy(isStream = true)
-                }
-                val toInsert = playable
-                withContext(Dispatchers.IO) {
-                    trackDao.insertTrack(toInsert.toEntity())
-                }
-                val current = _uiState.value.currentTrack
-                    ?: throw Exception("Play a track before adding to the shared queue")
-                withContext(Dispatchers.IO) {
-                    AlexaBackendApi.updateQueue("next", requireNotNull(current.ytVideoId),
-                        listOf(AlexaBackendApi.backendTrack(toInsert)))
-                    queueManager.refreshAlexaQueue(current)
-                }?.let { applyAlexaWindow(it) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Alexa queue-next failed: ${e.message}", e)
-                _uiState.update { it.copy(error = "Queue failed: ${e.message}") }
-            }
-        }
-    }
-
-    /**
-     * Schedules a song for download with de-duplication against active and pending work.
-     *
-     * Duplicate suppression key: `"title-artist"` for in-memory queue/download tracking.
-     * The method intentionally re-checks queue/download state after DB lookup to reduce
-     * race-condition duplicates between concurrent requests.
-     * If the track already exists locally, download is skipped and optional immediate playback
-     * is handled without queuing a redundant job.
-     */
-    fun addToDownloadQueue(song: SpotdownSong, shouldPlayAfterDownload: Boolean = false) {
-        viewModelScope.launch {
-            // Check if already in queue or downloading
-            val currentState = _uiState.value
-            val alreadyQueued = currentState.downloadQueue.any {
-                it.song.title == song.title && it.song.artist == song.artist
-            }
-            val currentlyDownloading = currentState.currentDownload?.let {
-                it.song.title == song.title && it.song.artist == song.artist
-            } ?: false
-
-            if (alreadyQueued || currentlyDownloading) {
-                Log.d("MusicViewModel", "Song already in queue or downloading: ${song.title}")
-                return@launch
-            }
-
-            // Check pending operations from other paths
-            val key = "${song.title}-${song.artist}"
-            if (pendingQueueOperations.contains(key)) {
-                Log.d("MusicViewModel", "Song overlap with pending operation: ${song.title}")
-                return@launch
-            }
-
-            // Check if already exists in database
-            val durationSec = SpotifyApi.parseDuration(song.duration)
-            val candidates = trackDao.findTracksByTitleAndDuration(song.title, durationSec)
-            val existingTrack = candidates.find {
-                com.example.juke.utils.ArtistUtils.areArtistsEqual(it.artist, song.artist)
-            }
-            if (existingTrack != null && existingTrack.localUri != null) {
-                Log.d("MusicViewModel", "Song already downloaded: ${song.title}")
-                if (shouldPlayAfterDownload) {
-                    playTrack(existingTrack.toTrack())
-                }
-                return@launch
-            }
-
-            // Re-check if already in queue or downloading (Race condition fix)
-            val updatedState = _uiState.value
-            val alreadyQueuedRecheck = updatedState.downloadQueue.any {
-                it.song.title == song.title && it.song.artist == song.artist
-            }
-            val currentlyDownloadingRecheck = updatedState.currentDownload?.let {
-                it.song.title == song.title && it.song.artist == song.artist
-            } ?: false
-
-            if (alreadyQueuedRecheck || currentlyDownloadingRecheck) {
-                Log.d("MusicViewModel", "Song appeared in queue during DB check: ${song.title}")
-                return@launch
-            }
-
-            // Re-check pending operations
-            if (pendingQueueOperations.contains(key)) {
-                Log.d(
-                    "MusicViewModel",
-                    "Song overlap with pending operation during DB check: ${song.title}"
-                )
-                return@launch
-            }
-
-            val downloadItem = DownloadItem(
-                song = song,
-                status = DownloadStatus.QUEUED,
-                shouldPlayAfterDownload = shouldPlayAfterDownload
-            )
-
-            _uiState.update { state ->
-                state.copy(
-                    downloadQueue = state.downloadQueue + downloadItem
-                )
-            }
-
-            Log.d(
-                "MusicViewModel",
-                "Added to queue: ${song.title} (Queue size: ${_uiState.value.downloadQueue.size})"
-            )
-
-            processDownloadQueue()
-        }
-    }
-
-    private fun processDownloadQueue() {
-        if (isProcessingQueue) {
-            Log.d("MusicViewModel", "Already processing queue")
-            return
-        }
-
-        viewModelScope.launch {
-            isProcessingQueue = true
-
-            while (_uiState.value.downloadQueue.isNotEmpty()) {
-                val nextItem = _uiState.value.downloadQueue.first()
-
-                // Move from queue to current download
-                _uiState.update { state ->
-                    state.copy(
-                        downloadQueue = state.downloadQueue.drop(1),
-                        currentDownload = nextItem.copy(status = DownloadStatus.DOWNLOADING)
-                    )
-                }
-
-                // Add to QueueManager tracking
-                queueManager.addDownloadTracking(
-                    nextItem.song.title,
-                    nextItem.song.artist,
-                    "manual"
-                )
-
-                Log.d("MusicViewModel", "Starting download: ${nextItem.song.title}")
-
-                try {
-                    val track = musicService.smartDownloadAndIndex(nextItem.song)
-
-                    // Remove from QueueManager tracking
-                    queueManager.removeDownloadTracking(
-                        nextItem.song.title,
-                        nextItem.song.artist
-                    )
-
-                    // Download successful
-                    _uiState.update { state ->
-                        state.copy(
-                            currentDownload = nextItem.copy(status = DownloadStatus.COMPLETED)
-                        )
-                    }
-
-                    Log.d("MusicViewModel", "Download completed: ${nextItem.song.title}")
-                    Toast.makeText(getApplication(), "Downloaded: ${nextItem.song.title}", Toast.LENGTH_SHORT).show()
-
-                    // Check if this track is currently in the queue (streaming version)
-                    // Since we preserve UUIDs, the track object already has the correct UUID
-                    _uiState.value.currentTrack
-                    val isInQueue = _uiState.value.queue.any { it.uuid == track.uuid }
-
-                    if (isInQueue) {
-                        Log.d(
-                            "MusicViewModel",
-                            "Downloaded track is in queue, updating UI and playback: ${track.title}"
-                        )
-
-                        // Update UI queue with downloaded version
-                        val updatedQueue = _uiState.value.queue.map {
-                            if (it.uuid == track.uuid) track else it
-                        }
-                        _uiState.update { state ->
-                            state.copy(
-                                queue = updatedQueue,
-                                currentTrack = if (state.currentTrack?.uuid == track.uuid) track else state.currentTrack
-                            )
-                        }
-
-                        // Update playback manager queue with new local file path
-                        playbackManager.replaceTrackInQueue(track.uuid, track, seamlessIfPlaying = true)
-                    }
-
-                    // Play if requested
-                    if (nextItem.shouldPlayAfterDownload) {
-                        playTrack(track)
-                    }
-
-                    // Clear current download after a brief delay
-                    kotlinx.coroutines.delay(1000)
-                    _uiState.update { state ->
-                        state.copy(currentDownload = null)
-                    }
-
-                } catch (e: Exception) {
-                    Log.e(
-                        "MusicViewModel",
-                        "Download failed: ${nextItem.song.title} - ${e.message}"
-                    )
-
-                    // Remove from QueueManager tracking on error
-                    queueManager.removeDownloadTracking(
-                        nextItem.song.title,
-                        nextItem.song.artist
-                    )
-
-                    // Mark as failed
-                    _uiState.update { state ->
-                        state.copy(
-                            currentDownload = nextItem.copy(
-                                status = DownloadStatus.FAILED,
-                                error = e.message
-                            )
-                        )
-                    }
-
-                    // Clear failed download after delay
-                    kotlinx.coroutines.delay(3000)
-                    _uiState.update { state ->
-                        state.copy(currentDownload = null)
-                    }
-                }
-            }
-
-            isProcessingQueue = false
-            Log.d("MusicViewModel", "Queue processing completed")
-        }
-    }
-
-    fun cancelDownload(downloadId: String) {
-        _uiState.update { state ->
-            state.copy(
-                downloadQueue = state.downloadQueue.filter { it.id != downloadId }
-            )
-        }
-    }
-
-    fun retryFailedDownload(downloadItem: DownloadItem) {
-        viewModelScope.launch {
-            // Reset the download item status and add back to queue
-            val resetItem = downloadItem.copy(
-                status = DownloadStatus.QUEUED,
-                error = null
-            )
-
-            _uiState.update { state ->
-                state.copy(
-                    downloadQueue = listOf(resetItem) + state.downloadQueue
-                )
-            }
-
-            Log.d("MusicViewModel", "Retrying failed download: ${downloadItem.song.title}")
-
-            // Process the queue to start the retry
-            processDownloadQueue()
-        }
-    }
+    fun setEchoVolume(volume: Int) = echo.setVolume(volume)
 
     fun removeFromQueue(trackId: String) {
+        if (isAlexa) {
+            val queue = uiState.value.queue
+            val index = queue.indexOfFirst { it.uuid == trackId }
+            if (index >= 0) launchEcho { echo.queueRemove(index, queue[index].ytVideoId) }
+            return
+        }
         viewModelScope.launch {
-            // Set loading state
             _uiState.update { it.copy(isQueueOperationInProgress = true) }
 
             val currentState = _uiState.value
             val currentQueue = currentState.queue
             val currentIndex = currentState.queueIndex
 
-            // Find the track to remove
             val trackIndex = currentQueue.indexOfFirst { it.uuid == trackId }
             if (trackIndex == -1) {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
                 return@launch
             }
 
-            // Remove from playback queue first
-            val playbackResult = playbackManager.removeFromQueue(trackId)
-
-            if (playbackResult) {
-                // Keep recommendation queue in sync so deleted tracks don't reappear
+            if (playbackManager.removeFromQueue(trackId)) {
                 queueManager.removeFromQueue(trackId)
-
-                // Remove from UI queue
                 val newQueue = currentQueue.toMutableList().apply { removeAt(trackIndex) }
-
-                // Calculate new queue index
                 val newQueueIndex = when {
-                    trackIndex < currentIndex -> currentIndex - 1 // Track before current, shift index down
-                    trackIndex == currentIndex -> currentIndex // Removing current track, keep same index (will be next track)
-                    else -> currentIndex // Track after current, index unchanged
-                }.coerceIn(0, newQueue.size - 1)
+                    trackIndex < currentIndex -> currentIndex - 1
+                    else -> currentIndex
+                }.coerceIn(0, (newQueue.size - 1).coerceAtLeast(0))
 
-                // Update UI state
                 _uiState.update {
                     it.copy(
                         queue = newQueue,
@@ -1735,42 +1082,31 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         isQueueOperationInProgress = false
                     )
                 }
-
-                Log.d("MusicViewModel", "Removed track $trackId from queue")
             } else {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
-                Log.w("MusicViewModel", "Failed to remove track $trackId from playback queue")
             }
         }
     }
 
     fun moveInQueue(fromIndex: Int, toIndex: Int) {
+        if (isAlexa) {
+            launchEcho { echo.queueReorder(fromIndex, toIndex) }
+            return
+        }
         viewModelScope.launch {
-            // Set loading state
             _uiState.update { it.copy(isQueueOperationInProgress = true) }
 
             val currentState = _uiState.value
             val currentQueue = currentState.queue
             val currentQueueIndex = currentState.queueIndex
 
-            if (fromIndex < 0 || fromIndex >= currentQueue.size ||
-                toIndex < 0 || toIndex >= currentQueue.size
-            ) {
+            if (fromIndex !in currentQueue.indices || toIndex !in currentQueue.indices) {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
                 return@launch
             }
 
-            // Move in playback queue first
-            val playbackResult = playbackManager.moveInQueue(fromIndex, toIndex)
-
-            if (playbackResult) {
-                // Create new queue with item moved
-                val newQueue = currentQueue.toMutableList().apply {
-                    val item = removeAt(fromIndex)
-                    add(toIndex, item)
-                }
-
-                // Calculate new queue index
+            if (playbackManager.moveInQueue(fromIndex, toIndex)) {
+                val newQueue = currentQueue.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
                 var newQueueIndex = currentQueueIndex
                 if (fromIndex == currentQueueIndex) {
                     newQueueIndex = toIndex
@@ -1780,7 +1116,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     newQueueIndex = currentQueueIndex + 1
                 }
 
-                // Update UI state
                 _uiState.update {
                     it.copy(
                         queue = newQueue,
@@ -1789,38 +1124,34 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         isQueueOperationInProgress = false
                     )
                 }
-
-                // Sync with QueueManager
-                // Pass only relevant future tracks to avoid desync
                 val queueManagerTracks = newQueue.drop(newQueueIndex)
-                if (queueManagerTracks.isNotEmpty()) {
-                    queueManager.initializeQueue(queueManagerTracks)
-                }
-
-                Log.d("MusicViewModel", "Moved track from index $fromIndex to $toIndex")
+                if (queueManagerTracks.isNotEmpty()) queueManager.initializeQueue(queueManagerTracks, preserveHistory = true)
             } else {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
-                Log.w("MusicViewModel", "Failed to move track in playback queue")
             }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
+        echo.stopPolling()
         playbackManager.release()
         queueManager.cleanup()
     }
 
+    /** Like or un-like the song on the YouTube account. */
     fun toggleFavorite(track: Track) {
+        val videoId = track.ytVideoId ?: return
         viewModelScope.launch {
-            val newStatus = !track.isFavourite
-            trackDao.updateTrackFavourite(track.uuid, newStatus)
-
-            // Emit to PlaybackManager so everyone stays in sync (including ourselves via the flow above)
-            playbackManager.emitFavouriteChanged(track.uuid, newStatus)
-
-            // We don't need to manually update _uiState here anymore because
-            // the collector above will handle it for both local and remote changes.
+            try {
+                AccountRepository.setLiked(videoId, !AccountRepository.isLiked(videoId))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BackendAuthException) {
+                _signedOut.tryEmit(Unit)
+            } catch (e: Exception) {
+                _messages.tryEmit("Couldn't update the like: ${e.message}")
+            }
         }
     }
 
@@ -1835,113 +1166,55 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         playbackManager.cancelSleepTimer()
     }
 
-
-    private val lyricsRefreshJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+    private val lyricsRefreshJobs = mutableMapOf<String, Job>()
 
     fun refreshLyrics(track: Track) {
         if (lyricsRefreshJobs[track.uuid]?.isActive == true) return
+        val isEcho = track.uuid.startsWith(ECHO_PREFIX)
         lyricsRefreshJobs[track.uuid] = viewModelScope.launch {
-            Log.d("MusicViewModel", "Refreshing lyrics for: ${track.title}")
             try {
-                // Fetch lyrics from LRCLib
                 val result = withContext(Dispatchers.IO) {
                     fetchLyricsWithRetry {
-                        val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
-                        SpotifyApi.searchLyrics(
+                        val latest = if (isEcho) track else trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
+                        LyricsApi.searchLyrics(
                             title = latest.title,
                             artist = latest.artist,
                             duration = latest.durationSec,
                             ytVideoId = latest.ytVideoId
                         )
                     }
-                }
+                } ?: return@launch
 
-                if (result != null) {
-                    Log.d("MusicViewModel", "New lyrics found for: ${track.title}")
-
-                    val updatedTrack = withContext(Dispatchers.IO) {
-                        database.withTransaction {
-                            val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
-                            val refreshedTrack = latest.withUpdatedLyrics(
-                                syncedLyrics = result.syncedLyrics?.takeIf { it.isNotBlank() } ?: latest.syncedLyrics,
-                                plainLyrics = result.plainLyrics?.takeIf { it.isNotBlank() } ?: latest.plainLyrics
-                            )
-                            trackDao.insertTrack(refreshedTrack.toEntity())
-                            refreshedTrack
-                        }
+                if (isEcho) {
+                    val videoId = track.ytVideoId ?: return@launch
+                    _echoLyrics.update {
+                        it + (videoId to track.withUpdatedLyrics(
+                            syncedLyrics = result.syncedLyrics?.takeIf { s -> s.isNotBlank() },
+                            plainLyrics = result.plainLyrics?.takeIf { s -> s.isNotBlank() }
+                        ))
                     }
-
-                    queueManager.replaceTrackInQueue(track.uuid, updatedTrack)
-                    updateTrackInUiState(updatedTrack)
-
-                    // No need to explicitly update PlaybackManager queue as it's primarily used for playback context
-                    // and doesn't display lyrics. The UI observes currentTrackId and pulls from UI queue.
-
-                } else {
-                    Log.d("MusicViewModel", "No lyrics found for: ${track.title}")
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to refresh lyrics: ${e.message}", e)
-            } finally {
-                lyricsRefreshJobs.remove(track.uuid)
-            }
-        }
-    }
-
-    fun refreshYtVideoId(track: Track) {
-        if (!track.ytVideoId.isNullOrBlank()) return
-
-        viewModelScope.launch {
-            Log.d("MusicViewModel", "Async fetching YT video ID for: ${track.title}")
-            try {
-                val ytVideoId = withContext(Dispatchers.IO) {
-                    RecommenderApi.getBestVideoMatch("${track.title} ${track.artist}", track.durationSec, track.artist)
-                }
-
-                if (ytVideoId.isNullOrBlank()) {
-                    Log.d("MusicViewModel", "No YT video ID found for: ${track.title}")
                     return@launch
                 }
 
-                Log.d("MusicViewModel", "New YT video ID found for: ${track.title} -> $ytVideoId")
-
-                // Persist with freshest DB snapshot to avoid overwriting newly hydrated metadata.
-                val persistedTrack = withContext(Dispatchers.IO) {
+                val updatedTrack = withContext(Dispatchers.IO) {
                     database.withTransaction {
                         val latest = trackDao.getTrackByUuid(track.uuid)?.toTrack() ?: track
-                        val updated = latest.copy(ytVideoId = ytVideoId)
-                        trackDao.insertTrack(updated.toEntity())
-                        updated
+                        val refreshedTrack = latest.withUpdatedLyrics(
+                            syncedLyrics = result.syncedLyrics?.takeIf { it.isNotBlank() } ?: latest.syncedLyrics,
+                            plainLyrics = result.plainLyrics?.takeIf { it.isNotBlank() } ?: latest.plainLyrics
+                        )
+                        trackDao.insertTrack(refreshedTrack.toEntity())
+                        refreshedTrack
                     }
                 }
-
-                _uiState.update { state ->
-                    val updatedQueue = state.queue.map { queuedTrack ->
-                        if (queuedTrack.uuid == track.uuid) queuedTrack.copy(ytVideoId = ytVideoId)
-                        else queuedTrack
-                    }
-
-                    val updatedCurrentTrack = if (state.currentTrack?.uuid == track.uuid) {
-                        state.currentTrack.copy(ytVideoId = ytVideoId)
-                    } else {
-                        state.currentTrack
-                    }
-
-                    state.copy(
-                        queue = updatedQueue,
-                        currentTrack = updatedCurrentTrack
-                    )
-                }
-
-                // Keep QueueManager in sync so recommendation seeding can use hydrated video IDs.
-                queueManager.replaceTrackInQueue(track.uuid, persistedTrack)
-
-            } catch (e: kotlinx.coroutines.CancellationException) {
+                queueManager.replaceTrackInQueue(track.uuid, updatedTrack)
+                updateTrackInUiState(updatedTrack)
+            } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to async fetch YT video ID: ${e.message}", e)
+                Log.e(TAG, "Failed to refresh lyrics: ${e.message}", e)
+            } finally {
+                lyricsRefreshJobs.remove(track.uuid)
             }
         }
     }
@@ -1986,13 +1259,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         playbackManager.audioEffectController.setNormalizationEnabled(enabled)
     }
 
-    // Recommendation Settings
-    private val settingsPrefs = getApplication<Application>().getSharedPreferences(
-        "music_settings_prefs",
-        android.content.Context.MODE_PRIVATE
-    )
-
-    // Add Romanized Lyrics persistent state here:
     private val _isRomanizedLyricsEnabled = MutableStateFlow(
         settingsPrefs.getBoolean("romanized_lyrics_enabled", false)
     )
@@ -2012,7 +1278,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleMiniPlayerLyrics(enabled: Boolean) {
         _isMiniPlayerLyricsEnabled.value = enabled
         settingsPrefs.edit { putBoolean("miniplayer_lyrics_enabled", enabled) }
-        Log.d("MusicViewModel", "Mini-Player Lyrics set to $enabled")
     }
 
     private val _recommendationCount =
@@ -2023,88 +1288,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val clampedCount = count.coerceIn(3, 15)
         _recommendationCount.value = clampedCount
         settingsPrefs.edit { putInt("recommendation_count", clampedCount) }
-        Log.d("MusicViewModel", "Recommendation count set to $clampedCount")
     }
-
-    // Market Code Settings (ISO 3166-1 alpha-2)
-    private val _marketCode = MutableStateFlow(
-        settingsPrefs.getString("spotify_market_code", "IN") ?: "IN"
-    )
-    val marketCode: StateFlow<String> = _marketCode.asStateFlow()
-
-    fun setMarketCode(code: String) {
-        // Validate it's a 2-letter code
-        val validCode = code.uppercase().take(2)
-        _marketCode.value = validCode
-        settingsPrefs.edit { putString("spotify_market_code", validCode) }
-        Log.d("MusicViewModel", "Market code set to $validCode")
-    }
-
-    // Music source toggle (Spotify default so current behavior is unchanged).
-    // Persisted in the existing "music_settings_prefs" SharedPreferences.
-    private val _musicSource = MutableStateFlow(
-        runCatching {
-            MusicSource.valueOf(
-                settingsPrefs.getString("music_source", MusicSource.SPOTIFY.name)
-                    ?: MusicSource.SPOTIFY.name
-            )
-        }.getOrDefault(MusicSource.SPOTIFY)
-    )
-    val musicSource: StateFlow<MusicSource> = _musicSource.asStateFlow()
-
-    fun setMusicSource(source: MusicSource) {
-        _musicSource.value = source
-        settingsPrefs.edit { putString("music_source", source.name) }
-        Log.d("MusicViewModel", "Music source set to $source")
-    }
-
-    // The native Echo remote and phone stream API use independent server settings.
-    private val _alexaRemoteEnabled = MutableStateFlow(settingsPrefs.getBoolean("alexa_remote_enabled", true))
-    val alexaRemoteEnabled = _alexaRemoteEnabled.asStateFlow()
-    private val _alexaRemoteServer = MutableStateFlow(
-        runCatching { AlexaRemotePolicy.server(settingsPrefs.getString("alexa_remote_server",
-            AlexaRemotePolicy.DEFAULT_SERVER) ?: AlexaRemotePolicy.DEFAULT_SERVER) }
-            .getOrDefault(AlexaRemotePolicy.DEFAULT_SERVER)
-    )
-    val alexaRemoteServer = _alexaRemoteServer.asStateFlow()
-
-    fun setAlexaRemoteEnabled(enabled: Boolean) {
-        settingsPrefs.edit { putBoolean("alexa_remote_enabled", enabled) }
-        _alexaRemoteEnabled.value = enabled
-    }
-
-    fun setAlexaRemoteServer(server: String) {
-        val normalized = AlexaRemotePolicy.server(server)
-        settingsPrefs.edit { putString("alexa_remote_server", normalized) }
-        _alexaRemoteServer.value = normalized
-    }
-
-    fun isAlexaMode(): Boolean = _musicSource.value == MusicSource.ALEXA
-
 
     private suspend fun loadRestoredQueue() {
         try {
-            // Get track IDs from SharedPreferences
             val prefs = getApplication<Application>().getSharedPreferences(
                 "playback_state_prefs",
                 android.content.Context.MODE_PRIVATE
             )
             val trackIds = prefs.getString("queue_track_ids", "") ?: ""
             val savedIndex = prefs.getInt("queue_start_index", 0)
-
             if (trackIds.isEmpty()) return
 
-            val ids = trackIds.split(",")
             val tracks = withContext(Dispatchers.IO) {
-                ids.mapNotNull { id ->
-                    try {
-                        trackDao.getTrackByUuid(id)?.toTrack()
-                    } catch (e: Exception) {
-                        null
-                    }
+                trackIds.split(",").mapNotNull { id ->
+                    runCatching { trackDao.getTrackByUuid(id)?.toTrack() }.getOrNull()
                 }
             }
-
             if (tracks.isNotEmpty()) {
                 val currentTrack = tracks.getOrNull(savedIndex)
                 _uiState.update {
@@ -2115,146 +1315,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         duration = currentTrack?.durationSec?.toLong()?.times(1000) ?: 0L
                     )
                 }
-
-                // DO NOT call queueManager.initializeQueue() here!
-                // PlaybackService.restorePlaybackState() already initialized QueueManager
-                // Calling it again causes duplicate tracks
-
-                Log.d(
-                    "MusicViewModel",
-                    "Restored queue with ${tracks.size} tracks, current index: $savedIndex"
-                )
             }
         } catch (e: Exception) {
-            Log.e("MusicViewModel", "Failed to load restored queue: ${e.message}", e)
-        }
-    }
-
-    /**
-     * Set queue from Spotify tracks (for Artist, Playlist screens)
-     * Downloads the first track and queues the remaining tracks sequentially
-     */
-    fun setQueueFromSpotifyTracks(spotifyTracks: List<SpotifyTrack>, startIndex: Int = 0) {
-        viewModelScope.launch {
-            try {
-                if (spotifyTracks.isEmpty() || startIndex >= spotifyTracks.size) return@launch
-
-                // Download and play the first track
-                downloadAndPlay(
-                    SpotifyApi.spotifyTrackToSong(spotifyTracks[startIndex])
-                )
-
-                // Wait for the first track to start playing before queuing others
-                // This ensures proper queue order and avoids parallel download crashes
-                kotlinx.coroutines.delay(800)
-
-                // Queue the remaining tracks sequentially - one at a time with proper delays
-                // This prevents download parallelization and maintains queue order
-                for (i in (startIndex + 1) until spotifyTracks.size) {
-                    // Add delay to prevent overwhelming the download system
-                    kotlinx.coroutines.delay(200)
-
-                    // Queue each track individually to the QueueManager's normal flow
-                    // The queueSpotifyTrackNext will add them to queue one by one
-                    queueSpotifyTrackNext(spotifyTracks[i])
-
-                    // Wait for the queue operation to complete before adding next
-                    // The isQueueOperationInProgress flag ensures sequential queueing
-                    while (_uiState.value.isQueueOperationInProgress) {
-                        kotlinx.coroutines.delay(50)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Error setting queue from Spotify tracks: ${e.message}", e)
-            }
-        }
-    }
-
-    /**
-     * Set queue from Simplified tracks (for Album screen)
-     * Downloads the first track and queues the remaining tracks sequentially
-     */
-    fun setQueueFromSimplifiedTracks(
-        simplifiedTracks: List<SpotifySimplifiedTrack>,
-        album: SpotifyAlbum,
-        startIndex: Int = 0
-    ) {
-        viewModelScope.launch {
-            try {
-                if (simplifiedTracks.isEmpty() || startIndex >= simplifiedTracks.size) return@launch
-
-                // Download and play the first track
-                downloadAndPlay(
-                    SpotifyApi.simplifiedTrackToSong(simplifiedTracks[startIndex], album)
-                )
-
-                // Wait for the first track to start playing before queuing others
-                // This ensures proper queue order and avoids parallel download crashes
-                kotlinx.coroutines.delay(800)
-
-                // Queue the remaining tracks sequentially - one at a time with proper delays
-                // This prevents download parallelization and maintains queue order
-                for (i in (startIndex + 1) until simplifiedTracks.size) {
-                    // Add delay to prevent overwhelming the download system
-                    kotlinx.coroutines.delay(200)
-
-                    // Queue each track individually to the QueueManager's normal flow
-                    // The queueSimplifiedTrackNext will add them to queue one by one
-                    queueSimplifiedTrackNext(simplifiedTracks[i], album)
-
-                    // Wait for the queue operation to complete before adding next
-                    // The isQueueOperationInProgress flag ensures sequential queueing
-                    while (_uiState.value.isQueueOperationInProgress) {
-                        kotlinx.coroutines.delay(50)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(
-                    "MusicViewModel",
-                    "Error setting queue from simplified tracks: ${e.message}",
-                    e
-                )
-            }
-        }
-    }
-
-
-    suspend fun getPurgeableTracks(): List<Track> {
-        return withContext(Dispatchers.IO) {
-            val calendar = java.util.Calendar.getInstance()
-
-            // 14 days ago for last played
-            calendar.add(java.util.Calendar.DAY_OF_YEAR, -14)
-            val lastPlayedThresholdDate = calendar.time
-            val lastPlayedThreshold = java.text.SimpleDateFormat(
-                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-                java.util.Locale.US
-            ).format(lastPlayedThresholdDate)
-
-            // Reset and go back 30 days for downloads
-            calendar.time = java.util.Date()
-            calendar.add(java.util.Calendar.DAY_OF_YEAR, -30)
-            val downloadedThreshold = calendar.timeInMillis
-
-            val candidates = trackDao.getPurgeableTracks(lastPlayedThreshold, downloadedThreshold)
-
-            // Map to Track model
-            // Note: Broken files (ghost tracks) are not explicitly searched for here to avoid
-            // scanning the entire library file system, but they will be included if they match the SQL criteria.
-            candidates.map { it.toTrack() }
-        }
-    }
-
-    fun purgeTracks(tracks: List<Track>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            musicService.deleteTracksAndFiles(tracks)
+            Log.e(TAG, "Failed to load restored queue: ${e.message}", e)
         }
     }
 
     enum class QueueTool { SHUFFLE_UPCOMING, SORT_UPCOMING, CLEAR_PLAYED }
 
-    /** Power tools for the queue. The playing song and its position are untouched. */
+    /** Power tools for the phone queue. The playing song and its position are untouched. */
     fun applyQueueTool(tool: QueueTool) {
+        if (isAlexa) {
+            if (tool == QueueTool.SHUFFLE_UPCOMING) launchEcho { echo.shuffle() }
+            return
+        }
         val state = _uiState.value
         val current = state.currentTrack ?: return
         val index = state.queueIndex
@@ -2281,114 +1355,34 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         ).show()
     }
 
-    /** Save the whole queue as a new playlist named after the moment it was saved. */
+    /** Save the queue as a new playlist on the YouTube account. */
     fun saveQueueAsPlaylist() {
-        val queue = _uiState.value.queue
+        val queue = uiState.value.queue.filter { !it.ytVideoId.isNullOrBlank() }
         if (queue.isEmpty()) return
         viewModelScope.launch {
             val name = "Queue " + java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-            withContext(Dispatchers.IO) {
-                // Playlist rows reference tracks by uuid, so streamed tracks must exist in the library table first.
-                queue.forEach { trackDao.insertTrack(it.toEntity()) }
-                val playlistDao = database.playlistDao()
-                val id = java.util.UUID.randomUUID().toString()
-                playlistDao.insertPlaylist(
-                    com.example.juke.database.PlaylistEntity(
-                        id = id, name = name, trackCount = queue.size, createdAt = System.currentTimeMillis()
-                    )
-                )
-                queue.forEachIndexed { i, t ->
-                    playlistDao.insertPlaylistTrack(
-                        com.example.juke.database.PlaylistTrackEntity(
-                            playlistId = id, trackUuid = t.uuid, position = i, addedAt = System.currentTimeMillis()
-                        )
-                    )
-                }
-            }
-            Toast.makeText(getApplication(), "Saved ${queue.size} songs as \"$name\"", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val refetchingUuids = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-
-    /**
-     * The audio of [track] is the wrong song: refetch it from a different source and swap it into the
-     * queue in place (same position). The rejected source is remembered for later pulls of this song.
-     */
-    fun refetchTrack(track: Track) {
-        if (!refetchingUuids.add(track.uuid)) return
-        viewModelScope.launch {
-            Toast.makeText(getApplication(), "Fetching \"${track.title}\" from another source…", Toast.LENGTH_SHORT).show()
             try {
-                val updated = withContext(Dispatchers.IO) {
-                    musicService.refetchTrack(track).also { fresh ->
-                        // Streams are not persisted by the service; keep the queue entry restorable.
-                        if (fresh.isStream) trackDao.insertTrack(fresh.toEntity())
-                    }
+                val created = Backend.post("/api/library/playlists/", JsonObject(mapOf("name" to JsonPrimitive(name)))).objectOrEmpty()
+                val playlistId = created.text("playlistId", "playlist_id", "id")
+                require(playlistId.isNotBlank()) { "The server didn't return the new playlist" }
+                queue.forEach { track ->
+                    Backend.post("/api/library/playlists/$playlistId/tracks",
+                        JsonObject(mapOf("video_id" to JsonPrimitive(track.ytVideoId!!))))
                 }
-                playbackManager.replaceTrackInQueue(track.uuid, updated, seamlessIfPlaying = false)
-                queueManager.replaceTrackInQueue(track.uuid, updated)
-                _uiState.update { state ->
-                    state.copy(
-                        currentTrack = if (state.currentTrack?.uuid == track.uuid) updated else state.currentTrack,
-                        queue = state.queue.map { if (it.uuid == track.uuid) updated else it }
-                    )
-                }
-                Toast.makeText(getApplication(), "Replaced with a new source", Toast.LENGTH_SHORT).show()
-            } catch (e: kotlinx.coroutines.CancellationException) {
+                _messages.tryEmit("Saved ${queue.size} songs as \"$name\"")
+            } catch (e: CancellationException) {
                 throw e
+            } catch (e: BackendAuthException) {
+                _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Refetch failed for ${track.title}: ${e.message}", e)
-                Toast.makeText(getApplication(), "Couldn't refetch: ${e.message}", Toast.LENGTH_LONG).show()
-            } finally {
-                refetchingUuids.remove(track.uuid)
+                _messages.tryEmit("Couldn't save the playlist: ${e.message}")
             }
         }
     }
 
-    fun promoteTrackToDownload(track: Track) {
-        if (!track.isStream) return
-        // Alexa/backend tracks carry no Spotify ID so Spotdown promotion would throw;
-        // download buttons are hidden for them, this is a second guard.
-        if (track.spotifyId.isNullOrBlank()) return
-
-        viewModelScope.launch {
-            try {
-                _uiState.update { it.copy(isLoading = true) }
-                val updatedTrack = withContext(Dispatchers.IO) {
-                    musicService.promoteStreamToDownload(track)
-                }
-
-                // Replace in PlaybackManager's MediaController queue so ExoPlayer uses the new file
-                playbackManager.replaceTrackInQueue(track.uuid, updatedTrack, seamlessIfPlaying = true)
-
-                // Replace in QueueManager's internal queue so pre-fetch doesn't see stale paths
-                queueManager.replaceTrackInQueue(track.uuid, updatedTrack)
-
-                // Update UI with the new downloaded track
-                _uiState.update { state ->
-                    val newQueue = state.queue.map {
-                        if (it.uuid == track.uuid) updatedTrack else it
-                    }
-                    state.copy(
-                        currentTrack = if (state.currentTrack?.uuid == track.uuid) updatedTrack else state.currentTrack,
-                        queue = newQueue,
-                        isLoading = false
-                    )
-                }
-                // Signal PlaybackService so it updates the notification layout (hides Download button)
-                playbackManager.emitTrackPromoted(track.uuid)
-                Log.d("MusicViewModel", "Promoted track to download: ${track.title}")
-                Toast.makeText(getApplication(), "Downloaded: ${track.title}", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Failed to promote track: ${e.message}", e)
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = "Download failed: ${e.message}"
-                    )
-                }
-            }
-        }
+    companion object {
+        private const val TAG = "MusicViewModel"
+        private const val KEY_OUTPUT = "playback_output"
+        private const val ECHO_PREFIX = "echo:"
     }
 }

@@ -120,6 +120,10 @@ fun MiniPlayer(
     modifier: Modifier = Modifier
 ) {
     val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
+    val output by musicViewModel.output.collectAsStateWithLifecycle()
+    val echoSerial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
+    val echoDevices by musicViewModel.echo.devices.collectAsStateWithLifecycle()
+    val echoName = echoDevices.firstOrNull { it.serial == echoSerial }?.name
     val currentTrack = uiState.currentTrack
     val currentPosition = uiState.position
     val isPlaying = uiState.isPlaying
@@ -383,7 +387,9 @@ fun MiniPlayer(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = currentTrack.artist,
+                                    // Show where it plays when that's the Echo.
+                                    text = if (output == com.example.juke.viewmodels.PlaybackOutput.ALEXA && echoName != null)
+                                        "$echoName · ${currentTrack.artist}" else currentTrack.artist,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
                                     maxLines = 1,
@@ -410,25 +416,6 @@ fun MiniPlayer(
                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
                             modifier = Modifier.size(20.dp)
                         )
-                    }
-
-                    // Download button — Spotify streams only (Alexa tracks carry
-                    // no Spotify ID so promotion would fail; hidden there)
-                    if (currentTrack.isStream && currentTrack.spotifyId != null) {
-                        IconButton(
-                            onClick = {
-                                haptic.click()
-                                musicViewModel.promoteTrackToDownload(currentTrack)
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Download track",
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
                     }
 
                     // Play / Pause

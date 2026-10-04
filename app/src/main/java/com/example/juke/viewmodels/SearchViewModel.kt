@@ -5,23 +5,19 @@ import android.util.Log
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.sqlite.db.SimpleSQLiteQuery
-import coil.Coil
-import coil.request.ImageRequest
 import com.example.juke.analytics.AnalyticsManager
-import com.example.juke.database.MusicDatabase
-import com.example.juke.database.PlaylistEntity
-import com.example.juke.database.PlaylistTrackEntity
-import com.example.juke.database.toTrack
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifyArtist
-import com.example.juke.models.SpotifyPlaylist
-import com.example.juke.models.SpotifyTrack
 import com.example.juke.models.Track
 import com.example.juke.network.ApiClient
-import com.example.juke.network.AlexaBackendApi
-import com.example.juke.network.SpotifyApi
-import com.example.juke.services.QueueManager
+import com.example.juke.network.Backend
+import com.example.juke.network.BackendAuthException
+import com.example.juke.network.BrowseItem
+import com.example.juke.network.BrowseParser
+import com.example.juke.network.array
+import com.example.juke.network.imageUrl
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.network.toTrack
+import com.example.juke.services.AccountRepository
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -30,50 +26,48 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.serialization.json.JsonObject
 import org.json.JSONObject
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 data class SearchUiState(
     val query: String = "",
     val suggestions: List<String> = emptyList(),
     val isShowingSuggestions: Boolean = false,
-    val tracks: List<SpotifyTrack> = emptyList(),
-    val alexaTracks: List<Track> = emptyList(),
-    val localTracks: List<Track> = emptyList(),
-    val artists: List<SpotifyArtist> = emptyList(),
-    val playlists: List<SpotifyPlaylist> = emptyList(),
-    val albums: List<SpotifyAlbum> = emptyList(),
+    val tracks: List<Track> = emptyList(),
+    val artists: List<BrowseItem> = emptyList(),
+    val playlists: List<BrowseItem> = emptyList(),
+    val albums: List<BrowseItem> = emptyList(),
     val isSearching: Boolean = false,
-    val downloadingId: String? = null,
     val error: String? = null,
-    val isPlaylistUrl: Boolean = false,
-    val playlistId: String? = null,
-    val isImportingPlaylist: Boolean = false,
-    val importProgress: Int = 0,
-    val importTotal: Int = 0,
     val recentSearches: List<String> = emptyList()
 )
 
 data class ArtistDetailUiState(
-    val artist: SpotifyArtist? = null,
-    val albums: List<SpotifyAlbum> = emptyList(),
-    val topTracks: List<SpotifyTrack> = emptyList(),
+    val artist: BrowseItem? = null,
+    val imageUrl: String = "",
+    val subscribers: String = "",
+    val description: String = "",
+    val topTracks: List<Track> = emptyList(),
+    val topSongsBrowseId: String = "",
+    val albums: List<BrowseItem> = emptyList(),
+    val singles: List<BrowseItem> = emptyList(),
+    val isSubscribed: Boolean? = null,
     val isLoading: Boolean = false,
     val error: String? = null
 )
 
+/** Search and artist pages, from YouTube Music through the server. */
 class SearchViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
@@ -87,20 +81,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         private const val YT_CLIENT_NAME_HEADER = "67"
     }
 
-    private val database = MusicDatabase.getDatabase(application)
-    private val trackDao = database.trackDao()
-    private val playlistDao = database.playlistDao()
-    private val importManager = com.example.juke.services.PlaylistImportManager.get(application)
-    private val queueManager = QueueManager.getInstance(application)
-
     private val searchPrefs =
         application.getSharedPreferences("search_history", android.content.Context.MODE_PRIVATE)
-    private val settingsPrefs =
-        application.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)
-
-    /** True when the Settings music-source toggle is on ALEXA. */
-    fun isAlexaMode(): Boolean =
-        settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA"
 
     private val _uiState = MutableStateFlow(
         SearchUiState(
@@ -112,23 +94,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private val _artistDetailState = MutableStateFlow(ArtistDetailUiState())
     val artistDetailState: StateFlow<ArtistDetailUiState> = _artistDetailState.asStateFlow()
 
-    // Must stay below _uiState: viewModelScope runs immediately, so this reads it during construction.
-    init {
-        // Import progress comes from the persisted job, so it is still there after a restart.
-        viewModelScope.launch {
-            importManager.status.collect { map ->
-                val st = map[_uiState.value.playlistId] ?: map.values.firstOrNull()
-                _uiState.value = _uiState.value.copy(
-                    isImportingPlaylist = st != null,
-                    importProgress = st?.done ?: 0,
-                    importTotal = st?.total ?: 0
-                )
-            }
-        }
-    }
+    private val _signedOut = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val signedOut: SharedFlow<Unit> = _signedOut.asSharedFlow()
 
     private var searchJob: Job? = null
-    private var searchWasAlexa = isAlexaMode()
+    private var artistJob: Job? = null
     private val suggestionRequestNonce = AtomicLong(0L)
     private val warmupRequestNonce = AtomicLong(0L)
     private val suggestionPrefixCache =
@@ -171,13 +141,9 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 suggestions = emptyList(),
                 isShowingSuggestions = false,
                 tracks = emptyList(),
-                alexaTracks = emptyList(),
-                localTracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
-                albums = emptyList(),
-                isPlaylistUrl = false,
-                playlistId = null
+                albums = emptyList()
             )
         }
     }
@@ -325,19 +291,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Discard results and in-flight requests belonging to the previous source. */
-    fun onMusicSourceChanged() {
-        val alexa = isAlexaMode()
-        if (alexa == searchWasAlexa) return
-        searchWasAlexa = alexa
-        searchJob?.cancel()
-        suggestionRequestNonce.incrementAndGet()
-        _uiState.value = SearchUiState(
-            query = _uiState.value.query,
-            recentSearches = _uiState.value.recentSearches
-        )
-    }
-
     fun search(query: String) {
         val trimmedQuery = query.trim()
         searchJob?.cancel() // Cancel any pending suggestion fetch
@@ -350,8 +303,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         if (trimmedQuery.isBlank()) {
             _uiState.value = _uiState.value.copy(
                 tracks = emptyList(),
-                alexaTracks = emptyList(),
-                localTracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
                 albums = emptyList()
@@ -359,182 +310,33 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // Track search query
         AnalyticsManager.getInstance(getApplication()).trackSearchQuery(trimmedQuery)
-        // Save to recent searches
         saveRecentSearch(trimmedQuery)
 
         searchJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSearching = true, error = null)
-
             try {
-                // Alexa mode: skip parseSpotifyUrl, all Spotify URL handlers and
-                // SpotifyApi.search — backend returns tracks only.
-                if (isAlexaMode()) {
-                    if (!AlexaBackendApi.isConfigured()) {
-                        throw Exception("Alexa backend not configured")
-                    }
-                    val results = AlexaBackendApi.search(trimmedQuery)
-                    _uiState.value = _uiState.value.copy(
-                        tracks = emptyList(),
-                        alexaTracks = results,
-                        localTracks = emptyList(),
-                        artists = emptyList(),
-                        playlists = emptyList(),
-                        albums = emptyList(),
-                        isSearching = false,
-                        isPlaylistUrl = false,
-                        playlistId = null
-                    )
-                    return@launch
-                }
-
-                // Check if query is a Spotify URL
-                val urlInfo = parseSpotifyUrl(trimmedQuery)
-
-                if (urlInfo != null) {
-                    // Handle URL-based search
-                    when (urlInfo.type) {
-                        "track" -> {
-                            val track = SpotifyApi.getTrack(urlInfo.id)
-                            _uiState.value = _uiState.value.copy(
-                                tracks = listOf(track),
-                                alexaTracks = emptyList(),
-                                localTracks = emptyList(),
-                                artists = emptyList(),
-                                playlists = emptyList(),
-                                albums = emptyList(),
-                                isSearching = false,
-                                isPlaylistUrl = false,
-                                playlistId = null
-                            )
-                        }
-
-                        "artist" -> {
-                            val artist = SpotifyApi.getArtist(urlInfo.id)
-                            _uiState.value = _uiState.value.copy(
-                                tracks = emptyList(),
-                                alexaTracks = emptyList(),
-                                localTracks = emptyList(),
-                                artists = listOf(artist),
-                                playlists = emptyList(),
-                                albums = emptyList(),
-                                isSearching = false,
-                                isPlaylistUrl = false,
-                                playlistId = null
-                            )
-                        }
-
-                        "playlist" -> {
-                            val playlist = SpotifyApi.getPlaylist(urlInfo.id)
-                            _uiState.value = _uiState.value.copy(
-                                tracks = emptyList(),
-                                alexaTracks = emptyList(),
-                                localTracks = emptyList(),
-                                artists = emptyList(),
-                                playlists = listOf(playlist),
-                                albums = emptyList(),
-                                isSearching = false,
-                                isPlaylistUrl = true,
-                                playlistId = urlInfo.id
-                            )
-                        }
-
-                        "album" -> {
-                            val album = SpotifyApi.getAlbum(urlInfo.id)
-                            _uiState.value = _uiState.value.copy(
-                                tracks = emptyList(),
-                                alexaTracks = emptyList(),
-                                localTracks = emptyList(),
-                                artists = emptyList(),
-                                playlists = emptyList(),
-                                albums = listOf(album),
-                                isSearching = false,
-                                isPlaylistUrl = false,
-                                playlistId = null
-                            )
-                        }
-                    }
-                } else {
-                    // Search local DB immediately for instant results
-                    // Dynamic query builder for partial matching (e.g. "Linkin Numb" -> matches "Linkin Park - Numb")
-                    val queryTokens =
-                        trimmedQuery.split("\\s+".toRegex()).filter { it.isNotBlank() }
-
-                    val localResults = if (queryTokens.isEmpty()) {
-                        emptyList()
-                    } else {
-                        val queryBuilder = StringBuilder("SELECT * FROM tracks WHERE ")
-                        val args = ArrayList<Any>()
-
-                        queryTokens.forEachIndexed { index, token ->
-                            if (index > 0) queryBuilder.append(" AND ")
-                            queryBuilder.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(artist) LIKE '%' || LOWER(?) || '%')")
-                            args.add(token)
-                            args.add(token)
-                        }
-
-                        queryBuilder.append(" ORDER BY last_played_at DESC")
-                        trackDao.searchTracksRaw(
-                            SimpleSQLiteQuery(
-                                queryBuilder.toString(),
-                                args.toArray()
-                            )
-                        ).map { it.toTrack() }
-                    }
-                    _uiState.value = _uiState.value.copy(localTracks = localResults)
-
-                    // Then fetch Spotify results
-                    val response = SpotifyApi.search(trimmedQuery)
-                    // Filter out Spotify tracks that are already in local results (by title+artist match)
-                    val localTitles =
-                        localResults.map { it.title.lowercase() to it.artist.lowercase() }.toSet()
-                    val filteredSpotifyTracks =
-                        (response.tracks?.items ?: emptyList()).filter { st ->
-                            val key =
-                                st.name.lowercase() to st.artists.firstOrNull()?.name?.lowercase()
-                                    .orEmpty()
-                            key !in localTitles
-                        }
-
-                    _uiState.value = _uiState.value.copy(
-                        tracks = filteredSpotifyTracks,
-                        alexaTracks = emptyList(),
-                        artists = response.artists?.items ?: emptyList(),
-                        playlists = response.playlists?.items?.filterNotNull() ?: emptyList(),
-                        albums = response.albums?.items ?: emptyList(),
-                        isSearching = false,
-                        isPlaylistUrl = false,
-                        playlistId = null
-                    )
-
-                    // Pre-warm thumbnail cache so images are in-flight when the list renders.
-                    // Use the same image-selection logic as SearchResultItemM3: smallest image
-                    // that is still ≥64px wide, with explicit cache keys so Coil can deduplicate.
-                    val ctx = getApplication<Application>()
-                    val imageLoader = Coil.imageLoader(ctx)
-                    filteredSpotifyTracks.forEach { track ->
-                        val url = track.album.images
-                            .filter { (it.width ?: 0) >= 64 }
-                            .minByOrNull { it.width ?: Int.MAX_VALUE }?.url
-                            ?: track.album.images.lastOrNull()?.url
-                        url?.let {
-                            imageLoader.enqueue(
-                                ImageRequest.Builder(ctx)
-                                    .data(it)
-                                    .memoryCacheKey(it)
-                                    .diskCacheKey(it)
-                                    .build()
-                            )
-                        }
-                    }
-                }
+                val result = Backend.get("/alexa/search/", mapOf("q" to trimmedQuery)).objectOrEmpty()
+                val liked = AccountRepository.liked.value
+                fun rows(key: String) = result.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, key) } }
+                _uiState.value = _uiState.value.copy(
+                    tracks = rows("songs").filter { it.videoId.isNotBlank() }.map { it.toTrack(liked) },
+                    artists = rows("artists").filter { it.id.isNotBlank() },
+                    albums = rows("albums").filter { it.id.isNotBlank() },
+                    playlists = rows("playlists").filter { it.playlistId.isNotBlank() || it.id.isNotBlank() },
+                    isSearching = false
+                )
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: BackendAuthException) {
+                _uiState.value = _uiState.value.copy(isSearching = false)
+                _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
+                val noResults = e.message?.contains("no results", ignoreCase = true) == true
                 _uiState.value = _uiState.value.copy(
                     isSearching = false,
-                    error = e.message ?: "Search failed"
+                    tracks = emptyList(), artists = emptyList(), albums = emptyList(), playlists = emptyList(),
+                    error = if (noResults) null else e.message ?: "Search failed"
                 )
             }
         }
@@ -567,82 +369,92 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(recentSearches = current)
     }
 
-    private data class SpotifyUrlInfo(val type: String, val id: String)
-
-    private fun parseSpotifyUrl(query: String): SpotifyUrlInfo? {
-        // Match Spotify URLs in different formats:
-        // https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6
-        // https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb
-        // https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
-        // https://open.spotify.com/album/6DEjYFkNZh67HP7R9PSZvv
-        // spotify:track:6rqhFgbbKwnb9MLmUQDhG6
-
-        val httpRegex =
-            """https?://open\.spotify\.com/(track|artist|playlist|album)/([a-zA-Z0-9]+)""".toRegex()
-        val uriRegex = """spotify:(track|artist|playlist|album):([a-zA-Z0-9]+)""".toRegex()
-
-        httpRegex.find(query)?.let {
-            return SpotifyUrlInfo(it.groupValues[1], it.groupValues[2])
-        }
-
-        uriRegex.find(query)?.let {
-            return SpotifyUrlInfo(it.groupValues[1], it.groupValues[2])
-        }
-
-        return null
-    }
-
-    fun loadArtistDetails(artist: SpotifyArtist) {
-        viewModelScope.launch {
-            _artistDetailState.value = ArtistDetailUiState(
-                artist = artist,
-                isLoading = true
-            )
-
+    /** Open an artist page. [artist] carries the channel id and what is already known. */
+    fun loadArtistDetails(artist: BrowseItem) {
+        artistJob?.cancel()
+        _artistDetailState.value = ArtistDetailUiState(artist = artist, imageUrl = artist.image, isLoading = true)
+        artistJob = viewModelScope.launch {
             try {
-                if (artist.id != null) {
-                    val albums = SpotifyApi.getArtistAlbums(artist.id)
-                    val topTracks = SpotifyApi.getArtistTopTracks(artist.id)
-
-                    _artistDetailState.value = _artistDetailState.value.copy(
-                        albums = albums.items,
-                        topTracks = topTracks.tracks,
-                        isLoading = false
-                    )
-                } else {
-                    _artistDetailState.value = _artistDetailState.value.copy(
-                        isLoading = false,
-                        error = "Invalid artist ID"
-                    )
-                }
-            } catch (e: Exception) {
-                _artistDetailState.value = _artistDetailState.value.copy(
-                    isLoading = false,
-                    error = e.message ?: "Failed to load artist details"
+                val data = Backend.get("/api/artist/${artist.id}").objectOrEmpty()
+                val info = data["artist"].objectOrEmpty()
+                val liked = AccountRepository.liked.value
+                fun releases(key: String) = data.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "albums") } }
+                    .filter { it.id.isNotBlank() }
+                val name = info.text("name").ifBlank { artist.title }
+                _artistDetailState.value = ArtistDetailUiState(
+                    artist = artist.copy(title = name),
+                    imageUrl = imageUrl(info["thumbnails"]).ifBlank { artist.image },
+                    subscribers = info.text("subscribers"),
+                    description = info.text("description"),
+                    topTracks = data.array("topSongs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                        .filter { it.videoId.isNotBlank() }.map { it.toTrack(liked) },
+                    topSongsBrowseId = data.text("topSongsBrowseId"),
+                    albums = releases("albums"),
+                    singles = releases("singles"),
+                    isSubscribed = subscribedArtists()?.contains(artist.id),
+                    isLoading = false
                 )
-            }
-        }
-    }
-
-    fun loadArtistDetailsById(artistId: String) {
-        viewModelScope.launch {
-            _artistDetailState.value = ArtistDetailUiState(isLoading = true)
-
-            try {
-                // Fetch artist details first
-                val artist = SpotifyApi.getArtist(artistId)
-                // Then proceed with loading other details
-                loadArtistDetails(artist)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BackendAuthException) {
+                _artistDetailState.update { it.copy(isLoading = false) }
+                _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                _artistDetailState.update {
-                    it.copy(isLoading = false, error = e.message)
-                }
+                _artistDetailState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load artist") }
             }
         }
     }
 
-    fun setDownloading(songId: String?) {
-        _uiState.value = _uiState.value.copy(downloadingId = songId)
+    fun loadArtistDetailsById(artistId: String, name: String = "") {
+        loadArtistDetails(BrowseItem(artistId, "artist", name, "", "", "", "", 0, artistId, "", false, JsonObject(emptyMap())))
+    }
+
+    /** Resolve an artist by name (songs from a radio may carry only the name), then open it. */
+    fun loadArtistDetailsByName(name: String) {
+        artistJob?.cancel()
+        _artistDetailState.value = ArtistDetailUiState(isLoading = true)
+        artistJob = viewModelScope.launch {
+            try {
+                val id = Backend.get("/api/artist/resolve/", mapOf("name" to name)).objectOrEmpty()
+                    .text("channel_id", "artist_id", "id")
+                if (id.isBlank()) {
+                    _artistDetailState.update { it.copy(isLoading = false, error = "Artist not found") }
+                } else {
+                    loadArtistDetailsById(id, name)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _artistDetailState.update { it.copy(isLoading = false, error = e.message ?: "Artist not found") }
+            }
+        }
+    }
+
+    private suspend fun subscribedArtists(): Set<String>? = try {
+        Backend.get("/api/subscribed_artists/").objectOrEmpty().array("artists")
+            .map { it.objectOrEmpty().text("channel_id") }.filter { it.isNotBlank() }.toSet()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Subscribe to or unsubscribe from the artist on YouTube Music. */
+    fun toggleSubscription() {
+        val state = _artistDetailState.value
+        val artist = state.artist ?: return
+        val subscribe = state.isSubscribed != true
+        viewModelScope.launch {
+            _artistDetailState.update { it.copy(isSubscribed = subscribe) }
+            try {
+                val body = JsonObject(mapOf("channel_id" to kotlinx.serialization.json.JsonPrimitive(artist.id)))
+                if (subscribe) Backend.post("/api/subscribed_artists/", body) else Backend.delete("/api/subscribed_artists/", body)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _artistDetailState.update { it.copy(isSubscribed = !subscribe, error = e.message) }
+            }
+        }
     }
 
     fun clearError() {
@@ -650,38 +462,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun clearArtistDetail() {
+        artistJob?.cancel()
         _artistDetailState.value = ArtistDetailUiState()
-    }
-
-    /**
-     * Fetch the playlist and hand it to [PlaylistImportManager], which downloads it in the background
-     * and keeps going across screens, app restarts and network drops.
-     */
-    fun importPlaylist(playlistId: String) {
-        // importPlaylist stays Spotify-only.
-        if (isAlexaMode()) {
-            _uiState.value = _uiState.value.copy(error = "Playlist import is Spotify-only")
-            return
-        }
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(error = null)
-            try {
-                val playlist = SpotifyApi.getPlaylist(playlistId)
-                val tracks = SpotifyApi.getPlaylistTracks(playlistId).items.mapNotNull { it.track }
-                importManager.enqueue(
-                    PlaylistEntity(
-                        id = playlist.id,
-                        name = playlist.name,
-                        description = playlist.description,
-                        thumbnailUri = playlist.images.firstOrNull()?.url,
-                        spotifyId = playlist.id,
-                        trackCount = tracks.size
-                    ),
-                    tracks
-                )
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(error = "Failed to import playlist: ${e.message}")
-            }
-        }
     }
 }

@@ -54,7 +54,7 @@ import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toEntity
 import com.example.juke.database.toTrack
 import com.example.juke.models.Track
-import com.example.juke.network.SpotifyApi
+import com.example.juke.network.AlexaBackendApi
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -64,11 +64,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -91,8 +88,6 @@ class PlaybackService : MediaLibraryService() {
         )
         private const val CUSTOM_COMMAND_TOGGLE_FAVORITE_ACTION_ID =
             "CUSTOM_COMMAND_TOGGLE_FAVORITE"
-        private const val CUSTOM_COMMAND_DOWNLOAD_TRACK_ACTION_ID =
-            "CUSTOM_COMMAND_DOWNLOAD_TRACK"
 
         /**
          * Resolve artwork for a track into MediaMetadata.
@@ -179,7 +174,6 @@ class PlaybackService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private lateinit var player: ExoPlayer
     private lateinit var database: MusicDatabase
-    private val musicService by lazy { MusicService(applicationContext) }
     private val queueManager by lazy { QueueManager.getInstance(applicationContext) }
     val audioEffectController: AudioEffectController by lazy { AudioEffectController.get(this) }
 
@@ -193,7 +187,6 @@ class PlaybackService : MediaLibraryService() {
     private val progressRunnable = object : Runnable {
         override fun run() {
             if (::player.isInitialized && player.isPlaying) {
-                queueManager.checkPreFetch(player.currentPosition, player.duration)
                 // Check if current track has reached 50% of total duration
                 this@PlaybackService.checkPlayCountThreshold()
                 progressHandler.postDelayed(this, nextProgressCheckDelay())
@@ -449,8 +442,8 @@ class PlaybackService : MediaLibraryService() {
                 serviceScope.launch {
                     try {
                         val track = database.trackDao().getTrackByUuid(trackId)?.toTrack()
-                        if (track != null) {
-                            updateCustomLayout(track.isFavourite, track.isStream)
+                        withContext(Dispatchers.Main) {
+                            updateCustomLayout(AccountRepository.isLiked(track?.ytVideoId))
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error updating custom layout: ${e.message}")
@@ -507,7 +500,6 @@ class PlaybackService : MediaLibraryService() {
                                     TAG,
                                     "Cleared ExoPlayer cache for finished stream: ${oldTrack.title}"
                                 )
-                                // Note: Stream file deletion is handled by LRU eviction in MusicService
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error cleaning up stream track: ${e.message}")
@@ -701,31 +693,12 @@ class PlaybackService : MediaLibraryService() {
 
         Log.d(TAG, "PlaybackService created")
 
-        // Collect favourite changes from the shared bus and update the notification icon.
-        // This fires whether the toggle came from the notification itself OR from the player UI.
+        // Keep the notification heart in step with likes made anywhere (player, library, web).
         serviceScope.launch {
-            PlaybackManager.getInstance(applicationContext).favouriteChangedFlow.collect { (_, isFavourite) ->
-                withContext(Dispatchers.Main) {
-                    updateCustomLayout(isFavourite, isStream = false)
-                }
-            }
-        }
-
-        // Collect track promotions (stream → download) triggered from the in-app player UI.
-        // Updates the notification layout to hide the Download button for the current track.
-        serviceScope.launch {
-            PlaybackManager.getInstance(applicationContext).trackPromotedFlow.collect { uuid ->
-                val currentId = player.currentMediaItem?.mediaId
-                if (currentId == uuid) {
-                    val track = withContext(Dispatchers.IO) {
-                        database.trackDao().getTrackByUuid(uuid)?.toTrack()
-                    }
-                    if (track != null) {
-                        withContext(Dispatchers.Main) {
-                            updateCustomLayout(isFavorite = track.isFavourite, isStream = false)
-                        }
-                    }
-                }
+            AccountRepository.liked.collect { liked ->
+                val currentId = withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId } ?: return@collect
+                val videoId = database.trackDao().getTrackByUuid(currentId)?.ytVideoId
+                withContext(Dispatchers.Main) { updateCustomLayout(videoId != null && videoId in liked) }
             }
         }
     }
@@ -845,36 +818,15 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /**
-     * Helper to update custom layout (Favorite or Download button)
-     */
-    private fun updateCustomLayout(isFavorite: Boolean, isStream: Boolean) {
-        val button = if (isStream) {
-            CommandButton.Builder()
-                .setDisplayName("Download")
-                .setIconResId(R.drawable.baseline_download_24)
-                .setSessionCommand(
-                    SessionCommand(
-                        CUSTOM_COMMAND_DOWNLOAD_TRACK_ACTION_ID,
-                        Bundle.EMPTY
-                    )
-                )
-                .build()
-        } else {
-            val iconResId =
-                if (isFavorite) R.drawable.baseline_favorite_24 else R.drawable.baseline_favorite_border_24
-            CommandButton.Builder()
-                .setDisplayName("Favorite")
-                .setIconResId(iconResId)
-                .setSessionCommand(
-                    SessionCommand(
-                        CUSTOM_COMMAND_TOGGLE_FAVORITE_ACTION_ID,
-                        Bundle.EMPTY
-                    )
-                )
-                .build()
-        }
-
+    /** Notification like button for the current song. */
+    private fun updateCustomLayout(isLiked: Boolean) {
+        val iconResId =
+            if (isLiked) R.drawable.baseline_favorite_24 else R.drawable.baseline_favorite_border_24
+        val button = CommandButton.Builder()
+            .setDisplayName("Like")
+            .setIconResId(iconResId)
+            .setSessionCommand(SessionCommand(CUSTOM_COMMAND_TOGGLE_FAVORITE_ACTION_ID, Bundle.EMPTY))
+            .build()
         mediaSession?.setCustomLayout(listOf(button))
     }
 
@@ -900,7 +852,6 @@ class PlaybackService : MediaLibraryService() {
                         Locale.US
                     ).format(Date())
                     database.trackDao().incrementPlayCount(trackId, now)
-                    queueManager.recordQualifiedPlay(trackId)
                     Log.d(TAG, "Play count incremented at 50% threshold for track: $trackId")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error incrementing play count at 50% threshold: ${e.message}", e)
@@ -926,12 +877,6 @@ class PlaybackService : MediaLibraryService() {
                             Bundle.EMPTY
                         )
                     )
-                    .add(
-                        SessionCommand(
-                            CUSTOM_COMMAND_DOWNLOAD_TRACK_ACTION_ID,
-                            Bundle.EMPTY
-                        )
-                    )
                     .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
@@ -952,46 +897,12 @@ class PlaybackService : MediaLibraryService() {
                 if (currentTrackId != null) {
                     serviceScope.launch {
                         try {
-                            val track =
-                                database.trackDao().getTrackByUuid(currentTrackId)?.toTrack()
-                            if (track != null) {
-                                val newStatus = !track.isFavourite
-                                database.trackDao().updateTrackFavourite(track.uuid, newStatus)
-                                // Emit to the shared bus so both the notification icon AND
-                                // MusicViewModel UI state are updated in real time.
-                                PlaybackManager.getInstance(applicationContext)
-                                    .emitFavouriteChanged(track.uuid, newStatus)
-                                Log.d(TAG, "Toggled favorite via notification: $newStatus")
+                            val videoId = database.trackDao().getTrackByUuid(currentTrackId)?.ytVideoId
+                            if (videoId != null) {
+                                AccountRepository.setLiked(videoId, !AccountRepository.isLiked(videoId))
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error processing favorite command: ${e.message}")
-                        }
-                    }
-                }
-                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-            } else if (customCommand.customAction == CUSTOM_COMMAND_DOWNLOAD_TRACK_ACTION_ID) {
-                val currentTrackId = player.currentMediaItem?.mediaId
-                if (currentTrackId != null) {
-                    serviceScope.launch {
-                        try {
-                            val track =
-                                database.trackDao().getTrackByUuid(currentTrackId)?.toTrack()
-                            if (track != null && track.isStream) {
-                                val promotedTrack = withContext(Dispatchers.IO) {
-                                    musicService.promoteStreamToDownload(track)
-                                }
-                                // Update ExoPlayer queue and QueueManager — same as promoteTrackToDownload in MusicViewModel
-                                PlaybackManager.getInstance(applicationContext)
-                                    .replaceTrackInQueue(track.uuid, promotedTrack, seamlessIfPlaying = true)
-                                queueManager.replaceTrackInQueue(track.uuid, promotedTrack)
-                                updateCustomLayout(isFavorite = promotedTrack.isFavourite, isStream = false)
-                                // Signal MusicViewModel so it re-fetches from DB and updates _uiState
-                                PlaybackManager.getInstance(applicationContext)
-                                    .emitTrackPromoted(track.uuid)
-                                Log.d(TAG, "Promoted stream to download from notification: ${promotedTrack.title}")
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error promoting track from notification: ${e.message}")
+                            Log.e(TAG, "Error processing like command: ${e.message}")
                         }
                     }
                 }
@@ -1081,16 +992,12 @@ class PlaybackService : MediaLibraryService() {
                 "root" -> {
                     // Root menu categories
                     val items = ImmutableList.of(
-                        buildBrowsableItem("recent", "Recently Played"),
-                        buildBrowsableItem("favorites", "Favorites"),
-                        buildBrowsableItem("all_tracks", "All Tracks")
+                        buildBrowsableItem("recent", "Recently Played")
                     )
                     Futures.immediateFuture(LibraryResult.ofItemList(items, params))
                 }
 
                 "recent" -> loadRecentTracks(params)
-                "favorites" -> loadFavorites(params)
-                "all_tracks" -> loadAllTracks(params)
                 else -> Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
             }
         }
@@ -1159,34 +1066,6 @@ class PlaybackService : MediaLibraryService() {
             }.asListenableFuture()
         }
 
-        @OptIn(UnstableApi::class)
-        private fun loadFavorites(params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            return serviceScope.async {
-                try {
-                    val tracks = database.trackDao().getFavourites()
-                    val items = tracks.map { buildPlayableMediaItem(it.toTrack()) }
-                    LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error loading favorites: ${e.message}")
-                    LibraryResult.ofError(SessionError.ERROR_UNKNOWN)
-                }
-            }.asListenableFuture()
-        }
-
-        @OptIn(UnstableApi::class)
-        private fun loadAllTracks(params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            return serviceScope.async {
-                try {
-                    val tracks = database.trackDao().getDownloadedTracks()
-                    val items = tracks.map { buildPlayableMediaItem(it.toTrack()) }
-                    LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error loading all tracks: ${e.message}")
-                    LibraryResult.ofError(SessionError.ERROR_UNKNOWN)
-                }
-            }.asListenableFuture()
-        }
-
         /**
          * Bridges coroutine-based library queries to the Media3 callback API.
          *
@@ -1227,7 +1106,6 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
-    private val streamSeekHandoff = StreamSeekHandoff()
     private val TAG = "PlaybackManager"
     private val prefs = context.getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -1237,7 +1115,6 @@ class PlaybackManager private constructor(private val context: Context) {
     val isPlayingFlow: StateFlow<Boolean> = _isPlaying.asStateFlow()
     private val database: MusicDatabase = MusicDatabase.getDatabase(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val musicService: MusicService by lazy { MusicService(context) }
 
     // Flow to emit current track UUID changes
     private val _currentTrackId = MutableStateFlow<String?>(null)
@@ -1270,27 +1147,6 @@ class PlaybackManager private constructor(private val context: Context) {
     // Repeat state
     private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
     val repeatModeFlow: StateFlow<Int> = _repeatMode.asStateFlow()
-
-    // Shared bus for favourite toggle events (uuid to newIsFavourite).
-    // Both PlaybackService (notification) and MusicViewModel (player UI) emit here,
-    // and both collect here, so they stay in sync without polling the DB.
-    private val _favouriteChanged =
-        MutableSharedFlow<Pair<String, Boolean>>(extraBufferCapacity = 8)
-    val favouriteChangedFlow: SharedFlow<Pair<String, Boolean>> = _favouriteChanged.asSharedFlow()
-
-    fun emitFavouriteChanged(uuid: String, isFavourite: Boolean) {
-        _favouriteChanged.tryEmit(uuid to isFavourite)
-    }
-
-    // Shared bus for stream-to-download promotions (emits promoted track UUID).
-    // Notification handler emits here so MusicViewModel can update _uiState.
-    // MusicViewModel emits here so PlaybackService can update the notification layout.
-    private val _trackPromoted = MutableSharedFlow<String>(extraBufferCapacity = 8)
-    val trackPromotedFlow: SharedFlow<String> = _trackPromoted.asSharedFlow()
-
-    fun emitTrackPromoted(uuid: String) {
-        _trackPromoted.tryEmit(uuid)
-    }
 
     // Queue manager for recommendations
     private val queueManager: QueueManager by lazy { QueueManager.getInstance(context) }
@@ -1380,332 +1236,13 @@ class PlaybackManager private constructor(private val context: Context) {
                         }
 
                         override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
-                            if (error != null) {
-                                Log.e(TAG, "Player error: ${error.message}", error)
-
-                                // Check if it's a file not found error (deleted track)
-                                val errorMessage = error.message ?: ""
-                                val causeMessage = error.cause?.message ?: ""
-
-                                if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
-                                    errorMessage.contains("ENOENT") ||
-                                    errorMessage.contains("FileNotFoundException") ||
-                                    errorMessage.contains("No such file or directory") ||
-                                    causeMessage.contains("ENOENT") ||
-                                    causeMessage.contains("FileNotFoundException")
-                                ) {
-
-                                    Log.w(
-                                        TAG,
-                                        "Track file not found (likely deleted), skipping to next track"
-                                    )
-
-                                    // Skip to next track if available
-                                    controller?.let { ctrl ->
-                                        if (ctrl.hasNextMediaItem()) {
-                                            ctrl.seekToNext()
-                                            ctrl.prepare()
-                                            ctrl.play()
-                                        } else {
-                                            // No next track, stop playback
-                                            ctrl.stop()
-                                            Log.d(TAG, "No next track available, stopping playback")
-                                        }
-                                    }
-
-                                } else if (
-                                    error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS &&
-                                    (causeMessage.contains("403") || errorMessage.contains("403"))
-                                ) {
-                                    val trackId = controller?.currentMediaItem?.mediaId ?: return
-                                    Log.w(
-                                        TAG,
-                                        "Stream URL expired (403) for track $trackId, refreshing..."
-                                    )
-
-                                    scope.launch {
-                                        try {
-                                            val trackEntity =
-                                                database.trackDao().getTrackByUuid(trackId)
-                                            val track = trackEntity?.toTrack()
-
-                                            if (track == null) {
-                                                Log.w(
-                                                    TAG,
-                                                    "Cannot handle 403: track $trackId not found in DB — skipping"
-                                                )
-                                                withContext(Dispatchers.Main) {
-                                                    controller?.let { ctrl ->
-                                                        if (ctrl.hasNextMediaItem()) {
-                                                            ctrl.seekToNext()
-                                                            ctrl.prepare()
-                                                            ctrl.play()
-                                                        } else ctrl.stop()
-                                                    }
-                                                }
-                                                return@launch
-                                            }
-
-                                            if (!track.isStream) {
-                                                // ──────────────────────────────────────────────────────────
-                                                // NON-STREAM track: the file was supposed to be local/
-                                                // downloaded but it 403'd (file missing or remote URL
-                                                // expired). Re-fetch from Spotify if online, else skip.
-                                                // ──────────────────────────────────────────────────────────
-                                                Log.w(
-                                                    TAG,
-                                                    "Non-stream track '${track.title}' got 403 (file missing?). " +
-                                                            "spotifyId=${track.spotifyId}"
-                                                )
-
-                                                val isOffline = run {
-                                                    val cm =
-                                                        context.getSystemService(Context.CONNECTIVITY_SERVICE)
-                                                                as android.net.ConnectivityManager
-                                                    val network = cm.activeNetwork
-                                                    val caps =
-                                                        if (network != null) cm.getNetworkCapabilities(
-                                                            network
-                                                        ) else null
-                                                    caps == null || !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                                                }
-                                                if (isOffline) {
-                                                    // Offline — can't re-download, skip gracefully
-                                                    Log.w(
-                                                        TAG,
-                                                        "Device offline — skipping '${track.title}'"
-                                                    )
-                                                    withContext(Dispatchers.Main) {
-                                                        controller?.let { ctrl ->
-                                                            if (ctrl.hasNextMediaItem()) {
-                                                                ctrl.seekToNext()
-                                                                ctrl.prepare()
-                                                                ctrl.play()
-                                                            } else ctrl.stop()
-                                                        }
-                                                    }
-                                                    return@launch
-                                                }
-
-                                                if (track.spotifyId == null) {
-                                                    Log.w(
-                                                        TAG,
-                                                        "No spotifyId for '${track.title}' — skipping"
-                                                    )
-                                                    withContext(Dispatchers.Main) {
-                                                        controller?.let { ctrl ->
-                                                            if (ctrl.hasNextMediaItem()) {
-                                                                ctrl.seekToNext()
-                                                                ctrl.prepare()
-                                                                ctrl.play()
-                                                            } else ctrl.stop()
-                                                        }
-                                                    }
-                                                    return@launch
-                                                }
-
-                                                try {
-                                                    Log.d(
-                                                        TAG,
-                                                        "Re-downloading '${track.title}' (spotifyId=${track.spotifyId})"
-                                                    )
-                                                    val song = SpotifyApi.spotifyTrackToSong(
-                                                        SpotifyApi.getTrack(track.spotifyId)
-                                                    )
-                                                    val redownloadedTrack =
-                                                        musicService.smartDownloadAndIndex(song)
-                                                    Log.d(
-                                                        TAG,
-                                                        "Re-downloaded '${track.title}' successfully"
-                                                    )
-
-                                                    withContext(Dispatchers.Main) {
-                                                        replaceTrackInQueue(
-                                                            track.uuid,
-                                                            redownloadedTrack
-                                                        )
-                                                        controller?.prepare()
-                                                        controller?.play()
-                                                    }
-                                                } catch (downloadEx: Exception) {
-                                                    Log.e(
-                                                        TAG,
-                                                        "Re-download failed for '${track.title}': ${downloadEx.message}"
-                                                    )
-                                                    withContext(Dispatchers.Main) {
-                                                        controller?.let { ctrl ->
-                                                            if (ctrl.hasNextMediaItem()) {
-                                                                ctrl.seekToNext()
-                                                                ctrl.prepare()
-                                                                ctrl.play()
-                                                            } else ctrl.stop()
-                                                        }
-                                                    }
-                                                }
-                                                return@launch
-                                            }
-
-                                            // ──────────────────────────────────────────────────────────
-                                            // STREAM track: refresh the expired URL, then optionally
-                                            // promote to a local download if it belongs to a playlist.
-                                            // ──────────────────────────────────────────────────────────
-                                            if (track.spotifyId == null) {
-                                                Log.w(
-                                                    TAG,
-                                                    "Cannot refresh stream: missing spotifyId for '${track.title}' — skipping"
-                                                )
-                                                withContext(Dispatchers.Main) {
-                                                    controller?.let { ctrl ->
-                                                        if (ctrl.hasNextMediaItem()) {
-                                                            ctrl.seekToNext()
-                                                            ctrl.prepare()
-                                                            ctrl.play()
-                                                        } else ctrl.stop()
-                                                    }
-                                                }
-                                                return@launch
-                                            }
-
-                                            val refreshedSong = SpotifyApi.spotifyTrackToSong(
-                                                SpotifyApi.getTrack(track.spotifyId)
-                                            )
-                                            val refreshedTrack = musicService.streamTrack(
-                                                refreshedSong,
-                                                preferredUuid = track.uuid
-                                            )
-                                            Log.d(
-                                                TAG,
-                                                "Rebuilt Spotmate stream file for ${track.title}"
-                                            )
-
-                                            // Swap the media item in the queue and resume (must be on main thread)
-                                            withContext(Dispatchers.Main) {
-                                                replaceTrackInQueue(track.uuid, refreshedTrack)
-                                                controller?.prepare()
-                                                controller?.play()
-                                            }
-
-                                            // If this track belongs to a playlist, promote it to a
-                                            // local download in the background so it's offline-ready
-                                            val playlists = database.playlistDao()
-                                                .getPlaylistsForTrack(track.uuid)
-                                            if (playlists.isNotEmpty()) {
-                                                Log.d(
-                                                    TAG,
-                                                    "Track is in ${playlists.size} playlist(s) — scheduling background download"
-                                                )
-                                                scope.launch {
-                                                    try {
-                                                        val downloadedTrack =
-                                                            musicService.promoteStreamToDownload(
-                                                                refreshedTrack
-                                                            )
-                                                        withContext(Dispatchers.Main) {
-                                                            replaceTrackInQueue(
-                                                                track.uuid,
-                                                                downloadedTrack
-                                                            )
-                                                        }
-                                                        Log.d(
-                                                            TAG,
-                                                            "Promoted stream to download: ${downloadedTrack.title}"
-                                                        )
-                                                    } catch (e: Exception) {
-                                                        Log.e(
-                                                            TAG,
-                                                            "Background download after stream refresh failed: ${e.message}"
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e(
-                                                TAG,
-                                                "Failed to handle 403 for track $trackId: ${e.message}",
-                                                e
-                                            )
-                                            // Fall back to skipping to the next track
-                                            withContext(Dispatchers.Main) {
-                                                controller?.let { ctrl ->
-                                                    if (ctrl.hasNextMediaItem()) {
-                                                        ctrl.seekToNext()
-                                                        ctrl.prepare()
-                                                        ctrl.play()
-                                                    } else {
-                                                        ctrl.stop()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    val trackId = controller?.currentMediaItem?.mediaId
-                                    if (trackId == null) return
-
-                                    scope.launch {
-                                        try {
-                                            val trackEntity =
-                                                database.trackDao().getTrackByUuid(trackId)
-                                            val track = trackEntity?.toTrack() ?: return@launch
-
-                                            if (!track.isStream || track.spotifyId == null) {
-                                                return@launch
-                                            }
-
-                                            val attempts =
-                                                (streamRecoveryAttempts[trackId] ?: 0) + 1
-                                            if (attempts > maxStreamRecoveryAttempts) {
-                                                Log.w(
-                                                    TAG,
-                                                    "Stream recovery exceeded for ${track.title}, skipping to next"
-                                                )
-                                                withContext(Dispatchers.Main) {
-                                                    controller?.let { ctrl ->
-                                                        if (ctrl.hasNextMediaItem()) {
-                                                            ctrl.seekToNext()
-                                                            ctrl.prepare()
-                                                            ctrl.play()
-                                                        } else {
-                                                            ctrl.stop()
-                                                        }
-                                                    }
-                                                }
-                                                return@launch
-                                            }
-
-                                            streamRecoveryAttempts[trackId] = attempts
-                                            Log.w(
-                                                TAG,
-                                                "Recovering stream after source error for ${track.title} (attempt $attempts/$maxStreamRecoveryAttempts)"
-                                            )
-
-                                            val refreshedSong = SpotifyApi.spotifyTrackToSong(
-                                                SpotifyApi.getTrack(track.spotifyId)
-                                            )
-                                            val refreshedTrack = musicService.streamTrack(
-                                                refreshedSong,
-                                                preferredUuid = track.uuid
-                                            )
-
-                                            withContext(Dispatchers.Main) {
-                                                replaceTrackInQueue(track.uuid, refreshedTrack)
-                                                controller?.prepare()
-                                                controller?.play()
-                                            }
-                                        } catch (recoveryEx: Exception) {
-                                            Log.e(
-                                                TAG,
-                                                "Generic stream recovery failed: ${recoveryEx.message}",
-                                                recoveryEx
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            if (error == null) return
+                            Log.e(TAG, "Player error: ${error.message}", error)
+                            val trackId = controller?.currentMediaItem?.mediaId ?: return
+                            recoverStream(trackId)
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                            streamSeekHandoff.trackChanged(mediaItem?.mediaId)
                             mediaItem?.let { item ->
                                 val trackId = item.mediaId
                                 _currentTrackId.value = trackId
@@ -1850,7 +1387,8 @@ class PlaybackManager private constructor(private val context: Context) {
         tracks: List<Track>,
         startIndex: Int = 0,
         startPositionMs: Long = C.TIME_UNSET,
-        keepShuffleMode: Boolean = false
+        keepShuffleMode: Boolean = false,
+        playWhenReady: Boolean = true
     ) {
         initialize()
 
@@ -1874,7 +1412,7 @@ class PlaybackManager private constructor(private val context: Context) {
             }
             setMediaItems(mediaItems, startIndex, startPositionMs)
             prepare()
-            play()
+            if (playWhenReady) play() else pause()
         }
 
         // Emit the initial track ID
@@ -1982,6 +1520,10 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
+    fun pause() {
+        controller?.pause()
+    }
+
     private fun runTrackChangePreservingPlayState(action: (Player) -> Unit) {
         controller?.let { ctrl ->
             val shouldPlayWhenReady = ctrl.playWhenReady
@@ -2083,38 +1625,53 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun seekTo(positionMs: Long) {
         val ctrl = controller ?: return
-        val item = ctrl.currentMediaItem ?: return
         val target = positionMs.coerceAtLeast(0)
-        val remote = item.localConfiguration?.uri?.scheme in listOf("http", "https")
-        if (remote) {
-            val local = streamSeekHandoff.fileFor(item.mediaId)
-            if (local != null && seekUsingLocalFile(ctrl, local, target)) return
-            if (!ctrl.isCurrentMediaItemSeekable) {
-                streamSeekHandoff.defer(item.mediaId, target)
-                Log.d(TAG, "Waiting for local stream file to seek to $target ms")
-                return
-            }
-        }
         ctrl.seekTo(target)
         Log.d(TAG, "Seeked to $target ms")
     }
 
-    private fun seekUsingLocalFile(ctrl: MediaController, track: Track, positionMs: Long): Boolean {
-        val path = track.localUri ?: return false
-        if (path.startsWith("http") || !java.io.File(path).isFile) return false
-        val replacement = createValidatedMediaItem(track) ?: return false
-        val index = ctrl.currentMediaItemIndex
-        if (index !in 0 until ctrl.mediaItemCount) return false
-        val items = (0 until ctrl.mediaItemCount).map { i ->
-            if (i == index) replacement else ctrl.getMediaItemAt(i)
+    /**
+     * A stream failed: ask the server for a fresh proxy URL for the song (it re-downloads the
+     * audio), at most [maxStreamRecoveryAttempts] times per song, then move on to the next song.
+     */
+    private fun recoverStream(trackId: String) {
+        scope.launch {
+            val track = database.trackDao().getTrackByUuid(trackId)?.toTrack()
+                ?: queueManager.currentQueue.value.find { it.uuid == trackId }
+            val videoId = track?.ytVideoId
+            val attempts = (streamRecoveryAttempts[trackId] ?: 0) + 1
+            if (track == null || videoId.isNullOrBlank() || attempts > maxStreamRecoveryAttempts) {
+                Log.w(TAG, "Skipping a song that won't play: $trackId")
+                withContext(Dispatchers.Main) { skipAfterFailure() }
+                return@launch
+            }
+            streamRecoveryAttempts[trackId] = attempts
+            try {
+                val refreshed = track.copy(localUri = AlexaBackendApi.getStreamUrl(videoId))
+                database.trackDao().insertTrack(refreshed.toEntity())
+                withContext(Dispatchers.Main) {
+                    replaceTrackInQueue(track.uuid, refreshed)
+                    controller?.prepare()
+                    controller?.play()
+                }
+                Log.w(TAG, "Recovered stream for ${track.title} (attempt $attempts)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Stream recovery failed for ${track.title}: ${e.message}")
+                withContext(Dispatchers.Main) { skipAfterFailure() }
+            }
         }
-        val shouldPlay = ctrl.playWhenReady
-        // Setting the initial position works even when the old HTTP item disallowed seek.
-        ctrl.setMediaItems(items, index, positionMs)
-        ctrl.prepare()
-        ctrl.playWhenReady = shouldPlay
-        Log.d(TAG, "Switched stream to local file for seek to $positionMs ms")
-        return true
+    }
+
+    private fun skipAfterFailure() {
+        controller?.let { ctrl ->
+            if (ctrl.hasNextMediaItem()) {
+                ctrl.seekToNext()
+                ctrl.prepare()
+                ctrl.play()
+            } else {
+                ctrl.stop()
+            }
+        }
     }
 
     fun seekToIndex(index: Int) {
@@ -2241,13 +1798,7 @@ class PlaybackManager private constructor(private val context: Context) {
             val currentPosition = if (isCurrentTrack) ctrl.currentPosition else 0L
 
             if (isCurrentTrack && seamlessIfPlaying) {
-                // Keep seamless audio until a seek explicitly needs the completed local file.
-                val pendingPosition = streamSeekHandoff.completed(newTrack)
-                if (pendingPosition != null) {
-                    seekUsingLocalFile(ctrl, newTrack, pendingPosition)
-                } else {
-                    Log.d(TAG, "Deferred local stream handoff until user seeks: $oldMediaId")
-                }
+                Log.d(TAG, "Kept the playing stream for $oldMediaId")
             } else {
                 // Atomic replacement prevents the timeline "blip" that causes queue duplication
                 ctrl.replaceMediaItem(index, newMediaItem)
@@ -2470,41 +2021,9 @@ class PlaybackManager private constructor(private val context: Context) {
                             database.trackDao().getTrackByUuid(id) ?: return@mapNotNull null
                         var track = entity.toTrack()
 
-                        // For stream tracks whose file was evicted, re-resolve the stream
-                        if (track.isStream && track.spotifyId != null) {
-                            val fileExists = track.localUri?.let { uri ->
-                                try {
-                                    java.io.File(uri).let { it.exists() && it.length() > 0 }
-                                } catch (_: Exception) {
-                                    false
-                                }
-                            } ?: false
-
-                            if (!fileExists) {
-                                Log.d(
-                                    TAG,
-                                    "Stream file missing for '${track.title}', re-resolving..."
-                                )
-                                try {
-                                    "https://open.spotify.com/track/${track.spotifyId}"
-                                    val song =
-                                        SpotifyApi.spotifyTrackToSong(SpotifyApi.getTrack(track.spotifyId!!))
-                                    val refreshed =
-                                        musicService.streamTrack(song, preferredUuid = track.uuid)
-                                    // Update DB with new localUri
-                                    database.trackDao().insertTrack(refreshed.toEntity())
-                                    track = refreshed
-                                    Log.d(TAG, "Re-resolved stream for '${track.title}'")
-                                } catch (e: Exception) {
-                                    Log.w(
-                                        TAG,
-                                        "Failed to re-resolve stream for '${track.title}': ${e.message}"
-                                    )
-                                    // Keep the track in the queue anyway for metadata display;
-                                    // playback will trigger error recovery which re-fetches the stream
-                                    return@mapNotNull track
-                                }
-                            }
+                        // Proxy URLs carry the build's key and don't expire; rebuild a missing one.
+                        if (track.localUri.isNullOrBlank() && !track.ytVideoId.isNullOrBlank()) {
+                            track = track.copy(localUri = AlexaBackendApi.proxyUrl(track.ytVideoId!!))
                         }
 
                         track

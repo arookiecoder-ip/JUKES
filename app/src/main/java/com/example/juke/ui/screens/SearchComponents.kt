@@ -96,15 +96,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifyArtist
-import com.example.juke.models.SpotifyPlaylist
 import com.example.juke.models.Track
-import com.example.juke.network.SpotifyApi
+import com.example.juke.network.BrowseItem
 import com.example.juke.ui.components.AlbumCard
 import com.example.juke.ui.components.ArtistCard
 import com.example.juke.ui.components.PlaylistCard
-import com.example.juke.ui.components.SearchResultItemM3
 import com.example.juke.ui.components.SwipeToAddNextContainer
 import com.example.juke.ui.components.GlassButton
 import com.example.juke.ui.components.SearchHeader
@@ -117,117 +113,19 @@ import kotlinx.coroutines.launch
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 internal fun hasResults(uiState: com.example.juke.viewmodels.SearchUiState): Boolean {
     return uiState.tracks.isNotEmpty() ||
-            uiState.alexaTracks.isNotEmpty() ||
-            uiState.localTracks.isNotEmpty() ||
             uiState.artists.isNotEmpty() ||
             uiState.playlists.isNotEmpty() ||
             uiState.albums.isNotEmpty()
 }
 
 @Composable
-internal fun ImportPlaylistCard(
-    playlist: SpotifyPlaylist,
-    onImport: () -> Unit
-) {
-    GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(20.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            AsyncImage(
-                model = playlist.images.firstOrNull()?.url ?: "",
-                contentDescription = null,
-                modifier = Modifier
-                    .size(132.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentScale = ContentScale.Crop
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${playlist.tracks?.total ?: 0} tracks ready to download",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            GlassButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Import playlist", fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun ImportProgressCard(progress: Int, total: Int) {
-    val fraction = if (total > 0) progress.toFloat() / total else 0f
-    GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(20.dp)
-    ) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    "${(fraction * 100).toInt()}%",
-                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "$progress / $total tracks",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
-            Text(
-                "Importing playlist…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                gapSize = 0.dp,
-                drawStopIndicator = {}
-            )
-        }
-    }
-}
-
-@Composable
 internal fun SearchResultsList(
     uiState: com.example.juke.viewmodels.SearchUiState,
     selectedFilter: String,
-    isAlexaMode: Boolean,
     musicViewModel: MusicViewModel,
-    searchViewModel: SearchViewModel,
-    scope: kotlinx.coroutines.CoroutineScope,
-    isStreamMode: Boolean,
-    onNavigateToArtist: (SpotifyArtist) -> Unit,
-    onNavigateToPlaylist: (SpotifyPlaylist) -> Unit,
-    onNavigateToAlbum: (SpotifyAlbum) -> Unit,
+    onNavigateToArtist: (BrowseItem) -> Unit,
+    onNavigateToPlaylist: (BrowseItem) -> Unit,
+    onNavigateToAlbum: (BrowseItem) -> Unit,
     bottomPadding: Dp,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController? = null
 ) {
@@ -243,93 +141,32 @@ internal fun SearchResultsList(
         contentPadding = PaddingValues(bottom = bottomPadding + 24.dp),
         modifier = Modifier.nestedScroll(hideKeyboardOnScrollConnection)
     ) {
-        // ── Alexa backend results (tracks only, no detail navigation) ──────
-        if ((selectedFilter == "All" || selectedFilter == "Tracks") && uiState.alexaTracks.isNotEmpty()) {
-            item { SectionHeader("Songs") }
-            items(uiState.alexaTracks.distinctBy { it.uuid }, key = { it.uuid }) { track ->
-                SwipeToAddNextContainer(
-                    onAddNext = {
-                        musicViewModel.queueAlexaTrackNext(track)
-                    }
-                ) {
-                    LocalTrackItem(
-                        track = track,
-                        onClick = { musicViewModel.playAlexaTrack(track) },
-                        showAccentBar = false
-                    )
-                }
-            }
-            item { Spacer(Modifier.height(8.dp)) }
-        }
-
-        // ── In Your Library ──────────────────────────────────────────────
-        if ((selectedFilter == "All" || selectedFilter == "Tracks") && uiState.localTracks.isNotEmpty()) {
-            item { SectionHeader("In Your Library") }
-            items(uiState.localTracks.distinctBy { it.uuid }, key = { it.uuid }) { track ->
-                SwipeToAddNextContainer(
-                    onAddNext = {
-                        musicViewModel.addNext(track)
-                    }
-                ) {
-                    LocalTrackItem(
-                        track = track,
-                        onClick = { musicViewModel.setQueue(listOf(track), 0) },
-                        showAccentBar = false
-                    )
-                }
-            }
-            item { Spacer(Modifier.height(8.dp)) }
-        }
-
         // ── Songs ────────────────────────────────────────────────────────
         if ((selectedFilter == "All" || selectedFilter == "Tracks") && uiState.tracks.isNotEmpty()) {
             item { SectionHeader("Songs") }
-            items(
-                uiState.tracks.distinctBy { it.id ?: it.uri },
-                key = { it.id ?: it.uri }) { track ->
+            items(uiState.tracks.distinctBy { it.uuid }, key = { it.uuid }) { track ->
                 SwipeToAddNextContainer(
-                    onAddNext = {
-                        scope.launch {
-                            searchViewModel.setDownloading(track.id)
-                            try {
-                                musicViewModel.queueSpotifyTrackNext(
-                                    spotifyTrack = track,
-                                    useStreamMode = isStreamMode
-                                )
-                            } finally {
-                                searchViewModel.setDownloading(null)
-                            }
-                        }
-                    }
+                    onAddNext = { musicViewModel.addNext(track) }
                 ) {
-                    SearchResultItemM3(
+                    LocalTrackItem(
                         track = track,
-                        isDownloading = uiState.downloadingId == track.id,
-                        onClick = {
-                            scope.launch {
-                                searchViewModel.setDownloading(track.id)
-                                musicViewModel.downloadAndPlay(SpotifyApi.spotifyTrackToSong(track))
-                                kotlinx.coroutines.delay(2000)
-                                searchViewModel.setDownloading(null)
-                            }
-                        }
+                        onClick = { musicViewModel.playTrack(track) },
+                        showAccentBar = false
                     )
                 }
             }
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        // ── Artists (Spotify-only, hidden in Alexa mode) ─────────────────────
-        if (!isAlexaMode && (selectedFilter == "All" || selectedFilter == "Artists") && uiState.artists.isNotEmpty()) {
+        // ── Artists ─────────────────────────────────────────────────────
+        if ((selectedFilter == "All" || selectedFilter == "Artists") && uiState.artists.isNotEmpty()) {
             item { SectionHeader("Artists") }
             item {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(
-                        uiState.artists.distinctBy { it.id ?: it.uri ?: it.name },
-                        key = { it.id ?: it.uri ?: it.name }) { artist ->
+                    items(uiState.artists.distinctBy { it.id }, key = { it.id }) { artist ->
                         ArtistCard(artist = artist, onClick = { onNavigateToArtist(artist) })
                     }
                 }
@@ -337,8 +174,8 @@ internal fun SearchResultsList(
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        // ── Playlists (Spotify-only, hidden in Alexa mode) ──────────────────
-        if (!isAlexaMode && (selectedFilter == "All" || selectedFilter == "Playlists") && uiState.playlists.isNotEmpty()) {
+        // ── Playlists ───────────────────────────────────────────────────
+        if ((selectedFilter == "All" || selectedFilter == "Playlists") && uiState.playlists.isNotEmpty()) {
             item { SectionHeader("Playlists") }
             item {
                 LazyRow(
@@ -356,17 +193,15 @@ internal fun SearchResultsList(
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        // ── Albums (Spotify-only, hidden in Alexa mode) ─────────────────────
-        if (!isAlexaMode && (selectedFilter == "All" || selectedFilter == "Albums") && uiState.albums.isNotEmpty()) {
+        // ── Albums ──────────────────────────────────────────────────────
+        if ((selectedFilter == "All" || selectedFilter == "Albums") && uiState.albums.isNotEmpty()) {
             item { SectionHeader("Albums") }
             item {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(
-                        uiState.albums.distinctBy { it.id ?: it.uri ?: it.name },
-                        key = { it.id ?: it.uri ?: it.name }) { album ->
+                    items(uiState.albums.distinctBy { it.id }, key = { it.id }) { album ->
                         AlbumCard(album = album, onClick = { onNavigateToAlbum(album) })
                     }
                 }

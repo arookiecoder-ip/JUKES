@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -20,9 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,14 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.juke.services.Source
-import com.example.juke.services.SourceMemory
 import com.example.juke.ui.components.GlassButton
-import com.example.juke.ui.components.GlassFilterChip
 import com.example.juke.ui.components.GlassTopAppBar
 import com.example.juke.ui.theme.GlassCard
 import com.example.juke.utils.Diagnostics
-import com.example.juke.utils.ListeningStats
 import com.example.juke.utils.rememberJukeHaptics
 import kotlinx.coroutines.launch
 
@@ -48,17 +40,10 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
     val context = LocalContext.current
     val haptic = rememberJukeHaptics()
     val scope = rememberCoroutineScope()
-    val memory = remember { SourceMemory(context) }
     val power = remember { context.getSharedPreferences("power_prefs", Context.MODE_PRIVATE) }
-    val settings = remember { context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE) }
 
-    var preferred by remember { mutableStateOf(memory.preferred) }
-    var rejected by remember { mutableIntStateOf(memory.rejectedSongCount()) }
-    var threshold by remember { mutableIntStateOf(settings.getInt("repeat_threshold", 2).coerceIn(2, 6)) }
     var doubleTap by remember { mutableStateOf(power.getBoolean("mini_double_tap_play_pause", false)) }
     var longPress by remember { mutableStateOf(power.getBoolean("mini_long_press_favorite", false)) }
-    var stats by remember { mutableStateOf<ListeningStats?>(null) }
-    LaunchedEffect(Unit) { stats = Diagnostics.stats(context) }
 
     fun share(subject: String, text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -85,46 +70,6 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 100.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item {
-                Section("Advanced") {
-                    Label("First audio source", "Which provider is tried first. A source you reject with \"Wrong song? Refetch\" always goes last for that song.")
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val options = listOf<Source?>(null) + memory.available
-                        options.forEach { option ->
-                            GlassFilterChip(
-                                selected = preferred == option,
-                                onClick = {
-                                    haptic.click()
-                                    preferred = option
-                                    memory.preferred = option
-                                },
-                                label = { Text(option?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Auto") }
-                            )
-                        }
-                    }
-                    Label("Repeat threshold", "Plays in one day after which a song counts as on repeat and may return in recommendations.")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (2..6).forEach { n ->
-                            GlassFilterChip(
-                                selected = threshold == n,
-                                onClick = {
-                                    haptic.click()
-                                    threshold = n
-                                    settings.edit().putInt("repeat_threshold", n).apply()
-                                },
-                                label = { Text("$n") }
-                            )
-                        }
-                    }
-                    Label("Rejected sources", "$rejected songs have a source you rejected.")
-                    GlassButton(onClick = {
-                        haptic.confirm()
-                        memory.resetRejected()
-                        rejected = 0
-                    }) { Text("Reset rejected sources") }
-                }
-            }
-
             item {
                 Section("Gestures and shortcuts") {
                     SwitchRow("Double-tap mini player", "Play or pause", doubleTap) {
@@ -154,16 +99,6 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
 
             item {
                 Section("Diagnostics and export") {
-                    val s = stats
-                    if (s == null) {
-                        Label("Library", "Loading…")
-                    } else {
-                        Label(
-                            "Library",
-                            "${s.tracks} tracks · ${s.totalPlays} plays · ${s.favourites} favourites" +
-                                if (s.topArtists.isNotEmpty()) "\nTop: " + s.topArtists.joinToString { "${it.first} (${it.second})" } else ""
-                        )
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         GlassButton(onClick = {
                             haptic.click()
@@ -174,7 +109,7 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
                             scope.launch { share("JUKE backup", Diagnostics.backupJson(context)) }
                         }) { Text("Export backup") }
                     }
-                    Label("Backup contents", "Settings, playlists and favourites as JSON. No credentials. Diagnostics include recent app log lines.")
+                    Label("Backup contents", "App settings as JSON. No credentials. Your library stays in your account. Diagnostics include recent app log lines.")
                 }
             }
         }

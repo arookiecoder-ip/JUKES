@@ -24,12 +24,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyArtist
+import com.example.juke.network.BrowseItem
+import com.example.juke.network.text
 import com.example.juke.utils.rememberJukeHaptics
 
 @Composable
 fun ArtistCard(
-    artist: SpotifyArtist,
+    artist: BrowseItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -46,8 +47,8 @@ fun ArtistCard(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         AsyncImage(
-            model = artist.images.firstOrNull()?.url ?: "",
-            contentDescription = artist.name,
+            model = artist.image,
+            contentDescription = artist.title,
             modifier = Modifier
                 .size(120.dp)
                 .clip(CircleShape),
@@ -55,29 +56,22 @@ fun ArtistCard(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = artist.name,
+            text = artist.title,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        if (artist.followers != null) {
+        val subscribers = artist.raw.text("subscribers")
+        if (subscribers.isNotBlank()) {
             Text(
-                text = "${formatNumber(artist.followers.total)} followers",
+                text = subscribers,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
-    }
-}
-
-private fun formatNumber(num: Int): String {
-    return when {
-        num >= 1_000_000 -> "${num / 1_000_000}M"
-        num >= 1_000 -> "${num / 1_000}K"
-        else -> num.toString()
     }
 }

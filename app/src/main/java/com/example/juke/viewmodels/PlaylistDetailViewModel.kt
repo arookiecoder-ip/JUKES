@@ -4,109 +4,112 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.juke.database.MusicDatabase
-import com.example.juke.database.PlaylistEntity
-import com.example.juke.database.PlaylistTrackEntity
-import com.example.juke.models.SpotifyPlaylist
-import com.example.juke.models.SpotifyTrack
 import com.example.juke.models.Track
-import com.example.juke.network.SpotifyApi
-import com.example.juke.services.QueueManager
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import com.example.juke.network.Backend
+import com.example.juke.network.BrowseItem
+import com.example.juke.network.BrowseParser
+import com.example.juke.network.array
+import com.example.juke.network.flag
+import com.example.juke.network.imageUrl
+import com.example.juke.network.number
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.network.toTrack
+import com.example.juke.services.AccountRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.serialization.json.JsonObject
 
 data class PlaylistDetailUiState(
-    val playlist: SpotifyPlaylist? = null,
-    val tracks: List<SpotifyTrack> = emptyList(),
+    val playlist: BrowseItem? = null,
+    val title: String = "",
+    val author: String = "",
+    val imageUrl: String = "",
+    val description: String = "",
+    val trackCount: Int = 0,
+    val tracks: List<Track> = emptyList(),
+    val hasMore: Boolean = false,
     val isLoading: Boolean = false,
-    val error: String? = null,
-    val isImportingPlaylist: Boolean = false,
-    val importProgress: Int = 0,
-    val importTotal: Int = 0
+    val isLoadingMore: Boolean = false,
+    val error: String? = null
 )
 
+/** A YouTube Music playlist (the account's own, liked music, or any public one), paged by 100. */
 class PlaylistDetailViewModel(application: Application) : AndroidViewModel(application) {
-    private val database = MusicDatabase.getDatabase(application)
-    private val playlistDao = database.playlistDao()
-    private val queueManager = QueueManager.getInstance(application)
-    private val importManager = com.example.juke.services.PlaylistImportManager.get(application)
-    
+
     private val _uiState = MutableStateFlow(PlaylistDetailUiState())
     val uiState: StateFlow<PlaylistDetailUiState> = _uiState.asStateFlow()
 
-    init {
-        // Same persisted import status as everywhere else, filtered to the playlist on screen.
-        viewModelScope.launch {
-            importManager.status.collect { map ->
-                val st = _uiState.value.playlist?.id?.let { map[it] }
-                _uiState.value = _uiState.value.copy(
-                    isImportingPlaylist = st != null,
-                    importProgress = st?.done ?: 0,
-                    importTotal = st?.total ?: 0
-                )
-            }
+    private var loadJob: Job? = null
+    private var nextOffset = 0L
+
+    /** The playlist id the server accepts: plain PL…/RD…/LM ids, not browse (VL…) ids. */
+    val playlistId: String get() = _uiState.value.playlist?.let { it.playlistId.ifBlank { it.id } }.orEmpty()
+
+    fun loadPlaylistDetails(playlist: BrowseItem) {
+        loadJob?.cancel()
+        nextOffset = 0
+        _uiState.value = PlaylistDetailUiState(
+            playlist = playlist, title = playlist.title, author = playlist.subtitle,
+            imageUrl = playlist.image, isLoading = true
+        )
+        loadJob = viewModelScope.launch { loadPage(first = true) }
+    }
+
+    fun loadMore() {
+        val state = _uiState.value
+        if (!state.hasMore || state.isLoadingMore || state.isLoading) return
+        loadJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingMore = true) }
+            loadPage(first = false)
         }
     }
-    
-    fun loadPlaylistDetails(playlist: SpotifyPlaylist) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                playlist = playlist,
-                isLoading = true,
-                error = null
-            )
-            
-            try {
-                val tracksResponse = SpotifyApi.getPlaylistTracks(playlist.id)
-                val tracks = tracksResponse.items.mapNotNull { it.track }
-                
-                _uiState.value = _uiState.value.copy(
-                    tracks = tracks,
-                    isLoading = false
-                )
-                
-                Log.d("PlaylistDetailViewModel", "Loaded ${tracks.size} tracks for playlist ${playlist.name}")
-            } catch (e: Exception) {
-                Log.e("PlaylistDetailViewModel", "Error loading playlist details: ${e.message}", e)
-                _uiState.value = _uiState.value.copy(
+
+    private suspend fun loadPage(first: Boolean) {
+        val id = playlistId
+        try {
+            val data = Backend.get(
+                "/api/library/playlists/$id",
+                mapOf("offset" to nextOffset.toString(), "limit" to PAGE.toString())
+            ).objectOrEmpty()
+            val liked = AccountRepository.liked.value
+            val tracks = data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                .filter { it.videoId.isNotBlank() }
+                .map { it.toTrack(liked) }
+            nextOffset = data.number("next_offset").takeIf { it > 0 } ?: (nextOffset + tracks.size)
+            _uiState.update { state ->
+                val author = data["author"].objectOrEmpty().text("name").ifBlank { data.text("author") }
+                state.copy(
+                    title = data.text("title").ifBlank { state.title },
+                    author = author.ifBlank { state.author },
+                    imageUrl = imageUrl(data["thumbnails"]).ifBlank { state.imageUrl },
+                    description = data.text("description").ifBlank { state.description },
+                    trackCount = data.number("trackCount").toInt().takeIf { it > 0 } ?: (state.tracks.size + tracks.size),
+                    tracks = if (first) tracks else state.tracks + tracks,
+                    hasMore = data.flag("has_more") && tracks.isNotEmpty(),
                     isLoading = false,
-                    error = e.message
+                    isLoadingMore = false
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("PlaylistDetailViewModel", "Error loading playlist: ${e.message}", e)
+            _uiState.update { it.copy(isLoading = false, isLoadingMore = false, error = e.message ?: "Couldn't load the playlist") }
         }
     }
-    
+
     fun clearPlaylistDetail() {
+        loadJob?.cancel()
         _uiState.value = PlaylistDetailUiState()
     }
-    
-    /** Saves the playlist and downloads it in the background (resumable, see PlaylistImportManager). */
-    fun importPlaylistOffline() {
-        val playlist = _uiState.value.playlist ?: return
-        val tracks = _uiState.value.tracks
-        viewModelScope.launch {
-            try {
-                importManager.enqueue(
-                    PlaylistEntity(
-                        id = playlist.id,
-                        name = playlist.name,
-                        description = playlist.description,
-                        thumbnailUri = playlist.images.firstOrNull()?.url,
-                        spotifyId = playlist.id,
-                        trackCount = tracks.size
-                    ),
-                    tracks
-                )
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(error = "Failed to save playlist offline: ${e.message}")
-            }
-        }
+
+    companion object {
+        private const val PAGE = 100
     }
 }

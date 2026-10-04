@@ -21,10 +21,8 @@ data class Track(
     val isFavourite: Boolean = false,
     val playCount: Int = 0,
     val lastPlayedAt: String? = null,
-    val downloadedAt: Long? = null,
-    val spotifyId: String? = null,
-    val albumSpotifyId: String? = null,
-    val artistSpotifyIds: List<String>? = null,
+    val albumId: String? = null,
+    val artistId: String? = null,
     val isStream: Boolean = false,
     val lyricsOffsetMs: Long = 0L
 )
@@ -40,33 +38,6 @@ fun Track.withUpdatedLyrics(
         romanizedPlainLyrics = if (this.plainLyrics == plainLyrics) romanizedPlainLyrics else null
     )
 }
-
-/**
- * Spotdown song search result from Spotify.
- */
-@Serializable
-data class SpotdownSong(
-    val title: String,
-    val artist: String,
-    val album: String = "",
-    val thumbnail: String,
-    val url: String,
-    val duration: String,
-    val cached: Boolean = false,
-    val spotifyId: String? = null,
-    val albumSpotifyId: String? = null,
-    val artistSpotifyIds: List<String>? = null
-)
-
-/**
- * Spotdown check download response.
- */
-@Serializable
-data class SpotdownCheckResponse(
-    val cached: Boolean = false,
-    val success: Boolean = true,
-    val message: String? = null
-)
 
 /**
  * Lyrics result from LRCLib API.

@@ -46,6 +46,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.juke.viewmodels.HomeViewModel
+import com.example.juke.viewmodels.LibraryViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
@@ -68,7 +74,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.juke.analytics.AnalyticsManager
 import com.example.juke.models.GithubRelease
-import com.example.juke.network.SpotifyApi
 import com.example.juke.services.DownloadedUpdate
 import com.example.juke.services.UpdateManager
 import com.example.juke.services.UpdateDownloadState
@@ -87,16 +92,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.CompositionLocalProvider
 import com.example.juke.ui.screens.AlbumDetailScreen
 import com.example.juke.ui.screens.ArtistDetailScreen
-import com.example.juke.ui.screens.AudioSettingsScreen
+import com.example.juke.ui.screens.AccountCheckScreen
+import com.example.juke.ui.screens.SettingsScreen
+import com.example.juke.ui.screens.SignInScreen
 import com.example.juke.ui.screens.HomeScreen
 import com.example.juke.ui.screens.LibraryScreen
 import com.example.juke.ui.screens.PlayerScreen
-import com.example.juke.ui.screens.AlexaRemoteScreen
-import com.example.juke.viewmodels.MusicSource
 import com.example.juke.ui.screens.PlaylistDetailScreen
 import com.example.juke.ui.screens.SearchScreen
 import com.example.juke.ui.theme.JUKETheme
+import com.example.juke.viewmodels.AccountViewModel
 import com.example.juke.viewmodels.AlbumDetailViewModel
+import com.example.juke.viewmodels.AuthStage
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.PlaylistDetailViewModel
 import com.example.juke.viewmodels.SearchViewModel
@@ -149,24 +156,65 @@ class MainActivity : ComponentActivity() {
         setContent {
             val musicViewModel: MusicViewModel = viewModel()
             val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
-            val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
-            val remoteEnabled by musicViewModel.alexaRemoteEnabled.collectAsStateWithLifecycle()
-            val remoteServer by musicViewModel.alexaRemoteServer.collectAsStateWithLifecycle()
-            val remoteMode = musicSource == MusicSource.ALEXA && remoteEnabled
+            val homeViewModel: HomeViewModel = viewModel()
+            val libraryViewModel: LibraryViewModel = viewModel()
+            val searchViewModel: SearchViewModel = viewModel()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner, musicViewModel) {
+                val observer = LifecycleEventObserver { _, _ ->
+                    musicViewModel.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                musicViewModel.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                    musicViewModel.setForeground(false)
+                }
+            }
+            val account: AccountViewModel = viewModel()
+            val accountState by account.state.collectAsStateWithLifecycle()
 
             JUKETheme(
                 extractedColors = uiState.extractedColors
             ) {
+                LaunchedEffect(accountState.stage) {
+                    when (accountState.stage) {
+                        AuthStage.SIGNED_IN -> musicViewModel.onSignedIn()
+                        AuthStage.SIGNED_OUT -> {
+                            musicViewModel.onSignedOut()
+                            homeViewModel.clear()
+                            libraryViewModel.clear()
+                        }
+                        else -> {}
+                    }
+                }
+                LaunchedEffect(Unit) { musicViewModel.signedOut.collect { account.sessionEnded() } }
+                LaunchedEffect(Unit) { homeViewModel.signedOut.collect { account.sessionEnded() } }
+                LaunchedEffect(Unit) { libraryViewModel.signedOut.collect { account.sessionEnded() } }
+                LaunchedEffect(Unit) { searchViewModel.signedOut.collect { account.sessionEnded() } }
+                LaunchedEffect(Unit) {
+                    musicViewModel.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+                }
+                LaunchedEffect(Unit) {
+                    account.accountsChanged.collect {
+                        musicViewModel.onSignedIn()
+                        homeViewModel.reload()
+                        libraryViewModel.refresh()
+                    }
+                }
+
+                if (accountState.stage == AuthStage.CHECKING) {
+                    Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
+                } else if (accountState.stage != AuthStage.SIGNED_IN) {
+                    SignInScreen(accountState, account)
+                } else if (accountState.showAccountCheck) {
+                    AccountCheckScreen(accountState, account)
+                } else {
                 val navController = rememberNavController()
                 val activityViewModelProvider = remember(this@MainActivity) {
                     ViewModelProvider(this@MainActivity)
                 }
 
-                // Initialize SpotifyApi with saved market code
-                LaunchedEffect(Unit) {
-                    val savedMarket = musicViewModel.marketCode.value
-                    SpotifyApi.setDefaultMarket(savedMarket)
-                }
                 val context = LocalContext.current
                 var showPlayerModal by remember { mutableStateOf(false) }
                 var searchResetTrigger by remember { mutableIntStateOf(0) }
@@ -398,7 +446,7 @@ class MainActivity : ComponentActivity() {
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
-                        if (currentRoute != "settings" && !remoteMode) {
+                        if (currentRoute != "settings") {
                             Column(
                                 modifier = Modifier
                                     .navigationBarsPadding()
@@ -429,7 +477,7 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                     Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
                     Row(modifier = Modifier.fillMaxSize()) {
-                        if (isExpanded && currentRoute != "settings" && !remoteMode) {
+                        if (isExpanded && currentRoute != "settings") {
                             GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
                         }
                         NavHost(
@@ -437,25 +485,29 @@ class MainActivity : ComponentActivity() {
                             startDestination = Screen.Home.route,
                             modifier = Modifier.weight(1f).padding(contentPadding)
                         ) {
-                            composable("alexa-remote") {
-                                AlexaRemoteScreen(
-                                    server = remoteServer,
-                                    onSettings = { navController.navigate("settings") },
-                                    onPhoneMusic = { musicViewModel.setAlexaRemoteEnabled(false) }
-                                )
-                            }
                             composable(Screen.Home.route) {
                                 HomeScreen(
                                     musicViewModel = musicViewModel,
+                                    homeViewModel = homeViewModel,
                                     onSettingsClick = { navController.navigate("settings") },
                                     onSearchClick = { onNavigate(Screen.Search) },
-                                    onSeeAllClick = {
-                                        navController.navigate(Screen.Library.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
+                                    onOpenItem = { item ->
+                                        when (item.kind) {
+                                            "artist" -> {
+                                                activityViewModelProvider[SearchViewModel::class.java]
+                                                    .loadArtistDetails(item)
+                                                navController.navigate("artist/${item.id}")
                                             }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                            "album" -> {
+                                                activityViewModelProvider[AlbumDetailViewModel::class.java]
+                                                    .loadAlbumDetails(item)
+                                                navController.navigate("album/${item.id}")
+                                            }
+                                            "playlist" -> {
+                                                activityViewModelProvider[PlaylistDetailViewModel::class.java]
+                                                    .loadPlaylistDetails(item)
+                                                navController.navigate("playlist/${item.id}")
+                                            }
                                         }
                                     },
                                     bottomPadding = bottomPadding
@@ -489,35 +541,27 @@ class MainActivity : ComponentActivity() {
                             composable(Screen.Library.route) {
                                 LibraryScreen(
                                     musicViewModel = musicViewModel,
+                                    libraryViewModel = libraryViewModel,
+                                    onOpenSettings = { navController.navigate("settings") },
+                                    onOpenArtist = { artist ->
+                                        searchViewModel.loadArtistDetails(artist)
+                                        navController.navigate("artist/${artist.id}")
+                                    },
                                     bottomPadding = bottomPadding
                                 )
                             }
                             composable("settings") {
-                                AudioSettingsScreen(
-                                    musicViewModel = musicViewModel,
-                                    onNavigateBack = {
-                                        navController.popBackStack()
-                                    },
-                                    onNavigateToPurge = {
-                                        navController.navigate("settings/purge")
-                                    },
-                                    onNavigateToPowerTools = {
-                                        navController.navigate("settings/power")
-                                    }
+                                SettingsScreen(
+                                    account = account,
+                                    onNavigateBack = { navController.popBackStack() },
+                                    onNavigateToPowerTools = { navController.navigate("settings/power") },
+                                    bottomPadding = bottomPadding
                                 )
                             }
                             composable("settings/power") {
                                 com.example.juke.ui.screens.PowerToolsScreen(
                                     onNavigateBack = { navController.popBackStack() },
                                     bottomPadding = bottomPadding
-                                )
-                            }
-                            composable("settings/purge") {
-                                com.example.juke.ui.screens.PurgeSelectionScreen(
-                                    musicViewModel = musicViewModel,
-                                    onNavigateBack = {
-                                        navController.popBackStack()
-                                    }
                                 )
                             }
                             composable("artist/{artistId}") {
@@ -571,21 +615,8 @@ class MainActivity : ComponentActivity() {
                 }
                 }
 
-                LaunchedEffect(remoteMode, currentRoute) {
-                    if (currentRoute?.startsWith("settings") != true) {
-                        if (remoteMode && currentRoute != "alexa-remote") {
-                            navController.navigate("alexa-remote") { launchSingleTop = true }
-                        } else if (!remoteMode && currentRoute == "alexa-remote") {
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo("alexa-remote") { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        }
-                    }
-                }
-
                 // Player Modal
-                if (showPlayerModal && !remoteMode) {
+                if (showPlayerModal) {
                     PlayerScreen(
                         musicViewModel = musicViewModel,
                         onDismiss = { showPlayerModal = false },
@@ -600,20 +631,9 @@ class MainActivity : ComponentActivity() {
                             activityViewModelProvider[AlbumDetailViewModel::class.java]
                                 .loadAlbumDetailsById(albumId)
                             navController.navigate("album/$albumId")
-                        },
-                        onShareTrack = { spotifyId ->
-                            val sendIntent: Intent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "https://open.spotify.com/track/$spotifyId"
-                                )
-                                type = "text/plain"
-                            }
-                            val shareIntent = Intent.createChooser(sendIntent, null)
-                            context.startActivity(shareIntent)
                         }
                     )
+                }
                 }
             }
         }

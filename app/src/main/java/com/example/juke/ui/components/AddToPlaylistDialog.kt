@@ -37,20 +37,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.juke.database.PlaylistEntity
+import com.example.juke.network.BrowseItem
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import com.example.juke.models.Track
 
 @Composable
 fun AddToPlaylistDialog(
-    playlists: List<PlaylistEntity>,
+    playlists: List<BrowseItem>?,
     tracks: List<Track>,
-    trackPlaylists: List<PlaylistEntity>,
     onDismiss: () -> Unit,
-    onAddToPlaylist: (PlaylistEntity) -> Unit,
-    onRemoveFromPlaylist: (PlaylistEntity) -> Unit,
-    onCreatePlaylist: () -> Unit,
-    onRemoveFromCurrentPlaylist: ((PlaylistEntity) -> Unit)? = null,
-    currentPlaylist: PlaylistEntity? = null
+    onAddToPlaylist: (BrowseItem) -> Unit,
+    onCreatePlaylist: () -> Unit
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -120,7 +118,18 @@ fun AddToPlaylistDialog(
                         )
                     }
 
-                    if (playlists.isEmpty()) {
+                    if (playlists == null) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                            }
+                        }
+                    } else if (playlists.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -129,7 +138,7 @@ fun AddToPlaylistDialog(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "No custom playlists yet",
+                                    "No playlists of yours on YouTube Music yet",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -137,18 +146,9 @@ fun AddToPlaylistDialog(
                         }
                     } else {
                         items(playlists, key = { it.id }) { playlist ->
-                            val isAlreadyAdded = if (tracks.size == 1) trackPlaylists.any { it.id == playlist.id } else false
-
                             PlaylistItemRow(
                                 playlist = playlist,
-                                isAlreadyAdded = isAlreadyAdded,
-                                onClick = {
-                                    if (isAlreadyAdded && tracks.size == 1) {
-                                        onRemoveFromPlaylist(playlist)
-                                    } else {
-                                        onAddToPlaylist(playlist)
-                                    }
-                                }
+                                onClick = { onAddToPlaylist(playlist) }
                             )
                         }
                     }
@@ -198,8 +198,7 @@ private fun PlaylistActionRow(
 
 @Composable
 private fun PlaylistItemRow(
-    playlist: PlaylistEntity,
-    isAlreadyAdded: Boolean,
+    playlist: BrowseItem,
     onClick: () -> Unit
 ) {
     Row(
@@ -217,48 +216,51 @@ private fun PlaylistItemRow(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
-            )
+            if (playlist.image.isNotBlank()) {
+                AsyncImage(
+                    model = playlist.image,
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = playlist.name,
+                text = playlist.title,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = "${playlist.trackCount} tracks",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (playlist.subtitle.isNotBlank()) {
+                Text(
+                    text = playlist.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Toggle State Indicator
-        if (isAlreadyAdded) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Added",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(24.dp)
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = "Add",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(24.dp)
+        )
     }
 }

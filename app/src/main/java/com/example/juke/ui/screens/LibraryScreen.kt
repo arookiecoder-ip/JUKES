@@ -1,7 +1,6 @@
 package com.example.juke.ui.screens
 
 import com.example.juke.ui.components.GlassButton
-import com.example.juke.ui.components.GlassTopAppBar
 import com.example.juke.ui.components.SearchHeader
 import com.example.juke.ui.components.GlassFilterChip
 import com.example.juke.ui.components.GlassModalBottomSheet
@@ -27,7 +26,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -38,27 +36,21 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RemoveCircle
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.SearchOff
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -66,10 +58,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -80,11 +69,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,55 +81,43 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.juke.models.Track
+import com.example.juke.network.BrowseItem
 import com.example.juke.ui.components.AddToPlaylistDialog
-import com.example.juke.ui.components.CompactDownloadBanner
 import com.example.juke.ui.components.CreatePlaylistDialog
-import com.example.juke.ui.components.EditPlaylistDialog
 import com.example.juke.ui.components.LibraryTrackItem
 import com.example.juke.ui.components.SwipeToAddNextContainer
 import com.example.juke.ui.components.TrackListSkeleton
 import com.example.juke.utils.rememberJukeHaptics
-import com.example.juke.viewmodels.DownloadItem
+import com.example.juke.viewmodels.LibraryView
 import com.example.juke.viewmodels.LibraryViewModel
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.SortOption
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     musicViewModel: MusicViewModel,
     libraryViewModel: LibraryViewModel = viewModel(),
+    onOpenArtist: (BrowseItem) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val coroutineScope = rememberCoroutineScope()
     val uiState by libraryViewModel.uiState.collectAsStateWithLifecycle()
-    val libraryDownloadBannerState by remember(musicViewModel) {
-        musicViewModel.uiState
-            .map { state ->
-                LibraryDownloadBannerState(
-                    currentDownload = state.currentDownload,
-                    downloadQueue = state.downloadQueue
-                )
-            }
-            .distinctUntilChanged()
-    }.collectAsStateWithLifecycle(
-        initialValue = LibraryDownloadBannerState(
-            currentDownload = musicViewModel.uiState.value.currentDownload,
-            downloadQueue = musicViewModel.uiState.value.downloadQueue
-        )
-    )
     val haptic = rememberJukeHaptics()
-    val keyboardController = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
-    val importStatus by com.example.juke.services.PlaylistImportManager
-        .get(androidx.compose.ui.platform.LocalContext.current).status.collectAsStateWithLifecycle()
 
-    // Helper for haptics
     fun performHapticFeedback() {
         haptic.heavyClick()
+    }
+
+    LaunchedEffect(Unit) {
+        libraryViewModel.start()
+        libraryViewModel.messages.collect { message ->
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     // Handle back press to exit selection mode
@@ -150,74 +126,23 @@ fun LibraryScreen(
     }
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
-    var showEditPlaylistDialog by remember { mutableStateOf(false) }
-    var isLibraryShufflePrepared by rememberSaveable { mutableStateOf(false) }
-    var preparedLibraryShuffleIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
-
-    // Changed to support multiple tracks
+    var playlistToRename by remember { mutableStateOf<BrowseItem?>(null) }
     var tracksForPlaylistDialog by remember { mutableStateOf<List<Track>?>(null) }
+    var editablePlaylists by remember { mutableStateOf<List<BrowseItem>?>(null) }
+    var isLibraryShufflePrepared by rememberSaveable { mutableStateOf(false) }
 
-    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            libraryViewModel.importAudioFiles(uris)
-        }
-    }
-    var trackPlaylists by remember {
-        mutableStateOf<List<com.example.juke.database.PlaylistEntity>>(
-            emptyList()
-        )
-    }
-
-    // Fetch playlists for the selected track when dialog opens
+    // Playlists that songs can be added to, loaded when the dialog opens
     LaunchedEffect(tracksForPlaylistDialog) {
-        tracksForPlaylistDialog?.let { tracks ->
-            if (tracks.size == 1) {
-                trackPlaylists = libraryViewModel.getPlaylistsForTrack(tracks.first().uuid)
-            } else {
-                trackPlaylists = emptyList() // or intersection if needed
-            }
+        if (tracksForPlaylistDialog != null) {
+            editablePlaylists = null
+            editablePlaylists = runCatching { libraryViewModel.editablePlaylists() }.getOrDefault(emptyList())
         }
     }
 
-    LaunchedEffect(Unit) {
-        // Initial load is handled by the flow in ViewModel
+    val playableTracks = remember(uiState.tracks, isLibraryShufflePrepared) {
+        if (isLibraryShufflePrepared) uiState.tracks.shuffled() else uiState.tracks
     }
-
-    val currentLibraryTrackIds = remember(uiState.tracks) {
-        uiState.tracks.map { it.uuid }
-    }
-    val preparedLibraryTracks = remember(
-        uiState.tracks,
-        preparedLibraryShuffleIds,
-        isLibraryShufflePrepared
-    ) {
-        if (!isLibraryShufflePrepared) {
-            uiState.tracks
-        } else {
-            val tracksById = uiState.tracks.associateBy { it.uuid }
-            val preparedTracks = preparedLibraryShuffleIds.mapNotNull { tracksById[it] }
-            if (preparedTracks.size == uiState.tracks.size) {
-                preparedTracks
-            } else {
-                val preparedTrackIds = preparedTracks.map { it.uuid }.toSet()
-                preparedTracks + uiState.tracks.filter { it.uuid !in preparedTrackIds }
-            }
-        }
-    }
-
-    LaunchedEffect(currentLibraryTrackIds) {
-        if (isLibraryShufflePrepared) {
-            val sameMembership =
-                preparedLibraryShuffleIds.size == currentLibraryTrackIds.size &&
-                        preparedLibraryShuffleIds.toSet() == currentLibraryTrackIds.toSet()
-
-            if (!sameMembership) {
-                preparedLibraryShuffleIds = currentLibraryTrackIds.shuffled()
-            }
-        }
-    }
+    val showsTracks = uiState.view != LibraryView.ARTISTS
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -249,7 +174,6 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Search and Sort Row OR Selection Top Bar
             if (uiState.isSelectionMode) {
                 // Selection Top Bar
                 Row(
@@ -263,24 +187,18 @@ fun LibraryScreen(
                     }
 
                     Text(
-                        text = "${uiState.selectedTrackUuids.size}", // Shortened for space
+                        text = "${uiState.selectedTrackUuids.size}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     )
 
-                    // Actions Row
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(0.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         IconButton(onClick = {
-                            val selectedTracks =
-                                preparedLibraryTracks.filter {
-                                    uiState.selectedTrackUuids.contains(it.uuid)
-                                }
-                            musicViewModel.addNext(selectedTracks)
+                            musicViewModel.addNext(uiState.tracks.filter { it.uuid in uiState.selectedTrackUuids })
                             libraryViewModel.clearSelection()
                             performHapticFeedback()
                         }) {
@@ -292,15 +210,10 @@ fun LibraryScreen(
                         }
 
                         IconButton(onClick = {
-                            val selectedTracks =
-                                preparedLibraryTracks.filter {
-                                    uiState.selectedTrackUuids.contains(it.uuid)
-                                }
-                            musicViewModel.addToQueue(selectedTracks)
+                            musicViewModel.addToQueue(uiState.tracks.filter { it.uuid in uiState.selectedTrackUuids })
                             libraryViewModel.clearSelection()
                             performHapticFeedback()
                         }) {
-                            // Use differen icon if possible, or same
                             Icon(
                                 Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = "Add to Queue"
@@ -308,20 +221,16 @@ fun LibraryScreen(
                         }
 
                         IconButton(onClick = {
-                            val selectedTracks =
-                                preparedLibraryTracks.filter {
-                                    uiState.selectedTrackUuids.contains(it.uuid)
-                                }
+                            val selectedTracks = uiState.tracks.filter { it.uuid in uiState.selectedTrackUuids }
                             if (selectedTracks.isNotEmpty()) {
                                 tracksForPlaylistDialog = selectedTracks
-                                libraryViewModel.clearSelection() // Optionally keep selection?
+                                libraryViewModel.clearSelection()
                             }
                         }) {
                             Icon(Icons.Default.AddCircle, contentDescription = "Add to Playlist")
                         }
                     }
 
-                    // Select All / Menu
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More")
@@ -339,138 +248,55 @@ fun LibraryScreen(
                                 }
                             }
                         )
-
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                if (uiState.selectedTrackUuids.isNotEmpty()) {
-                                    // Need to lift state out or re-implement dialog here.
-                                    // Existing code had showDeleteDialog inside the row.
-                                    // We can reuse that approach by exposing a state or just handling it here.
-                                    // For simplicity, let's keep the delete dialog logic separate or simplified.
-                                }
-                            }
-                        )
-                    }
-
-                    var showDeleteDialog by remember { mutableStateOf(false) }
-                    // Re-add Delete Button (optional if in menu, but user might prefer direct access)
-                    if (uiState.selectedTrackUuids.isNotEmpty()) {
-                        IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-
-                    if (showDeleteDialog) {
-                        GlassAlertDialog(
-                            onDismissRequest = { showDeleteDialog = false },
-                            title = { Text("Delete ${uiState.selectedTrackUuids.size} tracks?") },
-                            text = { Text("This action cannot be undone.") },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        performHapticFeedback()
-                                        libraryViewModel.deleteSelectedTracks()
-                                        showDeleteDialog = false
-                                    },
-                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                ) {
-                                    Text("Delete")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = {
-                                    showDeleteDialog = false
-                                }) { Text("Cancel") }
-                            }
-                        )
                     }
                 }
             }
 
-            val chipColors = FilterChipDefaults.filterChipColors(
-                containerColor = Color.Transparent,
-                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                labelColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                selectedLabelColor = MaterialTheme.colorScheme.primary
-            )
-
-            // Enhanced Filter Row
+            // Filter Row: liked songs, artists, history, then the account's playlists
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // 1. All Tracks
                 item {
                     GlassFilterChip(
-                        selected = uiState.selectedPlaylist == null && !uiState.showFavoritesOnly,
-                        onClick = { libraryViewModel.loadAllTracks() },
-                        label = { Text("All Tracks") },
-                        leadingIcon = if (uiState.selectedPlaylist == null && !uiState.showFavoritesOnly) {
-                            {
-                                Icon(
-                                    Icons.Default.LibraryMusic,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        } else null
-                    )
-                }
-
-                // 2. Favourites
-                item {
-                    GlassFilterChip(
-                        selected = uiState.showFavoritesOnly,
-                        onClick = { libraryViewModel.toggleFavoritesFilter() },
-                        label = { Text("Favourites") },
-                        leadingIcon = if (uiState.showFavoritesOnly) {
-                            {
-                                Icon(
-                                    Icons.Filled.Favorite,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        } else {
-                            {
-                                Icon(
-                                    Icons.Outlined.FavoriteBorder,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
+                        selected = uiState.view == LibraryView.LIKED,
+                        onClick = { libraryViewModel.showLiked() },
+                        label = { Text("Liked songs") },
+                        leadingIcon = {
+                            Icon(
+                                if (uiState.view == LibraryView.LIKED) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     )
                 }
+                item {
+                    GlassFilterChip(
+                        selected = uiState.view == LibraryView.ARTISTS,
+                        onClick = { libraryViewModel.showArtists() },
+                        label = { Text("Artists") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                }
+                item {
+                    GlassFilterChip(
+                        selected = uiState.view == LibraryView.HISTORY,
+                        onClick = { libraryViewModel.showHistory() },
+                        label = { Text("History") },
+                        leadingIcon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                }
 
-                // 3. Playlists (Dynamic)
-                // 3. Playlists (Dynamic)
                 items(uiState.playlists, key = { it.id }) { playlist ->
                     var showMenu by remember { mutableStateOf(false) }
                     var showDeleteDialog by remember { mutableStateOf(false) }
 
                     GlassFilterChip(
                         selected = uiState.selectedPlaylist?.id == playlist.id,
-                        onClick = { libraryViewModel.loadPlaylistTracks(playlist.id) },
-                        label = {
-                            val st = importStatus[playlist.id]
-                            Text(if (st != null) "${playlist.name} · ${st.done}/${st.total}" else playlist.name)
-                        },
-                        modifier = if (importStatus.containsKey(playlist.id)) Modifier.alpha(0.55f) else Modifier,
+                        onClick = { libraryViewModel.showPlaylist(playlist) },
+                        label = { Text(playlist.title) },
                         leadingIcon = if (uiState.selectedPlaylist?.id == playlist.id) {
                             {
                                 Icon(
@@ -497,34 +323,31 @@ fun LibraryScreen(
                                     onDismissRequest = { showMenu = false }
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("Add to Queue") },
+                                        text = { Text("Play") },
                                         onClick = {
                                             showMenu = false
-                                            libraryViewModel.addPlaylistToQueue(
-                                                playlist,
-                                                musicViewModel
-                                            )
+                                            musicViewModel.playPlaylist(playlist.playlistId.ifBlank { playlist.id }, emptyList())
                                         },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.AutoMirrored.Filled.QueueMusic,
-                                                contentDescription = null
-                                            )
-                                        }
+                                        leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) }
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text("Delete") },
-                                        onClick = {
-                                            showMenu = false
-                                            showDeleteDialog = true
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = null
-                                            )
-                                        }
-                                    )
+                                    if (playlist.editable) {
+                                        DropdownMenuItem(
+                                            text = { Text("Rename") },
+                                            onClick = {
+                                                showMenu = false
+                                                playlistToRename = playlist
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete") },
+                                            onClick = {
+                                                showMenu = false
+                                                showDeleteDialog = true
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -534,7 +357,7 @@ fun LibraryScreen(
                         GlassAlertDialog(
                             onDismissRequest = { showDeleteDialog = false },
                             title = { Text("Delete Playlist") },
-                            text = { Text("Are you sure you want to delete '${playlist.name}'?") },
+                            text = { Text("Delete '${playlist.title}' from your YouTube Music account?") },
                             confirmButton = {
                                 TextButton(
                                     onClick = {
@@ -554,26 +377,9 @@ fun LibraryScreen(
                     }
                 }
 
-                // 4. Import Button
                 item {
-                    GlassFilterChip(selected = false,
-                        onClick = {
-                            importLauncher.launch(arrayOf("audio/*"))
-                        },
-                        label = { Text("Import") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.AddCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    )
-                }
-
-                // 5. Create Playlist Button
-                item {
-                    GlassFilterChip(selected = false,
+                    GlassFilterChip(
+                        selected = false,
                         onClick = { showCreatePlaylistDialog = true },
                         label = { Text("New") },
                         leadingIcon = {
@@ -587,7 +393,7 @@ fun LibraryScreen(
                 }
             }
 
-            // Header with track count and controls
+            // Header with count and controls
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -595,236 +401,122 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Track count or Playlist Name
-                Column(verticalArrangement = Arrangement.Center) {
-                    if (uiState.selectedPlaylist != null) {
-                        Text(
-                            text = uiState.selectedPlaylist!!.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${uiState.tracks.size} songs",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            text = "${uiState.tracks.size} songs",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                Column(verticalArrangement = Arrangement.Center, modifier = Modifier.weight(1f)) {
+                    val title = when (uiState.view) {
+                        LibraryView.LIKED -> "Liked songs"
+                        LibraryView.ARTISTS -> "Artists"
+                        LibraryView.HISTORY -> "History"
+                        LibraryView.PLAYLIST -> uiState.selectedPlaylist?.title.orEmpty()
                     }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (showsTracks) "${uiState.trackCount.coerceAtLeast(uiState.tracks.size)} songs"
+                        else "${uiState.artists.size} artists",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
-                // Controls row
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Edit Button (Rename)
-                    if (uiState.selectedPlaylist != null) {
-                        var showRenameDialog by remember { mutableStateOf(false) }
-                        IconButton(
-                            onClick = { showRenameDialog = true }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Rename Playlist",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        if (showRenameDialog) {
-                            var newName by remember { mutableStateOf(uiState.selectedPlaylist!!.name) }
-                            GlassAlertDialog(
-                                onDismissRequest = { showRenameDialog = false },
-                                title = { Text("Rename Playlist") },
-                                text = {
-                                    OutlinedTextField(
-                                        value = newName,
-                                        onValueChange = { newName = it },
-                                        label = { Text("Name") },
-                                        singleLine = true
-                                    )
-                                },
-                                confirmButton = {
-                                    TextButton(
-                                        onClick = {
-                                            if (newName.isNotBlank()) {
-                                                libraryViewModel.updatePlaylist(
-                                                    uiState.selectedPlaylist!!,
-                                                    newName,
-                                                    uiState.selectedPlaylist!!.thumbnailUri
-                                                )
-                                                showRenameDialog = false
-                                            }
-                                        }
-                                    ) {
-                                        Text("Save")
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = { showRenameDialog = false }) {
-                                        Text("Cancel")
-                                    }
-                                }
-                            )
-                        }
-                    }
-
+                if (showsTracks) {
                     LibraryPlaybackActions(
                         musicViewModel = musicViewModel,
-                        tracks = preparedLibraryTracks,
+                        tracks = playableTracks,
                         isShufflePrepared = isLibraryShufflePrepared,
-                        onToggleShuffle = {
-                            val shouldEnable = !isLibraryShufflePrepared
-                            isLibraryShufflePrepared = shouldEnable
-                            preparedLibraryShuffleIds = if (shouldEnable) {
-                                currentLibraryTrackIds.shuffled()
-                            } else {
-                                emptyList()
-                            }
-                        }
+                        onToggleShuffle = { isLibraryShufflePrepared = !isLibraryShufflePrepared }
                     )
                 }
             }
 
-            if (uiState.isLoading) {
-                TrackListSkeleton(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp + bottomPadding)
-                )
-            } else if (uiState.tracks.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(20.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GlassCard(
-                        modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.searchQuery.isNotEmpty()) Icons.Outlined.SearchOff
-                                else if (uiState.showFavoritesOnly) Icons.Outlined.FavoriteBorder
-                                else Icons.Outlined.LibraryMusic,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = if (uiState.searchQuery.isNotEmpty()) "No tracks found"
-                                else if (uiState.showFavoritesOnly) "No favourite tracks yet"
-                                else "No downloaded tracks yet",
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
-                                style = MaterialTheme.typography.headlineSmall.copy(
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = if (uiState.searchQuery.isNotEmpty()) "Try a different search term"
-                                else if (uiState.showFavoritesOnly) "Mark tracks as favourites to see them here"
-                                else "Search and download tracks to build your library",
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(
-                        start = 20.dp,
-                        top = 8.dp,
-                        end = 20.dp,
-                        bottom = 100.dp + bottomPadding
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    // Playlist hero if one is selected
-                    uiState.selectedPlaylist?.let { playlist ->
-                        item(key = "playlist_header_${playlist.id}") {
-                            PlaylistHeader(
-                                importStatus = importStatus[playlist.id],
-                                playlist = playlist,
-                                onEditClick = { showEditPlaylistDialog = true }
-                            )
-                        }
-                    }
-
-                    // Compact download banner — collapses all active downloads into one slim row
-                    val hasAnyDownload = libraryDownloadBannerState.currentDownload != null ||
-                            libraryDownloadBannerState.downloadQueue.isNotEmpty() ||
-                            uiState.recommendationDownloads.isNotEmpty()
-                    if (hasAnyDownload) {
-                        item(key = "download_banner") {
-                            CompactDownloadBanner(
-                                currentDownload = libraryDownloadBannerState.currentDownload,
-                                downloadQueue = libraryDownloadBannerState.downloadQueue,
-                                recommendationDownloads = uiState.recommendationDownloads,
-                                onCancelDownload = { id -> musicViewModel.cancelDownload(id) },
-                                onRetryDownload = { item -> musicViewModel.retryFailedDownload(item) }
-                            )
-                        }
-                    }
-
-                    // Show downloaded tracks
-                    itemsIndexed(
-                        items = uiState.tracks,
-                        key = { index, track -> "${track.uuid}_$index" }
-                    ) { index, track ->
-                        SwipeToAddNextContainer(
-                            onAddNext = { musicViewModel.addNext(track) },
-                            onDelete = { libraryViewModel.deleteTrack(track.uuid) }
-                        ) {
-                            LibraryTrackItem(
-                                track = track,
-                                isSelectionMode = uiState.isSelectionMode,
-                                isSelected = uiState.selectedTrackUuids.contains(track.uuid),
-                                onPlay = {
-                                    if (uiState.isSelectionMode) {
+            PullToRefreshBox(
+                isRefreshing = false,
+                onRefresh = { libraryViewModel.refresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                when {
+                    uiState.isLoading -> TrackListSkeleton(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp + bottomPadding)
+                    )
+                    uiState.needsYouTube -> LibraryMessage(
+                        icon = Icons.Outlined.LibraryMusic,
+                        title = "Connect YouTube Music",
+                        text = "Your library comes from the YouTube Music account on your server.",
+                        action = "Open Settings",
+                        onAction = onOpenSettings
+                    )
+                    uiState.error != null && uiState.tracks.isEmpty() && uiState.artists.isEmpty() -> LibraryMessage(
+                        icon = Icons.Outlined.LibraryMusic,
+                        title = "Couldn't load your library",
+                        text = uiState.error.orEmpty(),
+                        action = "Try again",
+                        onAction = { libraryViewModel.refresh() }
+                    )
+                    !showsTracks -> ArtistList(
+                        artists = uiState.artists,
+                        onOpenArtist = onOpenArtist,
+                        bottomPadding = bottomPadding
+                    )
+                    uiState.tracks.isEmpty() -> LibraryMessage(
+                        icon = if (uiState.searchQuery.isNotEmpty()) Icons.Outlined.SearchOff else Icons.Outlined.FavoriteBorder,
+                        title = when {
+                            uiState.searchQuery.isNotEmpty() -> "No tracks found"
+                            uiState.view == LibraryView.LIKED -> "No liked songs yet"
+                            uiState.view == LibraryView.HISTORY -> "Nothing played yet"
+                            else -> "This playlist is empty"
+                        },
+                        text = if (uiState.searchQuery.isNotEmpty()) "Try a different search term"
+                        else "Songs you like on YouTube Music show up here"
+                    )
+                    else -> LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = 20.dp,
+                            top = 8.dp,
+                            end = 20.dp,
+                            bottom = 100.dp + bottomPadding
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        itemsIndexed(
+                            items = uiState.tracks,
+                            key = { index, track -> "${track.uuid}_$index" }
+                        ) { index, track ->
+                            // Next page when the end of the loaded songs comes into view.
+                            if (index >= uiState.tracks.size - 5 && uiState.hasMore) {
+                                LaunchedEffect(uiState.tracks.size) { libraryViewModel.loadMore() }
+                            }
+                            SwipeToAddNextContainer(
+                                onAddNext = { musicViewModel.addNext(track) }
+                            ) {
+                                LibraryTrackItem(
+                                    track = track,
+                                    isSelectionMode = uiState.isSelectionMode,
+                                    isSelected = uiState.selectedTrackUuids.contains(track.uuid),
+                                    onPlay = {
+                                        if (uiState.isSelectionMode) {
+                                            performHapticFeedback()
+                                            libraryViewModel.toggleTrackSelection(track.uuid)
+                                        } else {
+                                            musicViewModel.setQueue(uiState.tracks, index)
+                                        }
+                                    },
+                                    onLongClick = {
                                         performHapticFeedback()
                                         libraryViewModel.toggleTrackSelection(track.uuid)
-                                    } else {
-                                        musicViewModel.setQueue(
-                                            uiState.tracks,
-                                            uiState.tracks.indexOf(track)
-                                        )
-                                    }
-                                },
-                                onLongClick = {
-                                    performHapticFeedback()
-                                    libraryViewModel.toggleTrackSelection(track.uuid)
-                                },
-                                onToggleFavorite = {
-                                    libraryViewModel.toggleFavorite(track.uuid)
-                                },
-                                trailingIcon = if (uiState.selectedPlaylist != null) Icons.Default.RemoveCircle else Icons.Default.AddCircle,
-                                onTrailingIconClick = {
-                                    if (uiState.selectedPlaylist != null) {
-                                        // Direct remove if in playlist view
-                                        coroutineScope.launch {
-                                            libraryViewModel.removeFromPlaylist(
-                                                uiState.selectedPlaylist!!,
-                                                track
-                                            )
-                                        }
-                                    } else {
-                                        // Open dialog if in All Tracks / Favorites
-                                        tracksForPlaylistDialog = listOf(track)
-                                    }
-                                }
-                            )
+                                    },
+                                    onToggleFavorite = { libraryViewModel.toggleFavorite(track) },
+                                    trailingIcon = Icons.Default.AddCircle,
+                                    onTrailingIconClick = { tracksForPlaylistDialog = listOf(track) }
+                                )
+                            }
+                        }
+                        if (uiState.isLoadingMore) {
+                            item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp)) }
                         }
                     }
                 }
@@ -832,75 +524,62 @@ fun LibraryScreen(
         }
     }
 
-
     if (showCreatePlaylistDialog) {
         CreatePlaylistDialog(
             onDismiss = { showCreatePlaylistDialog = false },
             onCreate = { name ->
-                libraryViewModel.createPlaylist(name)
+                libraryViewModel.createPlaylist(name, thenAdd = tracksForPlaylistDialog.orEmpty())
+                tracksForPlaylistDialog = null
                 showCreatePlaylistDialog = false
             }
         )
     }
 
-    if (showEditPlaylistDialog && uiState.selectedPlaylist != null) {
-        val playlist = uiState.selectedPlaylist!!
-        EditPlaylistDialog(
-            initialName = playlist.name,
-            initialThumbnailUri = playlist.thumbnailUri,
-            onDismiss = { showEditPlaylistDialog = false },
-            onConfirm = { newName, newUri ->
-                libraryViewModel.updatePlaylist(playlist, newName, newUri)
-                showEditPlaylistDialog = false
+    playlistToRename?.let { playlist ->
+        var newName by remember(playlist.id) { mutableStateOf(playlist.title) }
+        GlassAlertDialog(
+            onDismissRequest = { playlistToRename = null },
+            title = { Text("Rename Playlist") },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newName.isNotBlank()) {
+                            libraryViewModel.renamePlaylist(playlist, newName)
+                            playlistToRename = null
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToRename = null }) {
+                    Text("Cancel")
+                }
             }
         )
     }
 
-    tracksForPlaylistDialog?.let { tracks ->
+    tracksForPlaylistDialog?.takeIf { !showCreatePlaylistDialog }?.let { tracks ->
         AddToPlaylistDialog(
-            playlists = uiState.playlists,
+            playlists = editablePlaylists,
             tracks = tracks,
-            trackPlaylists = trackPlaylists,
-            onDismiss = {
-                tracksForPlaylistDialog = null
-                trackPlaylists = emptyList()
-            },
+            onDismiss = { tracksForPlaylistDialog = null },
             onAddToPlaylist = { playlist ->
                 coroutineScope.launch {
                     libraryViewModel.addTracksToPlaylist(playlist, tracks)
-                    // Refresh list logic would need to handle multiple tracks or just clear
                     tracksForPlaylistDialog = null
                 }
             },
-            onRemoveFromPlaylist = { playlist ->
-                coroutineScope.launch {
-                    // Logic for remove from playlist with list?
-                    // AddToPlaylistDialog hides remove if multiple.
-                    if (tracks.size == 1) {
-                        libraryViewModel.removeFromPlaylist(playlist, tracks.first())
-                        trackPlaylists = libraryViewModel.getPlaylistsForTrack(tracks.first().uuid)
-                    }
-                }
-            },
-            onCreatePlaylist = { showCreatePlaylistDialog = true },
-            onRemoveFromCurrentPlaylist = if (uiState.selectedPlaylist != null) {
-                { playlist ->
-                    if (playlist.id == uiState.selectedPlaylist?.id) {
-                        coroutineScope.launch {
-                            // Handle removal
-                            if (tracks.size == 1) {
-                                libraryViewModel.removeFromPlaylist(playlist, tracks.first())
-                            }
-                            // For multiple, simple remove loop?
-                            // LibraryViewModel.removeFromPlaylist is single.
-                            // Add batch remove if needed, but not critical for this specific callback context which usually is invoked by clicking 'Remove' on list item.
-                            // Dialog logic hides 'Remove' for multiple so this might be unreachable for >1.
-                            tracksForPlaylistDialog = null
-                        }
-                    }
-                }
-            } else null,
-            currentPlaylist = uiState.selectedPlaylist
+            onCreatePlaylist = { showCreatePlaylistDialog = true }
         )
     }
 
@@ -912,91 +591,106 @@ fun LibraryScreen(
             onDismissRequest = { libraryViewModel.toggleSortSheet() }
         )
     }
+}
 
-
-    // Undo Delete Popup
-    uiState.pendingDeleteTrack?.let { track ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 16.dp + bottomPadding),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            val progress = remember { androidx.compose.animation.core.Animatable(1f) }
-
-            LaunchedEffect(track) {
-                progress.snapTo(1f)
-                progress.animateTo(
-                    targetValue = 0f,
-                    animationSpec = androidx.compose.animation.core.tween(
-                        durationMillis = 5000,
-                        easing = androidx.compose.animation.core.LinearEasing
-                    )
+@Composable
+private fun ArtistList(
+    artists: List<BrowseItem>,
+    onOpenArtist: (BrowseItem) -> Unit,
+    bottomPadding: Dp
+) {
+    if (artists.isEmpty()) {
+        LibraryMessage(
+            icon = Icons.Default.Person,
+            title = "No artists yet",
+            text = "Artists you subscribe to on YouTube Music show up here"
+        )
+        return
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 100.dp + bottomPadding)
+    ) {
+        items(artists, key = { it.id }) { artist ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenArtist(artist) }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AsyncImage(
+                    model = artist.image,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    artist.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 72.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            )
+        }
+    }
+}
 
-            GlassCard(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .padding(
-                            horizontal = 12.dp,
-                            vertical = 8.dp
-                        ) // Reduced padding for compactness
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        // Circular Countdown
-                        Box(contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(
-                                progress = { progress.value },
-                                modifier = Modifier.size(28.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                                strokeWidth = 3.dp,
-                            )
-                            Text(
-                                text = kotlin.math.ceil(progress.value * 5).toInt().coerceAtLeast(1)
-                                    .toString(),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        Text(
-                            text = "Deleted \"${track.title}\"",
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    TextButton(
-                        onClick = { libraryViewModel.undoDelete() },
-                        // Reducing visual weight of button to emphasize the countdown/content
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Text("Undo")
-                    }
+@Composable
+private fun LibraryMessage(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    text: String,
+    action: String? = null,
+    onAction: () -> Unit = {}
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = title,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = text,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (action != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    GlassButton(onClick = onAction) { Text(action) }
                 }
             }
         }
     }
 }
-
-private data class LibraryDownloadBannerState(
-    val currentDownload: DownloadItem?,
-    val downloadQueue: List<DownloadItem>
-)
 
 @Composable
 private fun LibraryPlaybackActions(
@@ -1082,11 +776,9 @@ private fun SortBottomSheet(
             )
 
             val sortOptions = listOf(
+                SortOption.DEFAULT to "Default order",
                 SortOption.TITLE to "Title",
-                SortOption.RECENTLY_ADDED to "Recently Added",
-                SortOption.ARTIST to "Artist",
-                SortOption.LAST_PLAYED to "Last Played",
-                SortOption.MOST_PLAYED to "Most Played"
+                SortOption.ARTIST to "Artist"
             )
 
             sortOptions.forEach { (option, label) ->
@@ -1118,93 +810,5 @@ private fun SortBottomSheet(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun PlaylistHeader(
-    importStatus: com.example.juke.services.ImportStatus?,
-    playlist: com.example.juke.database.PlaylistEntity,
-    onEditClick: () -> Unit
-) {
-    Column {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            GlassCard(
-                modifier = Modifier.size(96.dp)) {
-                AsyncImage(
-                    model = playlist.thumbnailUri,
-                    contentDescription = playlist.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-
-                Text(
-                    text = playlist.name,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                // Edit Button
-                GlassButton(
-                    onClick = onEditClick,
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit Playlist",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Edit", style = MaterialTheme.typography.labelMedium)
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "${playlist.trackCount} tracks",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-    if (importStatus != null) {
-        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            Text(
-                if (importStatus.waitingForNetwork) "Importing ${importStatus.done}/${importStatus.total} · waiting for network…"
-                else "Importing ${importStatus.done}/${importStatus.total}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { if (importStatus.total > 0) importStatus.done.toFloat() / importStatus.total else 0f },
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-            )
-        }
-    }
     }
 }

@@ -9,7 +9,7 @@ import androidx.core.content.edit
  *
  * When an artist is blacklisted, every recommendation whose artist field
  * (or title) contains the blacklisted name will be aggressively filtered out
- * before it even reaches Spotify validation.
+ * before it reaches playback.
  *
  * Storage: SharedPreferences (`artist_blacklist_prefs`), key = `blacklisted_artists`.
  * All names are stored **lowercased** for case-insensitive matching.

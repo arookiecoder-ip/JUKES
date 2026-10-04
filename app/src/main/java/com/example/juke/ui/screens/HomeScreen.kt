@@ -93,7 +93,7 @@ import com.example.juke.ui.theme.glassPane
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.HomeViewModel
 import com.example.juke.viewmodels.MusicViewModel
-import com.example.juke.viewmodels.MusicSource
+import com.example.juke.network.BrowseItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -104,28 +104,18 @@ fun HomeScreen(
     musicViewModel: MusicViewModel,
     homeViewModel: HomeViewModel = viewModel(),
     onSettingsClick: () -> Unit = {},
-    onSeeAllClick: () -> Unit = {},
+    onOpenItem: (BrowseItem) -> Unit = {},
     onSearchClick: () -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
-    val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
-    val backendShelves by homeViewModel.backendShelves.collectAsStateWithLifecycle()
-    val backendLoading by homeViewModel.backendLoading.collectAsStateWithLifecycle()
-    val backendError by homeViewModel.backendError.collectAsStateWithLifecycle()
-    val isAlexaMode = musicSource == MusicSource.ALEXA
-
-    LaunchedEffect(musicSource) {
-        if (isAlexaMode) homeViewModel.fetchBackendHome()
-        else homeViewModel.clearBackendHome()
-    }
 
     LaunchedEffect(Unit) {
         homeViewModel.loadHomeData()
     }
 
-    if (uiState.isLoading) {
+    if (uiState.isLoading && uiState.shelves.isEmpty()) {
         HomeSkeleton(bottomPadding = bottomPadding)
         return
     }
@@ -143,80 +133,44 @@ fun HomeScreen(
         // Scrollable content with pull-to-refresh
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
-            onRefresh = {
-                homeViewModel.refresh()
-                if (isAlexaMode) homeViewModel.fetchBackendHome(refresh = true)
-            },
+            onRefresh = { homeViewModel.refresh() },
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
         ) {
-            if (uiState.recentlyPlayed.isEmpty() && uiState.mostPlayed.isEmpty() && uiState.favorites.isEmpty() && !isAlexaMode) {
+            if (uiState.shelves.isEmpty()) {
                 EmptyHomeState(
+                    message = uiState.error ?: "No recommendations yet. Pull down to try again.",
+                    onRetry = { homeViewModel.refresh() },
                     onSearchClick = onSearchClick,
                     modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
                 )
             } else {
+                // The first song shelf leads as the hero carousel, as Recently Played did.
+                val heroIndex = uiState.shelves.indexOfFirst { it.tracks.size == it.items.size && it.tracks.size > 1 }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 24.dp + bottomPadding)
                 ) {
-                    if (uiState.recentlyPlayed.isNotEmpty()) {
-                        item {
-                            RecentlyPlayedSection(
-                                tracks = uiState.recentlyPlayed,
-                                onTrackClick = { index ->
-                                    musicViewModel.setQueue(uiState.recentlyPlayed, index)
-                                },
-                                onSeeAllClick = onSeeAllClick
-                            )
-                        }
-                    }
-
-                    if (uiState.mostPlayed.isNotEmpty()) {
-                        item {
-                            HorizontalTrackSection(
-                                title = "Most Played",
-                                tracks = uiState.mostPlayed,
-                                onSeeAllClick = onSeeAllClick,
-                                onTrackClick = { index ->
-                                    musicViewModel.setQueue(uiState.mostPlayed, index)
-                                }
-                            )
-                        }
-                    }
-
-                    if (uiState.favorites.isNotEmpty()) {
-                        item {
-                            FavoritesSection(
-                                tracks = uiState.favorites,
-                                onSeeAllClick = onSeeAllClick,
-                                onTrackClick = { index ->
-                                    musicViewModel.setQueue(uiState.favorites, index)
-                                }
-                            )
-                        }
-                    }
-                    if (isAlexaMode) {
-                        if (backendLoading || backendError != null || backendShelves.isEmpty()) {
-                            item {
-                                Text(
-                                    text = if (backendLoading) "Loading Alexa recommendations…"
-                                        else backendError ?: "No Alexa recommendations yet. Pull to refresh to retry.",
-                                    modifier = Modifier.padding(24.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        backendShelves.forEach { shelf ->
-                            item {
-                                HorizontalTrackSection(
+                    uiState.shelves.forEachIndexed { index, shelf ->
+                        item(key = "shelf_${index}_${shelf.id}") {
+                            when {
+                                index == heroIndex -> RecentlyPlayedSection(
                                     title = shelf.title,
                                     tracks = shelf.tracks,
-                                    onSeeAllClick = null,
-                                    onTrackClick = { index ->
-                                        musicViewModel.playAlexaShelf(shelf.tracks, index)
-                                    }
+                                    onTrackClick = { trackIndex -> musicViewModel.setQueue(shelf.tracks, trackIndex) }
+                                )
+                                shelf.items.all { it.kind == "artist" } -> ArtistShelf(
+                                    title = shelf.title,
+                                    artists = shelf.items,
+                                    onClick = onOpenItem
+                                )
+                                else -> BrowseShelfRow(
+                                    title = shelf.title,
+                                    items = shelf.items,
+                                    tracks = shelf.tracks,
+                                    onTrackClick = { trackIndex -> musicViewModel.setQueue(shelf.tracks, trackIndex) },
+                                    onOpen = onOpenItem
                                 )
                             }
                         }
@@ -259,9 +213,9 @@ private fun HomeHeader(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentlyPlayedSection(
+    title: String,
     tracks: List<Track>,
-    onTrackClick: (Int) -> Unit,
-    onSeeAllClick: () -> Unit
+    onTrackClick: (Int) -> Unit
 ) {
     val context = LocalContext.current
     val haptic = rememberJukeHaptics()
@@ -324,11 +278,11 @@ private fun RecentlyPlayedSection(
     }
 
     Column {
-        SectionHeader(title = "Recently Played", onActionClick = onSeeAllClick)
+        SectionHeader(title = title)
 
         HorizontalPager(
             modifier = Modifier.semantics {
-                contentDescription = "Recently played tracks carousel"
+                contentDescription = "$title carousel"
                 stateDescription = "Track ${pagerState.currentPage + 1} of ${tracks.size}"
             },
             state = pagerState,
@@ -360,7 +314,7 @@ private fun RecentlyPlayedSection(
                             )
                         }
                     },
-                    contentDescription = "Previous recently played track"
+                    contentDescription = "Previous track"
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                 }
@@ -407,7 +361,7 @@ private fun RecentlyPlayedSection(
                             )
                         }
                     },
-                    contentDescription = "Next recently played track"
+                    contentDescription = "Next track"
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                 }
@@ -418,21 +372,29 @@ private fun RecentlyPlayedSection(
     }
 }
 
+/** A shelf of songs, albums, playlists and stations. Songs play the shelf; the rest open. */
 @Composable
-private fun HorizontalTrackSection(
+private fun BrowseShelfRow(
     title: String,
+    items: List<BrowseItem>,
     tracks: List<Track>,
-    onSeeAllClick: (() -> Unit)? = null,
-    onTrackClick: (Int) -> Unit
+    onTrackClick: (Int) -> Unit,
+    onOpen: (BrowseItem) -> Unit
 ) {
     Column {
-        SectionHeader(title = title, onActionClick = onSeeAllClick)
+        SectionHeader(title = title)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            itemsIndexed(tracks) { index, track ->
-                MusicCard(track = track, onClick = { onTrackClick(index) })
+            itemsIndexed(items) { _, item ->
+                if (item.kind == "track") {
+                    val trackIndex = tracks.indexOfFirst { it.ytVideoId == item.videoId }
+                    val track = tracks.getOrNull(trackIndex) ?: return@itemsIndexed
+                    MusicCard(track = track, onClick = { onTrackClick(trackIndex) })
+                } else {
+                    CollectionCard(item = item, onClick = { onOpen(item) })
+                }
             }
         }
         Spacer(modifier = Modifier.height(28.dp))
@@ -440,19 +402,19 @@ private fun HorizontalTrackSection(
 }
 
 @Composable
-private fun FavoritesSection(
-    tracks: List<Track>,
-    onSeeAllClick: () -> Unit,
-    onTrackClick: (Int) -> Unit
+private fun ArtistShelf(
+    title: String,
+    artists: List<BrowseItem>,
+    onClick: (BrowseItem) -> Unit
 ) {
     Column {
-        SectionHeader(title = "Favorites", onActionClick = onSeeAllClick)
+        SectionHeader(title = title)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            itemsIndexed(tracks) { index, track ->
-                FavoriteCard(track = track, onClick = { onTrackClick(index) })
+            itemsIndexed(artists) { _, artist ->
+                ArtistCircle(artist = artist, onClick = { onClick(artist) })
             }
         }
         Spacer(modifier = Modifier.height(28.dp))
@@ -618,9 +580,10 @@ private fun MusicCard(
     }
 }
 
+/** Album, playlist or station card, in the same glass tile as songs. */
 @Composable
-private fun FavoriteCard(
-    track: Track,
+private fun CollectionCard(
+    item: BrowseItem,
     onClick: () -> Unit
 ) {
     val haptic = rememberJukeHaptics()
@@ -629,7 +592,84 @@ private fun FavoriteCard(
     val cardScale by animateFloatAsState(
         targetValue = if (isPressed) 0.97f else 1f,
         animationSpec = tween(durationMillis = 140),
-        label = "favoriteCardScale"
+        label = "collectionCardScale"
+    )
+
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+            }
+            .semantics(mergeDescendants = true) {
+                contentDescription = "${item.title}, ${item.kind}"
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClickLabel = "Open ${item.title}"
+            ) {
+                haptic.click()
+                onClick()
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .glassPane(GlassShapes.Card, GlassLevel.Regular),
+            contentAlignment = Alignment.Center
+        ) {
+            if (item.image.isNotBlank()) {
+                AsyncImage(
+                    model = item.image,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (item.subtitle.isNotBlank()) {
+            Text(
+                text = item.subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistCircle(
+    artist: BrowseItem,
+    onClick: () -> Unit
+) {
+    val haptic = rememberJukeHaptics()
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = tween(durationMillis = 140),
+        label = "artistCircleScale"
     )
 
     Column(
@@ -640,14 +680,13 @@ private fun FavoriteCard(
                 scaleY = cardScale
             }
             .semantics(mergeDescendants = true) {
-                contentDescription = "${track.title} by ${track.artist}"
-                stateDescription = "Favorite track"
+                contentDescription = "Artist ${artist.title}"
             }
             .clip(RoundedCornerShape(12.dp))
             .clickable(
                 interactionSource = interactionSource,
                 role = Role.Button,
-                onClickLabel = "Play ${track.title}"
+                onClickLabel = "Open ${artist.title}"
             ) {
                 haptic.click()
                 onClick()
@@ -661,11 +700,11 @@ private fun FavoriteCard(
                 .glassPane(CircleShape, GlassLevel.Regular),
             contentAlignment = Alignment.Center
         ) {
-            if (track.thumbnailUri != null) {
+            if (artist.image.isNotBlank()) {
                 AsyncImage(
-                    model = track.thumbnailUri,
+                    model = artist.image,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
             } else {
@@ -676,31 +715,12 @@ private fun FavoriteCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.3f)),
-                            radius = 150f
-                        )
-                    )
-            )
-
-            Icon(
-                Icons.Filled.Favorite,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(24.dp),
-                tint = MaterialTheme.colorScheme.secondary
-            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = track.title,
+            text = artist.title,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -714,6 +734,8 @@ private fun FavoriteCard(
 
 @Composable
 private fun EmptyHomeState(
+    message: String,
+    onRetry: () -> Unit,
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -749,14 +771,15 @@ private fun EmptyHomeState(
             )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                "Your library is empty.\nSearch and download your favorite music to get started.",
+                message,
                 style = if (isShort) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 24.sp
             )
             Spacer(modifier = Modifier.height(if (isShort) 12.dp else 24.dp))
-            GlassPillButton(text = "Find music", onClick = onSearchClick)
+            GlassPillButton(text = "Try again", onClick = onRetry)
+            TextButton(onClick = onSearchClick) { Text("Search music") }
         }
     }
 }
