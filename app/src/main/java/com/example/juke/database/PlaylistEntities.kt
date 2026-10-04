@@ -14,6 +14,7 @@ import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -114,7 +115,9 @@ data class PlaylistWithTracks(
 @Dao
 interface PlaylistDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, not REPLACE: REPLACE deletes the old row first, which cascades and wipes the
+    // playlist's tracks (re-importing a playlist emptied it).
+    @Upsert
     suspend fun insertPlaylist(playlist: PlaylistEntity)
 
     @Update

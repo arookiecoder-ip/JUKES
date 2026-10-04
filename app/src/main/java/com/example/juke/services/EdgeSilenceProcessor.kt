@@ -23,7 +23,8 @@ class EdgeSilenceProcessor : BaseAudioProcessor() {
     @Volatile var enabled = false
 
     private var leading = true
-    private val held = ByteArrayOutputStream()
+    private val held = HeldBytes()
+    private var input = ByteArray(0)
     private var heldFrames = 0L
     private var bytesPerFrame = 4
     private var sampleRate = 44100
@@ -59,49 +60,64 @@ class EdgeSilenceProcessor : BaseAudioProcessor() {
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
+        // Copy first: BaseAudioProcessor reuses its output buffer, which can be the very buffer
+        // we were handed, and ByteBuffer.put(self) throws. The scratch array is reused, so the
+        // audio thread doesn't allocate (and wake the GC) on every buffer.
+        val size = inputBuffer.remaining()
+        if (input.size < size) input = ByteArray(size)
+        inputBuffer.get(input, 0, size)
+        // Output never exceeds what is held plus this buffer.
+        val out = replaceOutputBuffer(held.size() + size)
         if (!enabled) {
-            // Copy first: BaseAudioProcessor reuses its output buffer, which can be the very buffer
-            // we were handed, and ByteBuffer.put(self) throws.
-            val input = ByteArray(inputBuffer.remaining()).also { inputBuffer.get(it) }
-            val out = replaceOutputBuffer(held.size() + input.size)
-            if (held.size() > 0) { out.put(held.toByteArray()); held.reset(); heldFrames = 0 }
-            out.put(input)
+            if (held.size() > 0) releaseHeld(out)
+            out.put(input, 0, size)
             out.flip()
             return
         }
-        val chunkFrames = sampleRate / 100 // 10 ms
-        val chunkBytes = chunkFrames * bytesPerFrame
-        val result = ByteArrayOutputStream()
-        val chunk = ByteArray(chunkBytes)
-        while (inputBuffer.remaining() > 0) {
-            val n = minOf(chunkBytes, inputBuffer.remaining())
-            inputBuffer.get(chunk, 0, n)
+        val chunkBytes = (sampleRate / 100) * bytesPerFrame // 10 ms
+        var offset = 0
+        while (offset < size) {
+            val n = minOf(chunkBytes, size - offset)
             val frames = n / bytesPerFrame
-            if (isSilent(chunk, n)) {
+            if (isSilent(input, offset, n)) {
                 if (leading) {
                     skippedFrames += frames
                 } else {
-                    held.write(chunk, 0, n)
+                    held.write(input, offset, n)
                     heldFrames += frames
-                    if (heldFrames > sampleRate * 20L) { // very long gap: it is mid-song, release it
-                        result.write(held.toByteArray()); held.reset(); heldFrames = 0
-                    }
+                    if (heldFrames > sampleRate * 20L) releaseHeld(out) // very long gap: it is mid-song
                 }
             } else {
                 leading = false
-                if (held.size() > 0) { result.write(held.toByteArray()); held.reset(); heldFrames = 0 }
-                result.write(chunk, 0, n)
+                if (held.size() > 0) releaseHeld(out)
+                out.put(input, offset, n)
             }
+            offset += n
         }
-        val out = replaceOutputBuffer(result.size())
-        out.put(result.toByteArray())
         out.flip()
     }
 
-    private fun isSilent(bytes: ByteArray, n: Int): Boolean {
-        val bb = ByteBuffer.wrap(bytes, 0, n).order(java.nio.ByteOrder.nativeOrder())
-        while (bb.remaining() >= 2) if (abs(bb.short.toInt()) > THRESHOLD) return false
+    private fun releaseHeld(out: ByteBuffer) {
+        held.writeTo(out)
+        held.reset()
+        heldFrames = 0
+    }
+
+    /** 16-bit little-endian PCM (Android's native order), read straight from the array. */
+    private fun isSilent(bytes: ByteArray, from: Int, n: Int): Boolean {
+        var i = from
+        val end = from + n - 1
+        while (i < end) {
+            val sample = (bytes[i].toInt() and 0xFF) or (bytes[i + 1].toInt() shl 8)
+            if (abs(sample.toShort().toInt()) > THRESHOLD) return false
+            i += 2
+        }
         return true
+    }
+
+    /** ByteArrayOutputStream that drains into a ByteBuffer without the toByteArray() copy. */
+    private class HeldBytes : ByteArrayOutputStream() {
+        fun writeTo(out: ByteBuffer) { out.put(buf, 0, count) }
     }
 
     private companion object {
