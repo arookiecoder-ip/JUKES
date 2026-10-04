@@ -440,7 +440,15 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                CompositionLocalProvider(LocalHazeState provides hazeState) {
+                val mediaMenu = remember { com.example.juke.ui.components.MediaMenuController() }
+                CompositionLocalProvider(LocalHazeState provides hazeState, com.example.juke.ui.components.LocalMediaMenu provides mediaMenu) {
+                com.example.juke.ui.components.MediaActionMenuHost(mediaMenu, musicViewModel, libraryViewModel, onOpen = { item ->
+                    when (item.kind) {
+                        "artist" -> { searchViewModel.loadArtistDetails(item); navController.navigate("artist/${item.id}") }
+                        "album" -> { activityViewModelProvider[AlbumDetailViewModel::class.java].loadAlbumDetails(item); navController.navigate("album/${item.id}") }
+                        "playlist" -> { activityViewModelProvider[PlaylistDetailViewModel::class.java].loadPlaylistDetails(item); navController.navigate("playlist/${item.id}") }
+                    }
+                })
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
@@ -553,6 +561,7 @@ class MainActivity : ComponentActivity() {
                             composable("settings") {
                                 SettingsScreen(
                                     account = account,
+                                    music = musicViewModel,
                                     onNavigateBack = { navController.popBackStack() },
                                     onNavigateToPowerTools = { navController.navigate("settings/power") },
                                     bottomPadding = bottomPadding
@@ -564,10 +573,15 @@ class MainActivity : ComponentActivity() {
                                     bottomPadding = bottomPadding
                                 )
                             }
-                            composable("artist/{artistId}") {
+                            composable("artist/{artistId}") { entry ->
+                                val artistId = entry.arguments?.getString("artistId").orEmpty()
+                                LaunchedEffect(artistId) {
+                                    if (searchViewModel.artistDetailState.value.artist?.id != artistId) searchViewModel.loadArtistDetailsById(artistId)
+                                }
                                 val searchViewModel =
                                     activityViewModelProvider[SearchViewModel::class.java]
                                 ArtistDetailScreen(
+                                    onNavigateToArtist = { artist -> searchViewModel.loadArtistDetails(artist); navController.navigate("artist/${artist.id}") },
                                     searchViewModel = searchViewModel,
                                     musicViewModel = musicViewModel,
                                     onNavigateBack = {
@@ -617,6 +631,7 @@ class MainActivity : ComponentActivity() {
 
                 // Player Modal
                 if (showPlayerModal) {
+                    CompositionLocalProvider(com.example.juke.ui.components.LocalMediaMenu provides mediaMenu) {
                     PlayerScreen(
                         musicViewModel = musicViewModel,
                         onDismiss = { showPlayerModal = false },
@@ -633,6 +648,7 @@ class MainActivity : ComponentActivity() {
                             navController.navigate("album/$albumId")
                         }
                     )
+                    }
                 }
                 }
             }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -82,6 +83,7 @@ fun QueueBottomSheetContent(
     onSaveAsPlaylist: () -> Unit = {}
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = com.example.juke.ui.components.LocalMediaMenu.current
 
     Column(
         modifier = Modifier
@@ -155,6 +157,7 @@ fun QueueBottomSheetContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .combinedClickable(onClick = {}, onLongClick = { menu?.show(currentTrack) }, onLongClickLabel = "Song options")
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -329,10 +332,7 @@ fun QueueBottomSheetContent(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(12.dp)
-                                    .clickable {
-                                        haptic.click()
-                                        onPlayTrack(track)
-                                    },
+                                    .combinedClickable(onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options", onClick = { haptic.click(); onPlayTrack(track) }),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
