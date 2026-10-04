@@ -97,7 +97,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
         state.notice?.takeIf(String::isNotBlank)?.let { Text(it, Modifier.clickable { remote.dismiss() }.padding(8.dp)) }
         Box(Modifier.weight(1f)) {
             when(tab) {
-                "Player" -> RemotePlayer(state, remote, onPhoneMusic)
+                "Player" -> RemotePlayer(state, remote, onPhoneMusic) { menuItem = it }
                 "Queue" -> RemoteQueue(state, remote) { menuItem = it }
                 "Accounts" -> RemoteAccounts(state, remote, server)
                 "Jam" -> RemoteJam(state, remote, server)
@@ -134,6 +134,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
                         }
                     }
                     state.destination.entity?.let { entity ->
+                        RemoteCollectionHeader(entity, state.page)
                         Row(Modifier.horizontalScroll(rememberScrollState())) {
                             TextButton(onClick = {
                                 if(entity.playlistId.isNotBlank()) remote.play(entity)
@@ -177,7 +178,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
     menuItem?.let { item ->
         AlertDialog(onDismissRequest = { menuItem = null }, title = { Text(item.title) }, text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                TextButton(onClick = { remote.play(item); menuItem = null }) { Text("Play on Echo") }
+                TextButton(onClick = { if(item.videoId.isNotBlank() || item.playlistId.isNotBlank()) remote.play(item) else remote.open(item); menuItem = null }) { Text(if(item.kind in listOf("artist", "mood")) "Open" else "Play on Echo") }
                 if(item.videoId.isNotBlank() && !state.guest) {
                     TextButton(onClick = { remote.play(item, radio = true); menuItem = null }) { Text("Start radio") }
                     TextButton(onClick = { remote.like(item, !state.liked.contains(item.videoId)); menuItem = null }) { Text(if(state.liked.contains(item.videoId)) "Unlike" else "Like") }
@@ -229,13 +230,31 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
     }
 }
 
+@Composable private fun RemoteCollectionHeader(entity: RemoteItem, page: RemotePage?) {
+    val raw = page?.raw ?: entity.raw
+    val artist = raw["artist"].objectOrEmpty()
+    val description = raw.text("description").ifBlank { artist.text("description") }
+    Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        AsyncImage(entity.image.ifBlank { remoteImage(raw["thumbnails"]).ifBlank { remoteImage(artist["thumbnails"]) } }, contentDescription = null, modifier = Modifier.size(84.dp))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(entity.title, style = MaterialTheme.typography.titleLarge)
+            Text(entity.subtitle, style = MaterialTheme.typography.bodySmall)
+            Text(listOf(raw.text("year"), raw.text("trackCount").takeIf(String::isNotBlank)?.let { "$it songs" }.orEmpty(), artist.text("subscribers")).filter(String::isNotBlank).joinToString(" · "), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+    if(description.isNotBlank()) {
+        var expanded by remember(entity.id) { mutableStateOf(false) }
+        Text(description, maxLines = if(expanded) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, modifier = Modifier.clickable { expanded = !expanded }.padding(bottom = 8.dp))
+    }
+}
+
 @Composable private fun RemoteNameDialog(title: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var name by remember(initial) { mutableStateOf(initial) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }) },
         confirmButton = { TextButton(onClick = { onSave(name.trim()) }, enabled = name.isNotBlank()) { Text("Save") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
-@Composable private fun RemotePlayer(state: AlexaRemoteState, remote: AlexaRemoteViewModel, onPhone: () -> Unit) {
+@Composable private fun RemotePlayer(state: AlexaRemoteState, remote: AlexaRemoteViewModel, onPhone: () -> Unit, onMenu: (RemoteItem) -> Unit) {
     val np = state.nowPlaying
     val duration = np.number("duration_ms").coerceAtLeast(1)
     var position by remember(np.number("position_ms")) { mutableStateOf(np.number("position_ms").toFloat()) }
@@ -244,7 +263,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
         item { Text("Echo device", style = MaterialTheme.typography.titleMedium) }
         itemsIndexed(state.devices) { _, device -> FilterChip(state.serial == device.text("serial"), onClick = { remote.selectDevice(device.text("serial")) }, label = { Text(device.text("name", "accountName").ifBlank { device.text("serial") }) }) }
         item { TextButton(onClick = remote::refreshDevices) { Text("Refresh devices") } }
-        if(state.devices.isEmpty()) item { Text("Connect Amazon in Accounts to discover Echo devices.") }
+        if(state.devices.isEmpty()) item { Text(if(state.guest) "Playback uses the host’s Echo." else "Connect Amazon in Accounts to discover Echo devices.") }
         item { AsyncImage(np.text("thumbnail"), contentDescription = null, modifier = Modifier.fillMaxWidth().height(240.dp)) }
         item { Text(np.text("title").ifBlank { "Nothing playing" }, style = MaterialTheme.typography.headlineSmall); Text(np.text("artist")) }
         np["playback_error"].objectOrEmpty().text("message").takeIf(String::isNotBlank)?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
@@ -258,6 +277,7 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
             }
         }
         item { Text("Volume ${volume.toInt()}%"); Slider(volume.coerceIn(0f,100f), { volume = it }, valueRange = 0f..100f, onValueChangeFinished = { remote.command("volume", volume.toLong()) }, enabled = state.serial.isNotBlank()) }
+        if(np.text("video_id").isNotBlank()) item { TextButton(onClick = { onMenu(AlexaRemoteParser.item(np)) }) { Text("Song options") } }
         item { TextButton(onClick = onPhone) { Text("Switch to phone playback") } }
     }
 }

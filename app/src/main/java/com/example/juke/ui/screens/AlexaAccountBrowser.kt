@@ -25,7 +25,10 @@ fun AlexaAccountBrowser(server: String, url: String, cookies: List<String>, onCl
         listOf(server, "$server/youtube-login/").forEach { scope ->
             manager.getCookie(scope).orEmpty().split(";").forEach { part ->
                 val name = part.trim().substringBefore('=')
-                if(name.isNotBlank()) manager.setCookie(scope, "$name=; Max-Age=0; Path=/; Secure")
+                if(name.isNotBlank()) {
+                    manager.setCookie(scope, "$name=; Max-Age=0; Path=/; Secure")
+                    manager.setCookie(scope, "$name=; Max-Age=0; Path=/youtube-login/; Secure")
+                }
             }
         }
     }
@@ -58,7 +61,9 @@ fun AlexaAccountBrowser(server: String, url: String, cookies: List<String>, onCl
                                 if (!AlexaRemotePolicy.trusted(server, target)) return true
                                 // Account proxy/noVNC paths may navigate; core music routes cannot open here.
                                 val path = request.url.path.orEmpty()
-                                return path == "/remote/" || path in listOf("/home", "/library", "/search", "/explore")
+                                val allowed = path.startsWith("/alexa/proxy/") || path.startsWith("/youtube-login/") || path.startsWith("/login/")
+                                if(!allowed && request.isForMainFrame) close()
+                                return !allowed
                             }
                         }
                         loadUrl(url)

@@ -278,6 +278,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         val playing = _uiState.value.isPlaying
                         val position = playbackManager.getCurrentPosition()
                         val window = withContext(Dispatchers.IO) {
+                            if (settingsPrefs.getString("music_source", "SPOTIFY") == "ALEXA" &&
+                                settingsPrefs.getBoolean("alexa_remote_enabled", true)) return@withContext null
                             AlexaBackendApi.updateQueue("current", requireNotNull(current.ytVideoId), emptyList(),
                                 playing = playing, positionMs = position)
                             queueManager.refreshAlexaQueue(current)
