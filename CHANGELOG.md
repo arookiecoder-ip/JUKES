@@ -2,6 +2,19 @@
 
 ## Changelog
 
+## [2.3.5-beta] - 2026-10-04
+
+### Added
+
+- Power Tools (locked until the version line is tapped 7 times): preferred audio source, repeat threshold, mini-player gestures, diagnostics and JSON export.
+- Queue tools (shuffle upcoming, sort A–Z, clear played, save as playlist) and a Search tab re-tap that selects the query.
+
+### Fixed
+
+- Player backdrop reaches the bottom edge; Power Tools list scrolls.
+
+See full release notes: [v2.3.5-beta-RELEASE_NOTES.md](docs/v2.3.5-beta-RELEASE_NOTES.md)
+
 ## [2.3.4-beta] - 2026-10-04
 
 ### Added
