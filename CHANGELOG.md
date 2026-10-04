@@ -12,6 +12,7 @@
 ### Fixed
 
 - Player backdrop reaches the bottom edge; Power Tools list scrolls.
+- 30-second previews and wrong-length audio are rejected: fetched length is verified against Spotify and the source is switched and remembered.
 
 See full release notes: [v2.3.5-beta-RELEASE_NOTES.md](docs/v2.3.5-beta-RELEASE_NOTES.md)
 
