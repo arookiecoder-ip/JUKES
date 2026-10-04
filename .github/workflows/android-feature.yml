@@ -29,9 +29,15 @@ jobs:
           cat > local.properties <<'EOF'
           POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+          ALEXA_SESSION_BASE_URL=https://alexa.synthora.in
           ALEXA_BASE_URL=${{ secrets.ALEXA_BASE_URL_STAGING }}
           ALEXA_API_KEY=${{ secrets.ALEXA_API_KEY_STAGING }}
           EOF
+
+      - name: Check account login is enabled
+        run: |
+          status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://alexa.synthora.in/login/)
+          test "$status" = "200" || { echo "Account login endpoint returned $status instead of 200"; exit 1; }
 
       - name: Test backend and native remote contracts
         run: sh ./gradlew testDebugUnitTest --no-daemon --stacktrace

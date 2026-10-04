@@ -39,6 +39,12 @@ android {
             "POSTHOG_HOST",
             "\"${properties.getProperty("POSTHOG_HOST", "")}\""
         )
+        // Account sessions need a server with web login enabled. Audio can use a separate keyed server.
+        buildConfigField(
+            "String",
+            "ALEXA_SESSION_BASE_URL",
+            "\"${properties.getProperty("ALEXA_SESSION_BASE_URL", "")}\""
+        )
         buildConfigField(
             "String",
             "ALEXA_BASE_URL",
