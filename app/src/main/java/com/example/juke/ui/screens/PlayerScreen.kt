@@ -250,27 +250,36 @@ fun PlayerScreen(
             return@LaunchedEffect
         }
 
-        val romanizedSynced = currentTrack.romanizedSyncedLyrics ?: currentTrack.syncedLyrics?.let {
-            LyricsRomanizer.romanizeSyncedLyrics(it)
-        }
-        val romanizedPlain = currentTrack.romanizedPlainLyrics ?: currentTrack.plainLyrics?.let {
-            LyricsRomanizer.romanizeText(it)
-        }
-        romanizedTrack = currentTrack.copy(
-            syncedLyrics = romanizedSynced ?: currentTrack.syncedLyrics,
-            plainLyrics = romanizedPlain ?: currentTrack.plainLyrics,
-            romanizedSyncedLyrics = romanizedSynced,
-            romanizedPlainLyrics = romanizedPlain
-        )
-
-        if (romanizedSynced != currentTrack.romanizedSyncedLyrics ||
-            romanizedPlain != currentTrack.romanizedPlainLyrics
-        ) {
-            musicViewModel.persistRomanizedLyrics(
-                track = currentTrack,
+        // A saved result that still has non-Latin lines came from a failed request: redo it.
+        val complete = LyricsRomanizer::isFullyRomanized
+        // Failed lines (offline, rate-limited, network blocked in background) are retried a few
+        // times; successful lines are cached in memory, so a retry only re-asks for the failures.
+        for (attempt in 0..3) {
+            if (attempt > 0) delay(5_000L * attempt)
+            val romanizedSynced = currentTrack.romanizedSyncedLyrics?.takeIf(complete)
+                ?: currentTrack.syncedLyrics?.let { LyricsRomanizer.romanizeSyncedLyrics(it) }
+            val romanizedPlain = currentTrack.romanizedPlainLyrics?.takeIf(complete)
+                ?: currentTrack.plainLyrics?.let { LyricsRomanizer.romanizeText(it) }
+            romanizedTrack = currentTrack.copy(
+                syncedLyrics = romanizedSynced ?: currentTrack.syncedLyrics,
+                plainLyrics = romanizedPlain ?: currentTrack.plainLyrics,
                 romanizedSyncedLyrics = romanizedSynced,
                 romanizedPlainLyrics = romanizedPlain
             )
+
+            val allDone = romanizedSynced?.let(complete) != false && romanizedPlain?.let(complete) != false
+            if (!allDone) continue
+            // Only a complete result is saved, so one bad fetch can't stick to the track forever.
+            if (romanizedSynced != currentTrack.romanizedSyncedLyrics ||
+                romanizedPlain != currentTrack.romanizedPlainLyrics
+            ) {
+                musicViewModel.persistRomanizedLyrics(
+                    track = currentTrack,
+                    romanizedSyncedLyrics = romanizedSynced,
+                    romanizedPlainLyrics = romanizedPlain
+                )
+            }
+            break
         }
     }
 
