@@ -33,4 +33,16 @@ class AlexaRemoteParserTest {
         val page = AlexaRemoteParser.page(Json.parseToJsonElement("""{"shelves":[null, {"title":"Odd","items":[null,{"title":"Empty","thumbnails":null,"artists":null}]}]}"""),"Home")
         assertEquals("Empty",page.shelves.single().items.single().title)
     }
+    @Test fun searchArtistsAndSubscriptionsUseBackendIds() {
+        val search = AlexaRemoteParser.page(Json.parseToJsonElement("""{"all":[],"songs":[{"video_id":"abcdef12345","title":"Song"}],"artists":[{"browseId":"UC123","title":"Artist"}],"albums":[{"browseId":"MPRE123","title":"Album"}],"playlists":[{"playlistId":"PL123","title":"Playlist"}]}"""), "Search")
+        assertEquals(setOf("track","artist","album","playlist"), search.shelves.flatMap { it.items }.map { it.kind }.toSet())
+        val subscriptions = AlexaRemoteParser.page(Json.parseToJsonElement("""{"artists":[{"channel_id":"UC123","name":"Artist","thumbnail":"art"}],"youtube_count":1}"""), "Artists")
+        assertEquals("UC123",subscriptions.shelves.single().items.single().id)
+        assertEquals("artist",subscriptions.shelves.single().items.single().kind)
+    }
+    @Test fun exploreSupportsNestedChartsAndMoodTargets() {
+        val page = AlexaRemoteParser.page(Json.parseToJsonElement("""{"top_songs":{"items":[{"videoId":"abcdef12345","title":"Chart"}]},"moods_and_genres":[{"params":"abc123","title":"Calm"}],"new_releases":[{"browseId":"MPRE123","audioPlaylistId":"OLAK123","title":"Release","type":"Album"}]}"""),"Explore")
+        assertEquals(listOf("track","mood","album"),page.shelves.flatMap { it.items }.map { it.kind })
+        assertEquals("abc123",page.shelves[1].items.single().id)
+    }
 }

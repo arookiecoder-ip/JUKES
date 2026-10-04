@@ -36,11 +36,15 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     private var browse: Job? = null
     private var suggest: Job? = null
     private var version = 0
+    private var connectionVersion = 0
+    private val actionJobs = mutableSetOf<Job>()
+    private var likedVersion = -1L
 
     fun configure(address: String) {
         val newKey = authPrefs.getString("api_key", "").orEmpty()
         if (api != null && address == server && newKey == key) return
-        poll?.cancel(); browse?.cancel(); api?.close(); version++
+        poll?.cancel(); browse?.cancel(); actionJobs.toList().forEach { it.cancel() }; actionJobs.clear()
+        api?.close(); version++; connectionVersion++; likedVersion = -1L
         server = AlexaRemotePolicy.server(address); key = newKey
         api = AlexaRemoteApi(server, key)
         history.clear(); _state.value = AlexaRemoteState()
@@ -53,14 +57,18 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun get(path: String, query: Map<String, String> = emptyMap()) = requireNotNull(api).request(path, query = query)
     private suspend fun send(path: String, body: JsonObject = JsonObject(emptyMap()), method: HttpMethod = HttpMethod.Post) = requireNotNull(api).request(path, method, body)
     private fun launchAction(block: suspend () -> Unit) {
-        viewModelScope.launch {
+        val connection = connectionVersion
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             commands.withLock {
                 _state.update { it.copy(busy = true, error = null, notice = null) }
                 try { block() } catch (e: CancellationException) { throw e }
-                catch (e: Exception) { _state.update { it.copy(error = e.message ?: "Request failed") } }
-                finally { _state.update { it.copy(busy = false) } }
+                catch (e: Exception) { if(connection == connectionVersion) _state.update { it.copy(error = e.message ?: "Request failed") } }
+                finally { if(connection == connectionVersion) _state.update { it.copy(busy = false) } }
             }
         }
+        actionJobs.add(job)
+        job.invokeOnCompletion { actionJobs.remove(job) }
+        job.start()
     }
     fun initialize() = launchAction {
         val init = get(if(_state.value.guest) "/api/jam/session/" else "/alexa/init/").objectOrEmpty()
@@ -95,6 +103,9 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
         val serial = _state.value.serial
         if (serial.isBlank()) return
         val np = get("/alexa/now_playing/", mapOf("serial" to serial)).objectOrEmpty()
+        if (!_state.value.guest && np.containsKey("liked_version") && np.number("liked_version") != likedVersion) {
+            refreshLikes(); likedVersion = np.number("liked_version")
+        }
         if (serial == _state.value.serial) _state.update {
             it.copy(nowPlaying = np, error = np["playback_error"].objectOrEmpty().text("message").takeIf(String::isNotBlank) ?: it.error)
         }
