@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -46,13 +46,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyTrack
-import com.example.juke.network.SpotifyApi
+import com.example.juke.models.Track
 import com.example.juke.ui.components.MediaDetailSkeleton
 import com.example.juke.ui.components.SwipeToAddNextContainer
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.PlaylistDetailViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,7 +61,6 @@ fun PlaylistDetailScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by playlistDetailViewModel.uiState.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
     val playlist = uiState.playlist
 
     Scaffold(
@@ -71,7 +68,7 @@ fun PlaylistDetailScreen(
             GlassTopAppBar(
                 title = {
                     Text(
-                        playlist?.name ?: "Playlist",
+                        uiState.title.ifBlank { "Playlist" },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -85,7 +82,7 @@ fun PlaylistDetailScreen(
         },
         containerColor = androidx.compose.ui.graphics.Color.Transparent
     ) { paddingValues ->
-        if (uiState.isLoading || playlist == null) {
+        if (playlist == null || (uiState.isLoading && uiState.tracks.isEmpty())) {
             MediaDetailSkeleton(
                 modifier = Modifier.padding(paddingValues),
                 contentPadding = PaddingValues(
@@ -115,8 +112,8 @@ fun PlaylistDetailScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         AsyncImage(
-                            model = playlist.images.firstOrNull()?.url ?: "",
-                            contentDescription = playlist.name,
+                            model = uiState.imageUrl,
+                            contentDescription = uiState.title,
                             modifier = Modifier
                                 .size(200.dp)
                                 .clip(RoundedCornerShape(12.dp)),
@@ -126,80 +123,31 @@ fun PlaylistDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = playlist.name,
+                            text = uiState.title,
                             style = MaterialTheme.typography.headlineMedium
                         )
 
-                        playlist.owner.displayName?.let {
+                        if (uiState.author.isNotBlank()) {
                             Text(
-                                text = "By $it",
+                                text = "By ${uiState.author}",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Text(
-                            text = "${playlist.tracks?.total ?: 0} tracks",
+                            text = "${uiState.trackCount} tracks",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        playlist.description?.let { desc ->
-                            if (desc.isNotBlank()) {
-                                Text(
-                                    text = desc,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 8.dp)
-                                )
-                            }
-                        }
-
-                        // Save Playlist Offline Button
-                        if (!uiState.isImportingPlaylist) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            GlassButton(
-                                onClick = { playlistDetailViewModel.importPlaylistOffline() },
-                                modifier = Modifier.fillMaxWidth(0.8f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.PlaylistAdd,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Save Playlist Offline")
-                            }
-                        }
-
-                        // Import Progress Indicator
-                        if (uiState.isImportingPlaylist) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.fillMaxWidth(0.8f)
-                            ) {
-                                Text(
-                                    "Saving playlist… keeps going if you close the app",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                LinearProgressIndicator(
-                                    progress = {
-                                        if (uiState.importTotal > 0) {
-                                            uiState.importProgress.toFloat() / uiState.importTotal.toFloat()
-                                        } else 0f
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "${uiState.importProgress} / ${uiState.importTotal} tracks",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                        if (uiState.description.isNotBlank()) {
+                            Text(
+                                text = uiState.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
                         }
                     }
                 }
@@ -213,26 +161,31 @@ fun PlaylistDetailScreen(
                         )
                     }
 
-                    items(uiState.tracks) { track ->
-                        SwipeToAddNextContainer(
-                            onAddNext = {
-                                scope.launch {
-                                    musicViewModel.queueSpotifyTrackNext(track)
-                                }
+                    itemsIndexed(uiState.tracks) { index, track ->
+                        // Next page when the end of the loaded songs comes into view.
+                        if (index >= uiState.tracks.size - 5) {
+                            androidx.compose.runtime.LaunchedEffect(uiState.tracks.size) {
+                                playlistDetailViewModel.loadMore()
                             }
+                        }
+                        SwipeToAddNextContainer(
+                            onAddNext = { musicViewModel.addNext(track) }
                         ) {
                             TrackItem(
                                 track = track,
                                 onClick = {
-                                    scope.launch {
-                                        // Queue this track and all tracks below it from the playlist
-                                        musicViewModel.setQueueFromSpotifyTracks(
-                                            uiState.tracks,
-                                            uiState.tracks.indexOf(track)
-                                        )
-                                    }
+                                    musicViewModel.playPlaylist(
+                                        playlistDetailViewModel.playlistId,
+                                        uiState.tracks,
+                                        index
+                                    )
                                 }
                             )
+                        }
+                    }
+                    if (uiState.isLoadingMore) {
+                        item {
+                            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))
                         }
                     }
                 }
@@ -243,21 +196,17 @@ fun PlaylistDetailScreen(
 
 @Composable
 private fun TrackItem(
-    track: SpotifyTrack,
+    track: Track,
     onClick: () -> Unit
 ) {
     FlatTrackRow(
-        imageUrl = track.album.images.lastOrNull()?.url,
-        title = track.name,
-        subtitle = "${track.artists.joinToString(", ") { it.name }} · ${track.album.name}",
-        duration = formatDuration(track.durationMs),
+        imageUrl = track.thumbnailUri,
+        title = track.title,
+        subtitle = track.artist,
+        duration = formatDuration(track.durationSec),
         onClick = onClick
     )
 }
 
-private fun formatDuration(durationMs: Int): String {
-    val totalSeconds = durationMs / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
-}
+private fun formatDuration(durationSec: Int): String =
+    "%d:%02d".format(durationSec / 60, durationSec % 60)

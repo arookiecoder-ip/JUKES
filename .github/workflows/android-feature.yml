@@ -27,18 +27,14 @@ jobs:
       - name: Generate local.properties from secrets
         run: |
           cat > local.properties <<'EOF'
-          SPOTIFY_CLIENT_ID=${{ secrets.SPOTIFY_CLIENT_ID }}
-          SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
           POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
           ALEXA_BASE_URL=${{ secrets.ALEXA_BASE_URL_STAGING }}
           ALEXA_API_KEY=${{ secrets.ALEXA_API_KEY_STAGING }}
-          JUKE_BACKEND_URL=${{ secrets.JUKE_BACKEND_URL }}
-          JUKE_BACKEND_KEY=${{ secrets.JUKE_BACKEND_KEY }}
           EOF
 
       - name: Test backend and native remote contracts
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.AlexaBackendApiTest' --tests 'com.example.juke.network.AlexaBackendPickTest' --tests 'com.example.juke.network.AlexaRemotePolicyTest' --tests 'com.example.juke.network.AlexaRemoteParserTest' --no-daemon --stacktrace
+        run: sh ./gradlew testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |

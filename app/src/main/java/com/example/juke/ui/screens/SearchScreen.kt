@@ -96,21 +96,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifyArtist
-import com.example.juke.models.SpotifyPlaylist
 import com.example.juke.models.Track
-import com.example.juke.network.SpotifyApi
+import com.example.juke.network.BrowseItem
 import com.example.juke.ui.components.AlbumCard
 import com.example.juke.ui.components.ArtistCard
 import com.example.juke.ui.components.PlaylistCard
-import com.example.juke.ui.components.SearchResultItemM3
 import com.example.juke.ui.components.SwipeToAddNextContainer
 import com.example.juke.ui.components.GlassButton
 import com.example.juke.ui.components.SearchHeader
 import com.example.juke.ui.components.TrackListSkeleton
 import com.example.juke.utils.rememberJukeHaptics
-import com.example.juke.viewmodels.MusicSource
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.SearchViewModel
 import kotlinx.coroutines.launch
@@ -122,15 +117,12 @@ fun SearchScreen(
     searchViewModel: SearchViewModel = viewModel(),
     searchResetTrigger: Int = 0,
     searchFocusTrigger: Int = 0,
-    onNavigateToArtist: (SpotifyArtist) -> Unit = {},
-    onNavigateToPlaylist: (SpotifyPlaylist) -> Unit = {},
-    onNavigateToAlbum: (SpotifyAlbum) -> Unit = {},
+    onNavigateToArtist: (BrowseItem) -> Unit = {},
+    onNavigateToPlaylist: (BrowseItem) -> Unit = {},
+    onNavigateToAlbum: (BrowseItem) -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by searchViewModel.uiState.collectAsStateWithLifecycle()
-    val isStreamMode by musicViewModel.isStreamMode.collectAsStateWithLifecycle()
-    val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
-    val isAlexaMode = musicSource == MusicSource.ALEXA
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = rememberJukeHaptics()
@@ -138,14 +130,7 @@ fun SearchScreen(
     var previousFocusTrigger by remember { mutableIntStateOf(searchFocusTrigger) }
     var selectedFilter by rememberSaveable { mutableStateOf("All") }
     var active by rememberSaveable { mutableStateOf(false) }
-    // Alexa mode returns tracks only: hide Artists/Playlists/Albums chips.
-    val filters = if (isAlexaMode) listOf("All", "Tracks")
-    else listOf("All", "Tracks", "Artists", "Playlists", "Albums")
-
-    LaunchedEffect(musicSource) {
-        selectedFilter = "All"
-        searchViewModel.onMusicSourceChanged()
-    }
+    val filters = listOf("All", "Tracks", "Artists", "Playlists", "Albums")
 
     // Warm the YT suggestions connection once when search screen is opened.
     LaunchedEffect(Unit) {
@@ -248,35 +233,18 @@ fun SearchScreen(
                         }
 
                         Box(modifier = Modifier.weight(1f)) {
-                            if (hasResults(uiState) && !uiState.isPlaylistUrl) {
+                            if (hasResults(uiState)) {
                                 SearchResultsList(
                                     uiState = uiState,
                                     selectedFilter = selectedFilter,
-                                    isAlexaMode = isAlexaMode,
                                     musicViewModel = musicViewModel,
-                                    searchViewModel = searchViewModel,
-                                    scope = scope,
-                                    isStreamMode = isStreamMode,
                                     onNavigateToArtist = onNavigateToArtist,
                                     onNavigateToPlaylist = onNavigateToPlaylist,
                                     onNavigateToAlbum = onNavigateToAlbum,
                                     bottomPadding = bottomPadding,
                                     keyboardController = keyboardController
                                 )
-                            } else if (!isAlexaMode && uiState.isPlaylistUrl && uiState.playlists.isNotEmpty() && !uiState.isImportingPlaylist) {
-                                val playlist = uiState.playlists.first()
-                                ImportPlaylistCard(
-                                    playlist = playlist,
-                                    onImport = {
-                                        searchViewModel.importPlaylist(uiState.playlistId!!)
-                                    }
-                                )
-                            } else if (uiState.isImportingPlaylist && uiState.query.isBlank()) {
-                                ImportProgressCard(
-                                    progress = uiState.importProgress,
-                                    total = uiState.importTotal
-                                )
-                            } else if (!hasResults(uiState) && !uiState.isImportingPlaylist) {
+                            } else {
                                 if (uiState.query.isBlank() && uiState.recentSearches.isNotEmpty()) {
                                     RecentSearches(
                                         searches = uiState.recentSearches,

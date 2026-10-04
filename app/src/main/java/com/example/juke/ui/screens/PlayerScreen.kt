@@ -16,7 +16,6 @@ import com.example.juke.ui.theme.GlassCard
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.annotation.SuppressLint
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -44,7 +43,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Speaker
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -97,7 +101,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.juke.R
-import com.example.juke.database.PlaylistEntity
+import com.example.juke.network.BrowseItem
 import com.example.juke.models.Track
 import com.example.juke.ui.components.AddToPlaylistDialog
 import com.example.juke.ui.components.CreatePlaylistDialog
@@ -106,7 +110,6 @@ import com.example.juke.ui.components.player.PlayerArtwork
 import com.example.juke.ui.components.player.PlayerControls
 import com.example.juke.ui.components.player.PlayerProgress
 import com.example.juke.ui.components.player.QueueBottomSheetContent
-import com.example.juke.utils.BlacklistManager
 import com.example.juke.utils.LyricsRomanizer
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.LibraryViewModel
@@ -163,7 +166,7 @@ fun PlayerScreen(
     onDismiss: () -> Unit,
     onNavigateToArtist: (String) -> Unit,
     onNavigateToAlbum: (String) -> Unit,
-    onShareTrack: (String) -> Unit
+    onNavigateToArtistByName: (String) -> Unit = {}
 ) {
     BackHandler(onBack = onDismiss)
 
@@ -174,23 +177,32 @@ fun PlayerScreen(
     val playbackSpeed by musicViewModel.playbackSpeed.collectAsStateWithLifecycle()
     var showLyrics by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
-    var showArtistSelectionSheet by remember { mutableStateOf(false) }
-    var showBlacklistPicker by remember { mutableStateOf(false) }
+    var showOutputSheet by remember { mutableStateOf(false) }
+    val output by musicViewModel.output.collectAsStateWithLifecycle()
+    val isSwitching by musicViewModel.isSwitchingOutput.collectAsStateWithLifecycle()
+    val echoVolume by musicViewModel.echoVolume.collectAsStateWithLifecycle()
+    val echoDevices by musicViewModel.echo.devices.collectAsStateWithLifecycle()
+    val echoSerial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
+    val isAlexa = output == com.example.juke.viewmodels.PlaybackOutput.ALEXA
     val romanizeLyrics by musicViewModel.isRomanizedLyricsEnabled.collectAsStateWithLifecycle()
     val sleepTimerRemaining by musicViewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
 
     var showAddToPlaylistDialog by remember { mutableStateOf<Track?>(null) }
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
-    var trackPlaylists by remember {
-        mutableStateOf<List<PlaylistEntity>>(emptyList())
-    }
-    val libraryUiState by libraryViewModel.uiState.collectAsStateWithLifecycle()
+    var editablePlaylists by remember { mutableStateOf<List<BrowseItem>?>(null) }
 
-    // Fetch playlists for the selected track when dialog opens
+    // Fetch the account's editable playlists when the dialog opens
     LaunchedEffect(showAddToPlaylistDialog) {
-        showAddToPlaylistDialog?.let { track ->
-            trackPlaylists = libraryViewModel.getPlaylistsForTrack(track.uuid)
+        editablePlaylists = null
+        if (showAddToPlaylistDialog != null) {
+            editablePlaylists = try {
+                libraryViewModel.editablePlaylists()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
         }
     }
 
@@ -341,19 +353,13 @@ fun PlayerScreen(
                         onDismiss = onDismiss,
                         onShowSleepTimer = { showSleepTimerDialog = true },
                         onNavigateToAlbum = {
-                            if (currentTrack.albumSpotifyId != null) onNavigateToAlbum(
-                                currentTrack.albumSpotifyId
-                            )
+                            currentTrack.albumId?.let(onNavigateToAlbum)
                         },
                         onRefreshLyrics = { musicViewModel.refreshLyrics(currentTrack) },
-                        onRefetchSong = { musicViewModel.refetchTrack(currentTrack) },
-                        canRefetchSong = currentTrack.spotifyId != null,
                         onToggleRomanizedLyrics = { musicViewModel.toggleRomanizedLyrics() },
                         isRomanizedLyricsEnabled = romanizeLyrics,
                         showMenuOption = true,
-                        isAlbumAvailable = currentTrack.albumSpotifyId != null,
-                        currentArtist = currentTrack.artist,
-                        onShowBlacklistPicker = { showBlacklistPicker = true },
+                        isAlbumAvailable = currentTrack.albumId != null,
                         playbackSpeed = playbackSpeed,
                         onCycleSpeed = { musicViewModel.cyclePlaybackSpeed() }
                     )
@@ -405,30 +411,14 @@ fun PlayerScreen(
                                 modifier = Modifier
                                     .basicMarquee()
                                     .clickable {
-                                        val ids = currentTrack.artistSpotifyIds
-                                        if (!ids.isNullOrEmpty()) {
-                                            if (ids.size == 1) onNavigateToArtist(ids[0])
-                                            else showArtistSelectionSheet = true
-                                        }
+                                        val id = currentTrack.artistId
+                                        if (!id.isNullOrBlank()) onNavigateToArtist(id)
+                                        else onNavigateToArtistByName(currentTrack.artist.substringBefore(","))
                                     }
                             )
                         }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            // Spotify streams only (Alexa tracks have no Spotify ID)
-                            if (currentTrack.isStream && currentTrack.spotifyId != null) {
-                                IconButton(
-                                    onClick = { musicViewModel.promoteTrackToDownload(currentTrack) },
-                                    modifier = Modifier.size(actionBtnSize)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Download,
-                                        contentDescription = "Download",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(actionIconSize)
-                                    )
-                                }
-                            }
                             IconButton(
                                 onClick = { showAddToPlaylistDialog = currentTrack },
                                 modifier = Modifier.size(actionBtnSize)
@@ -481,6 +471,15 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(spacerSm))
 
+                    // Echo volume, like the web remote's slider
+                    if (isAlexa) {
+                        EchoVolumeRow(
+                            volume = echoVolume,
+                            onVolumeChange = { musicViewModel.setEchoVolume(it) }
+                        )
+                        Spacer(modifier = Modifier.height(spacerSm))
+                    }
+
                     // Bottom actions: bare icons, no container
                     Row(
                         modifier = Modifier
@@ -510,13 +509,12 @@ fun PlayerScreen(
                             label = "Mix",
                             iconSize = actionBarIconSize
                         ) { haptic.click(); musicViewModel.startRadio() }
-                        if (currentTrack.spotifyId != null) {
-                            PlayerAction(
-                                icon = rememberVectorPainter(Icons.Filled.Share),
-                                label = "Share",
-                                iconSize = actionBarIconSize
-                            ) { haptic.click(); onShareTrack(currentTrack.spotifyId) }
-                        }
+                        PlayerAction(
+                            icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid),
+                            label = if (isAlexa) (echoDevices.firstOrNull { it.serial == echoSerial }?.name ?: "Echo") else "This phone",
+                            active = isAlexa,
+                            iconSize = actionBarIconSize
+                        ) { haptic.click(); showOutputSheet = true }
                     }
                 }
             }
@@ -555,18 +553,20 @@ fun PlayerScreen(
         }
     }
 
-    // Artist Selection Sheet
-    if (showArtistSelectionSheet) {
+    // Output picker: this phone or an Echo
+    if (showOutputSheet) {
         GlassModalBottomSheet(
-            onDismissRequest = { showArtistSelectionSheet = false },
+            onDismissRequest = { showOutputSheet = false },
             sheetState = rememberModalBottomSheetState()
         ) {
-            ArtistSelectionContent(
-                currentTrack = currentTrack,
-                onArtistSelected = { id ->
-                    showArtistSelectionSheet = false
-                    onNavigateToArtist(id)
-                }
+            OutputPickerContent(
+                isAlexa = isAlexa,
+                devices = echoDevices,
+                selectedSerial = echoSerial,
+                busy = isSwitching,
+                onSelectPhone = { showOutputSheet = false; musicViewModel.switchOutput(null) },
+                onSelectEcho = { serial -> showOutputSheet = false; musicViewModel.switchOutput(serial) },
+                onRefresh = { musicViewModel.refreshDevices() }
             )
         }
     }
@@ -590,26 +590,12 @@ fun PlayerScreen(
 
     showAddToPlaylistDialog?.let { track ->
         AddToPlaylistDialog(
-            playlists = libraryUiState.playlists, // Use playlists from LibraryViewModel state
+            playlists = editablePlaylists,
             tracks = listOf(track),
-            trackPlaylists = trackPlaylists,
-            onDismiss = {
-                showAddToPlaylistDialog = null
-                trackPlaylists = emptyList()
-            },
+            onDismiss = { showAddToPlaylistDialog = null },
             onAddToPlaylist = { playlist ->
-                coroutineScope.launch {
-                    libraryViewModel.addToPlaylist(playlist, track)
-                    // Refresh list of playlists for this track
-                    trackPlaylists = libraryViewModel.getPlaylistsForTrack(track.uuid)
-                }
-            },
-            onRemoveFromPlaylist = { playlist ->
-                coroutineScope.launch {
-                    libraryViewModel.removeFromPlaylist(playlist, track)
-                    // Refresh list of playlists for this track
-                    trackPlaylists = libraryViewModel.getPlaylistsForTrack(track.uuid)
-                }
+                libraryViewModel.addTracksToPlaylist(playlist, listOf(track))
+                showAddToPlaylistDialog = null
             },
             onCreatePlaylist = { showNewPlaylistDialog = true }
         )
@@ -619,17 +605,10 @@ fun PlayerScreen(
         CreatePlaylistDialog(
             onDismiss = { showNewPlaylistDialog = false },
             onCreate = { name ->
-                libraryViewModel.createPlaylist(name)
+                libraryViewModel.createPlaylist(name, listOfNotNull(showAddToPlaylistDialog))
                 showNewPlaylistDialog = false
+                showAddToPlaylistDialog = null
             }
-        )
-    }
-
-    // Blacklist Artist Picker Dialog
-    if (showBlacklistPicker) {
-        BlacklistPickerDialog(
-            artistString = currentTrack.artist,
-            onDismiss = { showBlacklistPicker = false }
         )
     }
 }
@@ -640,14 +619,10 @@ fun PlayerHeader(
     onShowSleepTimer: () -> Unit,
     onNavigateToAlbum: () -> Unit,
     onRefreshLyrics: () -> Unit,
-    onRefetchSong: () -> Unit = {},
-    canRefetchSong: Boolean = false,
     onToggleRomanizedLyrics: () -> Unit,
     isRomanizedLyricsEnabled: Boolean,
     showMenuOption: Boolean,
     isAlbumAvailable: Boolean,
-    currentArtist: String = "",
-    onShowBlacklistPicker: () -> Unit = {},
     playbackSpeed: Float = 1f,
     onCycleSpeed: () -> Unit = {}
 ) {
@@ -726,18 +701,6 @@ fun PlayerHeader(
                             onRefreshLyrics()
                         }
                     )
-                    if (canRefetchSong) {
-                        DropdownMenuItem(
-                            text = { Text("Wrong song? Refetch") },
-                            leadingIcon = {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null)
-                            },
-                            onClick = {
-                                showMenu = false
-                                onRefetchSong()
-                            }
-                        )
-                    }
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -756,62 +719,10 @@ fun PlayerHeader(
                             onToggleRomanizedLyrics()
                         }
                     )
-                    // Artist Blacklist option
-                    if (currentArtist.isNotBlank()) {
-                        val hasBlacklisted = remember(currentArtist, showMenu) {
-                            BlacklistManager.containsBlacklistedArtist(context, currentArtist)
-                        }
-                        DropdownMenuItem(
-                            text = { Text(if (hasBlacklisted) "Manage Blocked Artists" else "Block Artist") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Block,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                onShowBlacklistPicker()
-                            }
-                        )
-                    }
                 }
             }
         } else {
             Spacer(modifier = Modifier.size(48.dp))
-        }
-    }
-}
-
-@Composable
-fun ArtistSelectionContent(
-    currentTrack: Track,
-    onArtistSelected: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 32.dp)
-    ) {
-        Text(
-            text = "Select Artist",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
-        )
-
-        val artistNames =
-            remember(currentTrack.artist) { currentTrack.artist.split(", ").map { it.trim() } }
-        val ids = currentTrack.artistSpotifyIds ?: emptyList()
-
-        ids.forEachIndexed { index, id ->
-            val name = artistNames.getOrElse(index) { "Artist ${index + 1}" }
-            ListItem(
-                headlineContent = { Text(name) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onArtistSelected(id) }
-            )
         }
     }
 }
@@ -899,87 +810,106 @@ fun SleepTimerDialog(
     )
 }
 
+/** Echo volume slider; drags are sent to the Echo a moment after you pause (the controller debounces). */
 @Composable
-fun BlacklistPickerDialog(
-    artistString: String,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-
-    // Parse individual artist names
-    val artists = remember(artistString) {
-        artistString
-            .replace(" feat. ", ", ")
-            .replace(" ft. ", ", ")
-            .replace(" & ", ", ")
-            .replace(" and ", ", ")
-            .replace(";", ",")
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-    }
-
-    // Track blocked state per artist
-    var blockedMap by remember(artistString) {
-        mutableStateOf(
-            artists.associateWith { name ->
-                BlacklistManager.containsBlacklistedArtist(context, name)
-            }
+private fun EchoVolumeRow(volume: Int?, onVolumeChange: (Int) -> Unit) {
+    var dragging by remember { mutableStateOf(false) }
+    var local by remember { mutableFloatStateOf(volume?.toFloat() ?: 0f) }
+    LaunchedEffect(volume) { if (!dragging && volume != null) local = volume.toFloat() }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+        Slider(
+            value = local,
+            onValueChange = { dragging = true; local = it; onVolumeChange(it.toInt()) },
+            onValueChangeFinished = { dragging = false },
+            valueRange = 0f..100f,
+            enabled = volume != null,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+        )
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+        Text(
+            text = "${local.toInt()}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            modifier = Modifier.width(32.dp),
+            textAlign = TextAlign.End
         )
     }
+}
 
-    GlassAlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Block Artists") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    "Blocked artists won't appear in recommendations.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                artists.forEach { name ->
-                    val isBlocked = blockedMap[name] == true
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f)
-                        )
-                        androidx.compose.material3.Switch(
-                            checked = isBlocked,
-                            onCheckedChange = { checked ->
-                                if (checked) {
-                                    BlacklistManager.addArtist(context, name)
-                                    Toast.makeText(context, "$name blocked", Toast.LENGTH_SHORT)
-                                        .show()
-                                } else {
-                                    BlacklistManager.removeArtist(context, name)
-                                    Toast.makeText(context, "$name unblocked", Toast.LENGTH_SHORT)
-                                        .show()
-                                }
-                                blockedMap = blockedMap.toMutableMap().apply {
-                                    put(name, checked)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
-            }
+@Composable
+private fun OutputPickerContent(
+    isAlexa: Boolean,
+    devices: List<com.example.juke.services.EchoDevice>,
+    selectedSerial: String,
+    busy: Boolean,
+    onSelectPhone: () -> Unit,
+    onSelectEcho: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+        Text(
+            "Play on",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+        )
+        OutputRow(
+            icon = Icons.Outlined.PhoneAndroid, title = "This phone", detail = null,
+            selected = !isAlexa, enabled = !busy, onClick = onSelectPhone
+        )
+        if (devices.isEmpty()) {
+            Text(
+                "No Echo found. Connect Amazon in Settings to play on an Echo.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+            )
         }
+        devices.forEach { device ->
+            OutputRow(
+                icon = Icons.Outlined.Speaker, title = device.name,
+                detail = if (device.online) null else "Offline",
+                selected = isAlexa && device.serial == selectedSerial,
+                enabled = !busy && device.online,
+                onClick = { onSelectEcho(device.serial) }
+            )
+        }
+        TextButton(onClick = onRefresh, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Refresh devices") }
+        if (busy) {
+            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+        }
+    }
+}
+
+@Composable
+private fun OutputRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    detail: String?,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                title,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+        },
+        supportingContent = detail?.let { { Text(it) } },
+        leadingContent = {
+            Icon(icon, contentDescription = null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        trailingContent = {
+            if (selected) Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+        },
+        colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.5f).clickable(enabled = enabled, onClick = onClick)
     )
 }
 

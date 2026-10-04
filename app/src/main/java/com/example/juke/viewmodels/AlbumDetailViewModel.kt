@@ -3,79 +3,85 @@ package com.example.juke.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifySimplifiedTrack
-import com.example.juke.network.SpotifyApi
+import com.example.juke.models.Track
+import com.example.juke.network.Backend
+import com.example.juke.network.BrowseItem
+import com.example.juke.network.BrowseParser
+import com.example.juke.network.array
+import com.example.juke.network.imageUrl
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.network.toTrack
+import com.example.juke.services.AccountRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 data class AlbumDetailUiState(
-    val album: SpotifyAlbum? = null,
-    val tracks: List<SpotifySimplifiedTrack> = emptyList(),
+    val album: BrowseItem? = null,
+    val title: String = "",
+    val artist: String = "",
+    val artistId: String = "",
+    val year: String = "",
+    val imageUrl: String = "",
+    val description: String = "",
+    val tracks: List<Track> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null
 )
 
+/** Album page from YouTube Music (`/api/album/<MPRE…|OLAK…>`). */
 class AlbumDetailViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(AlbumDetailUiState())
     val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
+    private var loadJob: Job? = null
 
-    fun loadAlbumDetails(album: SpotifyAlbum) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                album = album,
-                isLoading = true,
-                error = null
-            )
-
+    fun loadAlbumDetails(album: BrowseItem) {
+        loadJob?.cancel()
+        _uiState.value = AlbumDetailUiState(
+            album = album, title = album.title, artist = album.subtitle,
+            imageUrl = album.image, isLoading = true
+        )
+        loadJob = viewModelScope.launch {
             try {
-                if (album.id != null) {
-                    val tracksResponse = SpotifyApi.getAlbumTracks(album.id)
-
-                    _uiState.value = _uiState.value.copy(
-                        tracks = tracksResponse.items,
+                val data = Backend.get("/api/album/${album.id}").objectOrEmpty()
+                val image = imageUrl(data["thumbnail"]).ifBlank { imageUrl(data["thumbnails"]) }.ifBlank { album.image }
+                val liked = AccountRepository.liked.value
+                val tracks = data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                    .filter { it.videoId.isNotBlank() }
+                    .map { it.toTrack(liked, fallbackImage = image).copy(albumId = album.id) }
+                _uiState.update {
+                    it.copy(
+                        title = data.text("title").ifBlank { album.title },
+                        artist = data.text("artist").ifBlank { album.subtitle },
+                        artistId = data.text("channelId", "artist_id"),
+                        year = data.text("year"),
+                        imageUrl = image,
+                        description = data.text("description"),
+                        tracks = tracks,
                         isLoading = false
                     )
-
-                    Log.d(
-                        "AlbumDetailViewModel",
-                        "Loaded ${tracksResponse.items.size} tracks for album ${album.name}"
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = "Invalid album ID"
-                    )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e("AlbumDetailViewModel", "Error loading album details: ${e.message}", e)
-                _uiState.update {
-                    it.copy(isLoading = false, error = e.message)
-                }
+                Log.e("AlbumDetailViewModel", "Error loading album: ${e.message}", e)
+                _uiState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't load the album") }
             }
         }
     }
 
     fun loadAlbumDetailsById(albumId: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            try {
-                // Fetch album details first
-                val album = SpotifyApi.getAlbum(albumId)
-                loadAlbumDetails(album)
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(isLoading = false, error = e.message)
-                }
-            }
-        }
+        loadAlbumDetails(BrowseItem(albumId, "album", "", "", "", "", "", 0, "", albumId, false, JsonObject(emptyMap())))
     }
 
     fun clearAlbumDetail() {
+        loadJob?.cancel()
         _uiState.value = AlbumDetailUiState()
     }
 }

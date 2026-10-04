@@ -17,7 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -42,13 +43,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifySimplifiedTrack
+import com.example.juke.models.Track
 import com.example.juke.ui.components.MediaDetailSkeleton
 import com.example.juke.ui.components.SwipeToAddNextContainer
 import com.example.juke.viewmodels.AlbumDetailViewModel
 import com.example.juke.viewmodels.MusicViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,10 +55,10 @@ fun AlbumDetailScreen(
     albumDetailViewModel: AlbumDetailViewModel = viewModel(),
     musicViewModel: MusicViewModel = viewModel(),
     onNavigateBack: () -> Unit,
+    onNavigateToArtist: (String) -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by albumDetailViewModel.uiState.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
     val album = uiState.album
 
     Scaffold(
@@ -67,7 +66,7 @@ fun AlbumDetailScreen(
             GlassTopAppBar(
                 title = {
                     Text(
-                        album?.name ?: "Album",
+                        uiState.title.ifBlank { "Album" },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -81,7 +80,7 @@ fun AlbumDetailScreen(
         },
         containerColor = androidx.compose.ui.graphics.Color.Transparent
     ) { paddingValues ->
-        if (uiState.isLoading || album == null) {
+        if (album == null || (uiState.isLoading && uiState.tracks.isEmpty())) {
             MediaDetailSkeleton(
                 modifier = Modifier.padding(paddingValues),
                 contentPadding = PaddingValues(
@@ -111,8 +110,8 @@ fun AlbumDetailScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         AsyncImage(
-                            model = album.images.firstOrNull()?.url ?: "",
-                            contentDescription = album.name,
+                            model = uiState.imageUrl,
+                            contentDescription = uiState.title,
                             modifier = Modifier
                                 .size(200.dp)
                                 .clip(RoundedCornerShape(12.dp)),
@@ -122,14 +121,17 @@ fun AlbumDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = album.name,
+                            text = uiState.title,
                             style = MaterialTheme.typography.headlineMedium
                         )
 
                         Text(
-                            text = album.artists.joinToString(", ") { it.name },
+                            text = uiState.artist,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable(enabled = uiState.artistId.isNotBlank()) {
+                                onNavigateToArtist(uiState.artistId)
+                            }
                         )
 
                         Row(
@@ -137,11 +139,7 @@ fun AlbumDetailScreen(
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
                             Text(
-                                text = album.albumType?.replaceFirstChar {
-                                    if (it.isLowerCase()) it.titlecase(
-                                        java.util.Locale.getDefault()
-                                    ) else it.toString()
-                                } ?: "Album",
+                                text = "Album",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -153,7 +151,7 @@ fun AlbumDetailScreen(
                             )
 
                             Text(
-                                text = album.releaseDate?.take(4) ?: "",
+                                text = uiState.year,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -165,7 +163,7 @@ fun AlbumDetailScreen(
                             )
 
                             Text(
-                                text = "${album.totalTracks ?: 0} tracks",
+                                text = "${uiState.tracks.size} tracks",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -182,27 +180,13 @@ fun AlbumDetailScreen(
                         )
                     }
 
-                    items(uiState.tracks) { track ->
+                    itemsIndexed(uiState.tracks) { index, track ->
                         SwipeToAddNextContainer(
-                            onAddNext = {
-                                scope.launch {
-                                    musicViewModel.queueSimplifiedTrackNext(track, album)
-                                }
-                            }
+                            onAddNext = { musicViewModel.addNext(track) }
                         ) {
                             TrackItem(
                                 track = track,
-                                album = album,
-                                onClick = {
-                                    scope.launch {
-                                        // Queue this track and all tracks below it from the album
-                                        musicViewModel.setQueueFromSimplifiedTracks(
-                                            uiState.tracks,
-                                            album,
-                                            uiState.tracks.indexOf(track)
-                                        )
-                                    }
-                                }
+                                onClick = { musicViewModel.setQueue(uiState.tracks, index) }
                             )
                         }
                     }
@@ -214,22 +198,17 @@ fun AlbumDetailScreen(
 
 @Composable
 private fun TrackItem(
-    track: SpotifySimplifiedTrack,
-    album: SpotifyAlbum,
+    track: Track,
     onClick: () -> Unit
 ) {
     FlatTrackRow(
-        imageUrl = album.images.lastOrNull()?.url,
-        title = track.name,
-        subtitle = track.artists.joinToString(", ") { it.name },
-        duration = formatDuration(track.durationMs),
+        imageUrl = track.thumbnailUri,
+        title = track.title,
+        subtitle = track.artist,
+        duration = formatDuration(track.durationSec),
         onClick = onClick
     )
 }
 
-private fun formatDuration(durationMs: Int): String {
-    val totalSeconds = durationMs / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
-}
+private fun formatDuration(durationSec: Int): String =
+    "%d:%02d".format(durationSec / 60, durationSec % 60)

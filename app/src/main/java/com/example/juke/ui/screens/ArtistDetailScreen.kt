@@ -20,11 +20,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,16 +49,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import android.widget.Toast
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifyImage
-import com.example.juke.models.SpotifyTrack
+import com.example.juke.models.Track
+import com.example.juke.network.BrowseItem
+import com.example.juke.network.text
 import com.example.juke.ui.components.MediaDetailSkeleton
 import com.example.juke.ui.components.SwipeToAddNextContainer
-import com.example.juke.utils.BlacklistManager
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.SearchViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,47 +63,29 @@ fun ArtistDetailScreen(
     searchViewModel: SearchViewModel = viewModel(),
     musicViewModel: MusicViewModel = viewModel(),
     onNavigateBack: () -> Unit,
-    onNavigateToAlbum: (SpotifyAlbum) -> Unit = {},
+    onNavigateToAlbum: (BrowseItem) -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by searchViewModel.artistDetailState.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
     val artist = uiState.artist
-
 
     Scaffold(
         topBar = {
             GlassTopAppBar(
-                title = { Text(artist?.name ?: "Artist") },
+                title = { Text(artist?.title?.ifBlank { null } ?: "Artist") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 actions = {
-                    if (artist != null) {
-                        val isBlacklisted = remember(artist.name) {
-                            BlacklistManager.containsBlacklistedArtist(context, artist.name)
-                        }
-                        var blacklisted by remember(artist.name) { mutableStateOf(isBlacklisted) }
-                        IconButton(onClick = {
-                            if (blacklisted) {
-                                BlacklistManager.removeArtist(context, artist.name)
-                                Toast.makeText(context, "${artist.name} unblocked", Toast.LENGTH_SHORT).show()
-                            } else {
-                                BlacklistManager.addArtist(context, artist.name)
-                                Toast.makeText(context, "${artist.name} blocked", Toast.LENGTH_SHORT).show()
-                            }
-                            blacklisted = !blacklisted
-                        }) {
+                    val subscribed = uiState.isSubscribed
+                    if (artist != null && subscribed != null) {
+                        IconButton(onClick = searchViewModel::toggleSubscription) {
                             Icon(
-                                imageVector = if (blacklisted)
-                                    Icons.Filled.Block
-                                else
-                                    Icons.Outlined.Block,
-                                contentDescription = if (blacklisted) "Unblock Artist" else "Block Artist",
-                                tint = if (blacklisted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                imageVector = if (subscribed) Icons.Filled.PersonRemove else Icons.Filled.PersonAdd,
+                                contentDescription = if (subscribed) "Unsubscribe" else "Subscribe",
+                                tint = if (subscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -114,7 +94,7 @@ fun ArtistDetailScreen(
         },
         containerColor = androidx.compose.ui.graphics.Color.Transparent
     ) { paddingValues ->
-        if (uiState.isLoading || artist == null) {
+        if (artist == null || (uiState.isLoading && uiState.topTracks.isEmpty())) {
             MediaDetailSkeleton(
                 modifier = Modifier.padding(paddingValues),
                 contentPadding = PaddingValues(
@@ -144,9 +124,8 @@ fun ArtistDetailScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         AsyncImage(
-                            model = bestImageUrl(artist.images) ?: artist.images.firstOrNull()?.url
-                                ?: "",
-                            contentDescription = artist.name,
+                            model = uiState.imageUrl,
+                            contentDescription = artist.title,
                             modifier = Modifier
                                 .size(200.dp)
                                 .clip(RoundedCornerShape(16.dp)),
@@ -156,25 +135,23 @@ fun ArtistDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = artist.name,
+                            text = artist.title,
                             style = MaterialTheme.typography.headlineMedium
                         )
 
-                        if (artist.followers != null) {
+                        if (uiState.subscribers.isNotBlank()) {
                             Text(
-                                text = "${formatNumber(artist.followers.total)} followers",
+                                text = "${uiState.subscribers} subscribers",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
+                }
 
-                        if (artist.genres.isNotEmpty()) {
-                            Text(
-                                text = artist.genres.joinToString(" • "),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                uiState.error?.let { message ->
+                    item {
+                        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
 
@@ -188,32 +165,21 @@ fun ArtistDetailScreen(
                     }
 
                     val topTracksSubset = uiState.topTracks.take(10)
-                    items(topTracksSubset) { track ->
+                    itemsIndexed(topTracksSubset) { index, track ->
                         SwipeToAddNextContainer(
-                            onAddNext = {
-                                scope.launch {
-                                    musicViewModel.queueSpotifyTrackNext(track)
-                                }
-                            }
+                            onAddNext = { musicViewModel.addNext(track) }
                         ) {
                             TrackItem(
                                 track = track,
-                                onClick = {
-                                    scope.launch {
-                                        // Queue this track and all tracks below it
-                                        musicViewModel.setQueueFromSpotifyTracks(
-                                            topTracksSubset,
-                                            topTracksSubset.indexOf(track)
-                                        )
-                                    }
-                                }
+                                onClick = { musicViewModel.setQueue(topTracksSubset, index) }
                             )
                         }
                     }
                 }
 
-                // Albums Section (2x2 grid)
-                if (uiState.albums.isNotEmpty()) {
+                // Albums and singles (2x2 grid)
+                val releases = uiState.albums + uiState.singles
+                if (releases.isNotEmpty()) {
                     item {
                         Text(
                             text = "Albums",
@@ -221,7 +187,7 @@ fun ArtistDetailScreen(
                         )
                     }
 
-                    val albumRows = uiState.albums.chunked(2)
+                    val albumRows = releases.chunked(2)
                     items(albumRows) { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -252,21 +218,21 @@ fun ArtistDetailScreen(
 
 @Composable
 private fun TrackItem(
-    track: SpotifyTrack,
+    track: Track,
     onClick: () -> Unit
 ) {
     FlatTrackRow(
-        imageUrl = bestImageUrl(track.album.images) ?: track.album.images.lastOrNull()?.url,
-        title = track.name,
-        subtitle = "${track.artists.joinToString(", ") { it.name }} · ${track.album.name}",
-        duration = formatDuration(track.durationMs),
+        imageUrl = track.thumbnailUri,
+        title = track.title,
+        subtitle = track.artist,
+        duration = "%d:%02d".format(track.durationSec / 60, track.durationSec % 60),
         onClick = onClick
     )
 }
 
 @Composable
 private fun AlbumItem(
-    album: SpotifyAlbum,
+    album: BrowseItem,
     onClick: () -> Unit
 ) {
     GlassCard(
@@ -279,8 +245,8 @@ private fun AlbumItem(
                 .fillMaxWidth()
         ) {
             AsyncImage(
-                model = bestImageUrl(album.images) ?: album.images.lastOrNull()?.url ?: "",
-                contentDescription = album.name,
+                model = album.image,
+                contentDescription = album.title,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
@@ -296,50 +262,24 @@ private fun AlbumItem(
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = album.name,
+                    text = album.title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "${
-                        album.albumType?.replaceFirstChar {
-                            if (it.isLowerCase()) it.titlecase(
-                                java.util.Locale.getDefault()
-                            ) else it.toString()
-                        } ?: "Album"
-                    } • ${album.releaseDate?.take(4) ?: ""} • ${album.totalTracks ?: 0} tracks",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                val year = album.raw.text("year")
+                if (year.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = year,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
-}
-
-private fun formatNumber(num: Int): String {
-    return when {
-        num >= 1_000_000 -> "${num / 1_000_000}M"
-        num >= 1_000 -> "${num / 1_000}K"
-        else -> num.toString()
-    }
-}
-
-private fun formatDuration(durationMs: Int): String {
-    val totalSeconds = durationMs / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
-}
-
-// Helper to pick best available image (prefer 640x640)
-private fun bestImageUrl(images: List<SpotifyImage>?): String? {
-    if (images.isNullOrEmpty()) return null
-    images.find { (it.height == 640 || it.width == 640) }?.let { return it.url }
-    return images.maxByOrNull { (it.height ?: 0) * (it.width ?: 0) }?.url
 }

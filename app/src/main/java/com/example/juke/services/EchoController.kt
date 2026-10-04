@@ -1,0 +1,339 @@
+package com.example.juke.services
+
+import android.content.SharedPreferences
+import android.os.SystemClock
+import android.util.Log
+import com.example.juke.models.Track
+import com.example.juke.network.Backend
+import com.example.juke.network.BackendAuthException
+import com.example.juke.network.BrowseParser
+import com.example.juke.network.array
+import com.example.juke.network.flag
+import com.example.juke.network.metadata
+import com.example.juke.network.number
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.network.toTrack
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+data class EchoDevice(val serial: String, val name: String, val online: Boolean)
+
+/**
+ * Echo playback through the server's web-remote endpoints: device list, now-playing polling
+ * (every 3 s while the app is open, 10 s in the background, like the web remote), transport,
+ * volume and the shared queue.
+ */
+class EchoController(
+    private val scope: CoroutineScope,
+    private val prefs: SharedPreferences,
+    private val onError: (String) -> Unit,
+    private val onSignedOut: () -> Unit
+) {
+    private val _devices = MutableStateFlow<List<EchoDevice>>(emptyList())
+    val devices: StateFlow<List<EchoDevice>> = _devices.asStateFlow()
+
+    private val _serial = MutableStateFlow(prefs.getString(KEY_SERIAL, "").orEmpty())
+    val serial: StateFlow<String> = _serial.asStateFlow()
+
+    /** Amazon session on the server: null until known. */
+    private val _amazonConnected = MutableStateFlow<Boolean?>(null)
+    val amazonConnected: StateFlow<Boolean?> = _amazonConnected.asStateFlow()
+
+    private val _state = MutableStateFlow(EchoState())
+    val state: StateFlow<EchoState> = _state.asStateFlow()
+
+    private var pollJob: Job? = null
+    private var pollIntervalMs = 0L
+    private val pollLock = Mutex()
+    private var lastVolumeRefresh = 0L
+    private var likedVersion: Long? = null
+
+    // Volume slider: a drag is debounced, and server echoes are ignored for a grace window so
+    // a stale poll can't snap the slider back (same rules as the web remote).
+    private var volumeJob: Job? = null
+    private var volumeGraceUntil = 0L
+    private var volumeSeq = 0
+
+    val selectedDevice: EchoDevice? get() = _devices.value.firstOrNull { it.serial == _serial.value }
+
+    /** Load the Echo list and the current now-playing in one request. */
+    suspend fun loadDevices(): Boolean {
+        val saved = _serial.value
+        val init = Backend.get("/alexa/init/", if (saved.isNotBlank()) mapOf("serial" to saved) else emptyMap()).objectOrEmpty()
+        val loggedIn = init["status"].objectOrEmpty().flag("logged_in")
+        _amazonConnected.value = loggedIn
+        val list = init.array("devices").map { it.objectOrEmpty() }.map {
+            EchoDevice(it.text("serial"), it.text("name").ifBlank { it.text("serial") }, it.flag("online"))
+        }.filter { it.serial.isNotBlank() }
+        _devices.value = list
+        val chosen = list.firstOrNull { it.serial == saved }?.serial ?: init.text("serial").ifBlank { list.firstOrNull()?.serial.orEmpty() }
+        if (chosen != _serial.value) setSerial(chosen)
+        init["now_playing"]?.let { np -> if (np is JsonObject) apply(np) }
+        return loggedIn && list.isNotEmpty()
+    }
+
+    fun select(serial: String) {
+        if (serial == _serial.value) return
+        setSerial(serial)
+        _state.value = EchoState()
+        scope.launch { safely { refresh(force = true) } }
+    }
+
+    private fun setSerial(serial: String) {
+        _serial.value = serial
+        prefs.edit().putString(KEY_SERIAL, serial).apply()
+    }
+
+    /** Poll now-playing while the app is visible ([foreground]) or slower in the background. */
+    fun startPolling(foreground: Boolean) {
+        val interval = if (foreground) 3_000L else 10_000L
+        if (pollJob?.isActive == true && pollIntervalMs == interval) return
+        pollJob?.cancel()
+        pollIntervalMs = interval
+        pollJob = scope.launch {
+            while (isActive) {
+                try {
+                    refresh()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: BackendAuthException) {
+                    onSignedOut()
+                    return@launch
+                } catch (e: Exception) {
+                    Log.w(TAG, "Now-playing poll failed: ${e.message}")
+                }
+                delay(interval)
+            }
+        }
+    }
+
+    fun stopPolling() {
+        pollJob?.cancel()
+        pollJob = null
+        pollIntervalMs = 0
+    }
+
+    /** One now-playing poll (and a volume read every 15 s). */
+    suspend fun refresh(force: Boolean = false) = pollLock.withLock {
+        val serial = _serial.value.ifBlank { return@withLock }
+        val np = Backend.get("/alexa/now_playing/", mapOf("serial" to serial)).objectOrEmpty()
+        if (serial != _serial.value) return@withLock
+        apply(np)
+        if (np["liked_version"] is JsonPrimitive) {
+            val version = np.number("liked_version")
+            if (version != likedVersion) {
+                AccountRepository.refreshLiked()
+                likedVersion = version
+            }
+        }
+        np["playback_error"].objectOrEmpty().text("message").takeIf { it.isNotBlank() }?.let(onError)
+        val now = SystemClock.elapsedRealtime()
+        if (force || now - lastVolumeRefresh > 15_000) {
+            lastVolumeRefresh = now
+            runCatching {
+                val volume = Backend.get("/alexa/volume/", mapOf("serial" to serial)).objectOrEmpty()
+                val value = (volume["volume"] as? JsonPrimitive)?.intOrNull
+                if (value != null && SystemClock.elapsedRealtime() >= volumeGraceUntil) {
+                    _state.update { it.copy(volume = value.coerceIn(0, 100)) }
+                }
+            }
+        }
+    }
+
+    private fun apply(np: JsonObject) {
+        val now = SystemClock.elapsedRealtime()
+        _state.update { old -> parseEchoSnapshot(np, now, old.volume, now < volumeGraceUntil) }
+    }
+
+    private fun requireSerial(): String =
+        _serial.value.ifBlank { throw IllegalStateException("Choose an Echo device first") }
+
+    private suspend fun send(path: String, body: JsonObject) {
+        Backend.post(path, body)
+    }
+
+    suspend fun command(action: String) {
+        send("/alexa/command/", buildJsonObject { put("serial", requireSerial()); put("action", action) })
+        // Show the change at once; the next poll confirms it.
+        if (action == "play" || action == "pause") {
+            _state.update { it.copy(playing = action == "play", positionMs = it.livePosition(), anchoredAt = SystemClock.elapsedRealtime()) }
+        }
+        refreshSoon()
+    }
+
+    suspend fun seek(positionMs: Long) {
+        send("/alexa/seek/", buildJsonObject { put("serial", requireSerial()); put("position_ms", positionMs) })
+        _state.update { it.copy(positionMs = positionMs, anchoredAt = SystemClock.elapsedRealtime()) }
+        refreshSoon()
+    }
+
+    /** Volume slider: shows the value at once, sends the last value of a drag after 220 ms. */
+    fun setVolume(volume: Int) {
+        val value = volume.coerceIn(0, 100)
+        val serial = _serial.value.ifBlank { return }
+        val seq = ++volumeSeq
+        volumeGraceUntil = SystemClock.elapsedRealtime() + VOLUME_GRACE_MS
+        _state.update { it.copy(volume = value) }
+        volumeJob?.cancel()
+        volumeJob = scope.launch {
+            delay(220)
+            try {
+                send("/alexa/command/", buildJsonObject {
+                    put("serial", serial); put("action", "volume"); put("value", value)
+                })
+                if (seq == volumeSeq) volumeGraceUntil = SystemClock.elapsedRealtime() + VOLUME_GRACE_MS
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (seq != volumeSeq) return@launch
+                volumeGraceUntil = 0
+                onError(e.message ?: "Couldn't change the volume")
+                lastVolumeRefresh = 0
+                safely { refresh(force = true) }
+            }
+        }
+    }
+
+    /** Replace the Echo queue with [tracks] and start at [index]. */
+    suspend fun playQueue(tracks: List<Track>, index: Int) {
+        val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
+        val start = tracks.getOrNull(index)
+        require(playable.isNotEmpty()) { "Nothing to play" }
+        send("/alexa/play_queue/", buildJsonObject {
+            put("serial", requireSerial())
+            put("queue_items", JsonArray(playable.map { it.metadata() }))
+            put("start_index", playable.indexOf(start).coerceAtLeast(0))
+            start?.ytVideoId?.let { put("target_video_id", it) }
+            put("suppress_radio", playable.size > 1)
+        })
+        refreshSoon()
+    }
+
+    /** Play one song; the server keeps the queue going with its radio ([radio] forces a new one). */
+    suspend fun playSong(track: Track, radio: Boolean) {
+        send("/alexa/play_queue/", JsonObject(track.metadata() + mapOf(
+            "serial" to JsonPrimitive(requireSerial()),
+            "force_radio" to JsonPrimitive(radio)
+        )))
+        refreshSoon()
+    }
+
+    /** Jump to a song already in the Echo queue. */
+    suspend fun playQueueIndex(track: Track, index: Int) {
+        send("/alexa/play_queue/", JsonObject(track.metadata() + mapOf(
+            "serial" to JsonPrimitive(requireSerial()),
+            "queue_index" to JsonPrimitive(index)
+        )))
+        refreshSoon()
+    }
+
+    suspend fun playPlaylist(playlistId: String) {
+        send("/alexa/play_queue/", buildJsonObject {
+            put("serial", requireSerial()); put("playlist_id", playlistId)
+        })
+        refreshSoon()
+    }
+
+    suspend fun queueAdd(tracks: List<Track>, next: Boolean) {
+        val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
+        if (playable.isEmpty()) return
+        val body = if (playable.size == 1) JsonObject(playable.single().metadata() + mapOf(
+            "serial" to JsonPrimitive(requireSerial()),
+            "position" to JsonPrimitive(if (next) "next" else "last")
+        )) else buildJsonObject {
+            put("serial", requireSerial())
+            put("position", if (next) "next" else "last")
+            put("queue_items", JsonArray(playable.map { it.metadata() }))
+        }
+        send("/alexa/queue_add/", body)
+        refreshSoon()
+    }
+
+    suspend fun queueRemove(index: Int, videoId: String?) {
+        send("/alexa/queue_remove/", buildJsonObject {
+            put("serial", requireSerial()); put("index", index)
+            videoId?.let { put("video_id", it) }
+        })
+        refreshSoon()
+    }
+
+    suspend fun queueReorder(from: Int, to: Int) {
+        send("/alexa/queue_reorder/", buildJsonObject {
+            put("serial", requireSerial()); put("from_index", from); put("to_index", to)
+        })
+        refreshSoon()
+    }
+
+    suspend fun shuffle() {
+        send("/alexa/shuffle_queue/", buildJsonObject { put("serial", requireSerial()) })
+        refreshSoon()
+    }
+
+    /** Wait until the Echo confirms it is playing [videoId] (used when moving playback to it). */
+    suspend fun awaitPlaying(videoId: String, timeoutMs: Long = 45_000): Boolean =
+        withTimeoutOrNull(timeoutMs) {
+            var confirmed = false
+            while (!confirmed) {
+                refresh()
+                val s = _state.value
+                confirmed = s.confirmed && s.track?.ytVideoId == videoId
+                if (!confirmed) delay(1_000)
+            }
+            true
+        } ?: false
+
+    private fun refreshSoon() {
+        scope.launch {
+            delay(600)
+            safely { refresh() }
+        }
+    }
+
+    private suspend fun safely(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: BackendAuthException) {
+            onSignedOut()
+        } catch (e: Exception) {
+            Log.w(TAG, "Echo refresh failed: ${e.message}")
+        }
+    }
+
+    fun clear() {
+        stopPolling()
+        volumeJob?.cancel()
+        volumeSeq++
+        volumeGraceUntil = 0
+        lastVolumeRefresh = 0
+        likedVersion = null
+        _devices.value = emptyList()
+        _amazonConnected.value = null
+        _state.value = EchoState()
+    }
+
+    companion object {
+        private const val TAG = "EchoController"
+        private const val KEY_SERIAL = "echo_serial"
+        private const val VOLUME_GRACE_MS = 4_000L
+    }
+}

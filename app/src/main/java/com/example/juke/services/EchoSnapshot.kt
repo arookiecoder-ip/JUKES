@@ -1,0 +1,61 @@
+package com.example.juke.services
+
+import android.os.SystemClock
+import com.example.juke.models.Track
+import com.example.juke.network.BrowseParser
+import com.example.juke.network.array
+import com.example.juke.network.flag
+import com.example.juke.network.number
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.network.toTrack
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
+
+/** What the selected Echo is playing, as the server reports it. */
+data class EchoState(
+    val track: Track? = null,
+    val queue: List<Track> = emptyList(),
+    val index: Int = -1,
+    val playing: Boolean = false,
+    /** Position when the snapshot arrived, and the [SystemClock.elapsedRealtime] it arrived at. */
+    val positionMs: Long = 0,
+    val anchoredAt: Long = 0,
+    val durationMs: Long = 0,
+    val volume: Int? = null,
+    val confirmed: Boolean = false
+) {
+    /** Live position: the server anchor plus the time since, while playing (like the web progress bar). */
+    fun livePosition(now: Long = SystemClock.elapsedRealtime()): Long {
+        val elapsed = if (playing && confirmed) (now - anchoredAt).coerceAtLeast(0) else 0
+        val position = positionMs + elapsed
+        return if (durationMs > 0) position.coerceAtMost(durationMs) else position
+    }
+}
+
+/** Decode the shared web-remote snapshot without turning unknown fields into real values. */
+internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, preserveVolume: Boolean): EchoState {
+    val queue = np.array("queue").mapIndexedNotNull { i, raw ->
+        val item = BrowseParser.item(raw.objectOrEmpty())
+        item.takeIf { it.videoId.isNotBlank() }?.toTrack()?.copy(uuid = "echo:$i:${item.videoId}")
+    }
+    val index = (np["queue_index"] as? JsonPrimitive)?.intOrNull ?: -1
+    val videoId = np.text("video_id")
+    val track = queue.getOrNull(index)?.takeIf { it.ytVideoId == videoId }
+        ?: videoId.takeIf { it.isNotBlank() }?.let {
+            BrowseParser.item(np).toTrack().copy(uuid = "echo:current:$it", ytVideoId = it)
+        }
+    val volume = (np["volume"] as? JsonPrimitive)?.intOrNull?.coerceIn(0, 100)
+    return EchoState(
+        track = track,
+        queue = queue,
+        index = if (track != null && queue.getOrNull(index)?.uuid == track.uuid) index else -1,
+        playing = np.flag("playing"),
+        positionMs = np.number("position_ms").coerceAtLeast(0),
+        anchoredAt = now,
+        durationMs = np.number("duration_ms").takeIf { it > 0 } ?: (track?.durationSec?.times(1000L) ?: 0),
+        volume = if (preserveVolume) previousVolume else volume ?: previousVolume,
+        confirmed = np.flag("playback_confirmed")
+    )
+}

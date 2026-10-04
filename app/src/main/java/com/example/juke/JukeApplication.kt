@@ -12,16 +12,7 @@ class JukeApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
-        // Continue any Spotify import that was cut off when the app was closed, and again each time
-        // the app comes back to the foreground (the process may have been kept alive with its
-        // network blocked, which parks the import).
-        val imports = com.example.juke.services.PlaylistImportManager.get(this)
-        imports.resume()
-        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
-            object : androidx.lifecycle.DefaultLifecycleObserver {
-                override fun onStart(owner: androidx.lifecycle.LifecycleOwner) = imports.resume()
-            }
-        )
+        com.example.juke.network.Backend.init(this)
     }
 
     override fun newImageLoader(): ImageLoader {
@@ -35,7 +26,7 @@ class JukeApplication : Application(), ImageLoaderFactory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    // Increased from 2% → 5% so Spotify CDN thumbnails survive across sessions
+                    // Increased from 2% → 5% so album thumbnails survive across sessions
                     .maxSizePercent(0.05)
                     .build()
             }

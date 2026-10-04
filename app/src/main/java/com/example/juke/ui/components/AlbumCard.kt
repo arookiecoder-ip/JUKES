@@ -24,12 +24,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyAlbum
+import com.example.juke.network.BrowseItem
 import com.example.juke.utils.rememberJukeHaptics
 
 @Composable
 fun AlbumCard(
-    album: SpotifyAlbum,
+    album: BrowseItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -45,8 +45,8 @@ fun AlbumCard(
             .padding(bottom = 4.dp)
     ) {
         AsyncImage(
-            model = album.images.firstOrNull()?.url ?: "",
-            contentDescription = album.name,
+            model = album.image,
+            contentDescription = album.title,
             modifier = Modifier
                 .size(148.dp)
                 .clip(RoundedCornerShape(14.dp)),
@@ -54,14 +54,14 @@ fun AlbumCard(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = album.name,
+            text = album.title,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = "${album.artists.firstOrNull()?.name ?: "Unknown Artist"} • ${album.totalTracks} tracks",
+            text = album.subtitle.ifBlank { "Album" },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
