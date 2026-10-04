@@ -7,6 +7,20 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import com.example.juke.models.Track
+import kotlin.math.abs
+import kotlin.math.sign
+import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -124,7 +138,15 @@ fun MiniPlayer(
     }
 
     if (currentTrack != null) {
-        var offsetX by remember { mutableFloatStateOf(0f) }
+        // Live drag offset of the card; animates off-screen on a committed swipe and back on a cancel.
+        val offsetX = remember { Animatable(0f) }
+        var cardWidthPx by remember { mutableFloatStateOf(0f) }
+        val swipeScope = rememberCoroutineScope()
+        val currentUuid by rememberUpdatedState(currentTrack.uuid)
+        val queue = uiState.queue
+        val queueIdx = uiState.queueIndex
+        val nextTrack = queue.getOrNull(queueIdx + 1)
+        val prevTrack = queue.getOrNull(queueIdx - 1)
 
         var romanizedSyncedLyrics by remember(
             currentTrack.uuid,
@@ -226,25 +248,52 @@ fun MiniPlayer(
                     haptic.click()
                     onExpand()
                 }
+                .onSizeChanged { cardWidthPx = it.width.toFloat() }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (offsetX < -100f) {
+                            swipeScope.launch {
+                                val w = cardWidthPx
+                                val x = offsetX.value
+                                val commit = abs(x) > maxOf(100f, w * 0.25f)
+                                if (!commit) {
+                                    offsetX.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 500f))
+                                    return@launch
+                                }
+                                val toNext = x < 0f
+                                val neighbor = if (toNext) nextTrack else prevTrack
                                 haptic.click()
-                                musicViewModel.skipToNext()
-                            } else if (offsetX > 100f) {
-                                haptic.click()
-                                musicViewModel.skipToPrevious()
+                                if (neighbor == null) {
+                                    // Nothing to glide to (queue edge): act, then settle back.
+                                    if (toNext) musicViewModel.skipToNext() else musicViewModel.skipToPrevious()
+                                    offsetX.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 400f))
+                                    return@launch
+                                }
+                                // Glide the current card out; the neighbour card glides in behind it.
+                                val before = currentUuid
+                                offsetX.animateTo(if (toNext) -w else w, tween(190, easing = FastOutSlowInEasing))
+                                if (toNext) musicViewModel.skipToNext() else musicViewModel.skipToPrevious()
+                                // Hold the neighbour in place until the real card shows the new track.
+                                withTimeoutOrNull(900) { snapshotFlow { currentUuid }.first { it != before } }
+                                offsetX.snapTo(0f)
                             }
-                            offsetX = 0f
                         },
-                        onHorizontalDrag = { _, dragAmount ->
-                            offsetX += dragAmount
+                        onDragCancel = { swipeScope.launch { offsetX.animateTo(0f) } },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            // Rubber-band when there is no track on that side.
+                            val toNext = offsetX.value + dragAmount < 0f
+                            val hasNeighbor = if (toNext) nextTrack != null else prevTrack != null
+                            val amount = if (hasNeighbor) dragAmount else dragAmount * 0.35f
+                            swipeScope.launch { offsetX.snapTo(offsetX.value + amount) }
                         }
                     )
                 }
         ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationX = offsetX.value }
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -422,6 +471,84 @@ fun MiniPlayer(
                     )
                 }
             }
+
+            // The track a swipe is gliding to, sliding in from the side the card is leaving.
+            // Only the drag direction is read here, so the frame-by-frame offset never recomposes this.
+            val direction by remember { derivedStateOf { sign(offsetX.value) } }
+            val glideTo = if (direction < 0f) nextTrack else if (direction > 0f) prevTrack else null
+            if (glideTo != null && cardWidthPx > 0f) {
+                MiniPlayerGlideCard(
+                    track = glideTo,
+                    isPlaying = isPlaying,
+                    modifier = Modifier.graphicsLayer {
+                        translationX = offsetX.value + if (offsetX.value < 0f) cardWidthPx else -cardWidthPx
+                    }
+                )
+            }
         }
+    }
+}
+
+/** Static preview of a neighbouring track, laid out exactly like the live mini player row. */
+@Composable
+private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(46.dp).clip(RoundedCornerShape(18.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (track.thumbnailUri != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(track.thumbnailUri)
+                        .memoryCacheKey(track.thumbnailUri)
+                        .diskCacheKey(track.thumbnailUri)
+                        .build(),
+                    contentDescription = track.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = track.artist,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(
+            imageVector = if (track.isFavourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            contentDescription = null,
+            tint = if (track.isFavourite) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
+            modifier = Modifier.padding(10.dp).size(20.dp)
+        )
+        Icon(
+            painter = painterResource(
+                if (isPlaying) com.example.juke.R.drawable.baseline_pause_24
+                else com.example.juke.R.drawable.baseline_play_24
+            ),
+            contentDescription = null,
+            modifier = Modifier.padding(8.dp).size(24.dp),
+            tint = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
