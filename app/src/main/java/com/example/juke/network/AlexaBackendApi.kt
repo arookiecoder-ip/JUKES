@@ -66,7 +66,9 @@ object AlexaBackendApi {
         client: HttpClient = ApiClient.httpClient
     ): SpotifyApi.DirectDownloadRequest {
         check(isConfigured) { "Backend not configured" }
-        val query = "$title $artist"
+        // Title + main artist: every featured artist in the query pulls in their other songs.
+        val mainArtist = artist.split(", ").first()
+        val query = "$title $mainArtist"
         val expected = durationSec?.takeIf { it > 0 }
 
         if (hasAudioEndpoint != false) {
@@ -83,6 +85,10 @@ object AlexaBackendApi {
                     hasAudioEndpoint = true
                     val info = json.parseToJsonElement(body).jsonObject
                     val videoId = info.string("video_id") ?: error("Backend returned no video_id")
+                    // The server picks by length only; make sure it is the same song.
+                    check(isSameSong(info, title, artist)) {
+                        "Backend match '${info.string("title")}' by ${info.string("artist")} is not '$title'"
+                    }
                     val foundSec = (info["duration_ms"]?.jsonPrimitive?.intOrNull ?: 0) / 1000
                     checkLength(foundSec, expected, videoId)
                     return audioRequest(videoId, live)
@@ -95,7 +101,7 @@ object AlexaBackendApi {
                 else -> error("Backend /audio/ HTTP ${response.status.value}: ${body.take(120)}")
             }
         }
-        return legacyRequest(query, title, expected, client)
+        return legacyRequest(query, title, artist, expected, client)
     }
 
     private fun audioRequest(videoId: String, live: Boolean): SpotifyApi.DirectDownloadRequest {
@@ -110,6 +116,7 @@ object AlexaBackendApi {
     private suspend fun legacyRequest(
         query: String,
         title: String,
+        artist: String,
         expected: Int?,
         client: HttpClient
     ): SpotifyApi.DirectDownloadRequest {
@@ -120,7 +127,8 @@ object AlexaBackendApi {
         check(search.status.value == 200) { "Backend search HTTP ${search.status.value}" }
         val songs = json.parseToJsonElement(search.bodyAsText()).jsonObject["songs"]?.jsonArray
             ?.mapNotNull { it as? JsonObject }.orEmpty()
-        val pick = pickSong(songs.take(8), title, expected) ?: error("Backend found no match for '$query'")
+        val pick = pickSong(songs.take(20), title, artist, expected)
+            ?: error("Backend search has no '$title' by $artist") // next source takes over
         val videoId = pick.string("video_id")!!
         checkLength((pick["duration_ms"]?.jsonPrimitive?.intOrNull ?: 0) / 1000, expected, videoId)
 
@@ -135,27 +143,45 @@ object AlexaBackendApi {
     }
 
     /**
-     * Best search hit for [title]: a length within tolerance when the server reports one, then
-     * the first hit that isn't a remix/slowed/live/... rendition the title didn't ask for.
+     * The search hit that is this song, or null. Search ranking is popularity-driven: other songs
+     * by a featured artist, or another song with the same name, often come first. So a hit must
+     * carry the Spotify title and at least one of its artists, must not be a remix/slowed/live/...
+     * rendition the title didn't ask for, and must not have a clearly different length when the
+     * server reports one. Among those, a length match wins, then search order.
      */
-    internal fun pickSong(songs: List<JsonObject>, title: String, expected: Int?): JsonObject? {
-        val candidates = songs.filter { !it.string("video_id").isNullOrBlank() }
-        if (candidates.isEmpty()) return null
+    internal fun pickSong(songs: List<JsonObject>, title: String, artist: String, expected: Int?): JsonObject? {
         val wanted = title.lowercase()
-        fun isVariant(song: JsonObject): Boolean {
+        val tolerance = expected?.let { maxOf(8, it * 7 / 100) }
+        fun seconds(song: JsonObject) = (song["duration_ms"]?.jsonPrimitive?.intOrNull ?: 0) / 1000
+        val matches = songs.filter { song ->
             val name = song.string("title").orEmpty().lowercase()
-            return VARIANT_WORDS.any { it in name && it !in wanted }
+            val sec = seconds(song)
+            !song.string("video_id").isNullOrBlank() &&
+                isSameSong(song, title, artist) &&
+                VARIANT_WORDS.none { it in name && it !in wanted } &&
+                (expected == null || tolerance == null || sec <= 0 || abs(sec - expected) <= tolerance)
         }
-        val plain = candidates.filterNot(::isVariant).ifEmpty { candidates }
-        if (expected != null) {
-            val tolerance = maxOf(8, expected * 7 / 100)
-            plain.firstOrNull { song ->
-                val sec = (song["duration_ms"]?.jsonPrimitive?.intOrNull ?: 0) / 1000
-                sec > 0 && abs(sec - expected) <= tolerance
-            }?.let { return it }
-        }
-        return plain.first()
+        return matches.firstOrNull { tolerance != null && seconds(it) > 0 } ?: matches.firstOrNull()
     }
+
+    /** Same title (ignoring "(feat. …)", "[…]" and punctuation) and at least one shared artist. */
+    internal fun isSameSong(song: JsonObject, title: String, artist: String): Boolean {
+        // Spotify's " - Remastered 2011" / " - Radio Edit" suffix is not part of the name. (Only on
+        // the Spotify side: uploads use "Artist - Song".)
+        val coreTitle = words(stripExtras(title.substringBefore(" - "))).ifBlank { words(title) }
+        if (coreTitle.isBlank()) return false
+        // Uploads often put the artist in the title ("Artist - Song ft X"), so look at both.
+        val hitTitle = words(stripExtras(song.string("title").orEmpty()))
+        if (" $coreTitle " !in " $hitTitle ") return false
+        val credits = " " + words(song.string("artist").orEmpty() + " " + song.string("title").orEmpty()) + " "
+        return artist.split(", ").map(::words).any { it.length >= 2 && " $it " in credits }
+    }
+
+    private val BRACKETS = Regex("""[(\[][^)\]]*[)\]]""")
+    private val FEATURING = Regex("""\b(feat|ft|featuring)\b.*""", RegexOption.IGNORE_CASE)
+    private val NON_WORD = Regex("""[^\p{L}\p{N}]+""")
+    private fun stripExtras(text: String) = FEATURING.replace(BRACKETS.replace(text, " "), " ")
+    private fun words(text: String) = NON_WORD.replace(text.lowercase(), " ").trim()
 
     /** Reject a clearly different version before downloading anything (0 = server didn't say). */
     private fun checkLength(foundSec: Int, expected: Int?, videoId: String) {
