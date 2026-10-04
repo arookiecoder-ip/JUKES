@@ -1,12 +1,15 @@
 package com.example.juke.ui.components
 
 import android.annotation.SuppressLint
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,12 +23,17 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.example.juke.ui.theme.LocalGlassAccent
+import com.example.juke.ui.theme.isGlassDark
 import com.example.juke.utils.rememberJukeHaptics
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,66 +83,69 @@ fun SwipeToAddNextContainer(
         }
     )
 
+    val shape = RoundedCornerShape(12.dp)
+    val dark = isGlassDark()
+    val accent = LocalGlassAccent.current
+
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromEndToStart = onDelete != null,
         backgroundContent = {
-            // Right swipe background (Add Next)
-            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Add next",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = "Add to queue next",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
+            // No opaque fill: a tinted glow that lights up from behind the sliding glass card.
+            val direction = dismissState.dismissDirection
+            val glow = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
+                SwipeToDismissBoxValue.EndToStart -> if (onDelete != null) MaterialTheme.colorScheme.error else null
+                else -> null
             }
-            // Left swipe background (Delete) - only show if onDelete is provided
-            else if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart && onDelete != null) {
+            if (glow != null) {
+                val toEnd = direction == SwipeToDismissBoxValue.StartToEnd
+                val strength = dismissState.progress.coerceIn(0f, 1f)
+                val onGlow = if (dark) Color.White else MaterialTheme.colorScheme.onSurface
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.errorContainer),
-                    contentAlignment = Alignment.CenterEnd
+                        .clip(shape)
+                        .background(
+                            Brush.horizontalGradient(
+                                if (toEnd) listOf(glow.copy(alpha = 0.55f * strength + 0.15f), glow.copy(alpha = 0.04f))
+                                else listOf(glow.copy(alpha = 0.04f), glow.copy(alpha = 0.55f * strength + 0.15f))
+                            )
+                        ),
+                    contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd
                 ) {
                     Row(
-                        modifier = Modifier.padding(end = 20.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = "Delete",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        if (toEnd) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = "Add next", tint = onGlow)
+                            Text("Add to queue next", style = MaterialTheme.typography.bodyLarge, color = onGlow)
+                        } else {
+                            Text("Delete", style = MaterialTheme.typography.bodyLarge, color = onGlow)
+                            Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = onGlow)
+                        }
                     }
                 }
             }
         },
-        content = content,
+        content = {
+            // The row turns into tinted glass as it is dragged, so the glow reads through it.
+            val dragging = dismissState.dismissDirection != SwipeToDismissBoxValue.Settled
+            val glass by animateFloatAsState(
+                targetValue = if (dragging) 1f else 0f,
+                label = "swipeGlass"
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(accent.copy(alpha = (if (dark) 0.16f else 0.10f) * glass))
+                    .border(0.6.dp, Color.White.copy(alpha = (if (dark) 0.22f else 0.5f) * glass), shape),
+                content = content
+            )
+        },
         modifier = modifier
     )
 }
