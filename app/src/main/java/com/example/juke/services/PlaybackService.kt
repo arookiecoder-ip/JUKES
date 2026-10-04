@@ -24,6 +24,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.DefaultDataSource
@@ -84,6 +85,10 @@ class PlaybackService : MediaLibraryService() {
     private val TAG = "PlaybackService"
 
     companion object {
+        /** Audio prefs that decide whether offloaded (battery saver) playback can engage. */
+        private val OFFLOAD_KEYS = setOf(
+            "battery_saver_playback", "skip_silence_enabled", "booster_enabled", "normalization_enabled"
+        )
         private const val CUSTOM_COMMAND_TOGGLE_FAVORITE_ACTION_ID =
             "CUSTOM_COMMAND_TOGGLE_FAVORITE"
         private const val CUSTOM_COMMAND_DOWNLOAD_TRACK_ACTION_ID =
@@ -191,9 +196,26 @@ class PlaybackService : MediaLibraryService() {
                 queueManager.checkPreFetch(player.currentPosition, player.duration)
                 // Check if current track has reached 50% of total duration
                 this@PlaybackService.checkPlayCountThreshold()
-                progressHandler.postDelayed(this, 1000)
+                progressHandler.postDelayed(this, nextProgressCheckDelay())
             }
         }
+    }
+
+    /**
+     * Sleep until the next position that matters (50% play-count mark, 15 s pre-fetch window)
+     * instead of waking every second; capped so a missed event is never more than 10 s late.
+     */
+    private fun nextProgressCheckDelay(): Long {
+        val duration = player.duration
+        val position = player.currentPosition
+        if (duration <= 0) return 1_000L
+        val events = buildList {
+            if (currentPlayingTrackId !in tracksPlayCountedThisSession) add(duration / 2 - position)
+            add(duration - 15_000L - position)
+        }.filter { it > 0 }
+        val speed = player.playbackParameters.speed.coerceAtLeast(0.25f)
+        val untilNext = ((events.minOrNull() ?: 10_000L) / speed).toLong()
+        return untilNext.coerceIn(1_000L, 10_000L)
     }
 
     // Preference listener for skip silence 
@@ -205,7 +227,35 @@ class PlaybackService : MediaLibraryService() {
                 audioEffectController.edgeSilence.enabled = isEnabled
                 Log.d(TAG, "Skip silence (edges) enabled: $isEnabled")
             }
+            if (key in OFFLOAD_KEYS) applyOffloadPreference(prefs)
         }
+
+    /**
+     * Battery saver: hand compressed audio to the phone's audio DSP (offload) so the CPU can sleep
+     * between large buffers. Offloaded audio bypasses our PCM processors, so it only engages while
+     * skip-silence, boost and stable volume are all off; Media3 falls back to normal playback
+     * whenever the device or format can't offload.
+     */
+    @OptIn(UnstableApi::class)
+    private fun applyOffloadPreference(prefs: android.content.SharedPreferences) {
+        if (!::player.isInitialized) return
+        val allowed = prefs.getBoolean("battery_saver_playback", false) &&
+            !prefs.getBoolean("skip_silence_enabled", false) &&
+            !prefs.getBoolean("booster_enabled", false) &&
+            !prefs.getBoolean("normalization_enabled", false)
+        val offload = TrackSelectionParameters.AudioOffloadPreferences.Builder()
+            .setAudioOffloadMode(
+                if (allowed) TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
+                else TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
+            )
+            .setIsGaplessSupportRequired(false)
+            .setIsSpeedChangeSupportRequired(true)
+            .build()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setAudioOffloadPreferences(offload)
+            .build()
+        Log.d(TAG, "Audio offload ${if (allowed) "enabled" else "disabled"}")
+    }
 
     private lateinit var audioManager: AudioManager
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -258,7 +308,7 @@ class PlaybackService : MediaLibraryService() {
 
     private val resumeAfterCall = object : Runnable {
         override fun run() {
-            if (inCall()) mainHandler.postDelayed(this, 500)
+            if (inCall()) mainHandler.postDelayed(this, 1_500)
             else {
                 player.play()
                 Log.d(TAG, "Call ended - resumed")
@@ -475,6 +525,18 @@ class PlaybackService : MediaLibraryService() {
                 progressHandler.removeCallbacks(progressRunnable)
             }
         }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            // Seek or track change: the sleeping progress check was timed for the old position.
+            if (player.isPlaying) {
+                progressHandler.removeCallbacks(progressRunnable)
+                progressHandler.post(progressRunnable)
+            }
+        }
     }
 
     @OptIn(UnstableApi::class)
@@ -581,6 +643,8 @@ class PlaybackService : MediaLibraryService() {
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true) // ExoPlayer handles focus: pauses for calls, resumes after
             .setHandleAudioBecomingNoisy(true)
+            // Hold CPU + Wi-Fi locks only while playing, so streams keep loading with the screen off.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setLoadControl(loadControl) // <-- Apply the LoadControl here
             .build()
 
@@ -588,6 +652,7 @@ class PlaybackService : MediaLibraryService() {
         val prefs = getSharedPreferences("audio_effects_prefs", MODE_PRIVATE)
         audioEffectController.edgeSilence.enabled = prefs.getBoolean("skip_silence_enabled", false)
         prefs.registerOnSharedPreferenceChangeListener(audioSettingsListener)
+        applyOffloadPreference(prefs)
 
         player.addListener(callGuard)
 

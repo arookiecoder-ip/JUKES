@@ -11,6 +11,7 @@ import com.example.juke.models.Track
 import com.example.juke.models.withUpdatedLyrics
 import com.example.juke.network.ApiClient
 import com.example.juke.network.RecommenderApi
+import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.SpotsaverApi
 import com.example.juke.network.SpotifyApi
 import com.example.juke.utils.FastDownloader
@@ -41,10 +42,39 @@ class MusicService(private val context: Context) {
     private val trackDao = database.trackDao()
     private val sourceMemory = SourceMemory(context)
 
-    private fun Source.useGamepvz(): Boolean? = when (this) {
-        Source.SPOTSAVER -> null
-        Source.GAMEPVZ -> true
-        Source.SPOTMATE -> false
+    /**
+     * One provider's download request for [song]. [live] = for immediate streaming (the backend
+     * then streams a cache miss instead of finishing the file first, and Gamepvz uses its stream
+     * URL). A queued Spotmate conversion reports its task id to [onSpotmateQueued] and still throws.
+     */
+    private suspend fun requestFor(
+        source: Source,
+        song: SpotdownSong,
+        live: Boolean,
+        onSpotmateQueued: (String) -> Unit = {}
+    ): SpotifyApi.DirectDownloadRequest {
+        val durationSec = SpotifyApi.parseDuration(song.duration)
+        return when (source) {
+            Source.BACKEND -> AlexaBackendApi.getDownloadRequest(song.title, song.artist, durationSec, live)
+            Source.SPOTSAVER -> SpotsaverApi.getDownloadRequest(song.title, song.artist, durationSec)
+            Source.GAMEPVZ -> SpotifyApi.getGamepvzDownloadRequest(song.url).let {
+                if (live) it.copy(url = com.example.juke.network.gamepvzStreamUrl(it.url)) else it
+            }
+            Source.SPOTMATE -> try {
+                SpotifyApi.getSpotmateDownloadRequest(song.url)
+            } catch (e: SpotifyApi.SpotmateQueuedException) {
+                Log.w(TAG, "Spotmate conversion queued (taskId=${e.taskId}), trying alternate source")
+                onSpotmateQueued(e.taskId)
+                throw e
+            }
+        }
+    }
+
+    /** Per-source budget for a full download. The backend may run yt-dlp first (~10 s on its VPN). */
+    private fun downloadTimeoutMs(source: Source) = when (source) {
+        Source.BACKEND -> 60_000L
+        Source.SPOTSAVER -> 45_000L
+        else -> 90_000L
     }
 
     private fun generateUUID(): String {
@@ -108,27 +138,12 @@ class MusicService(private val context: Context) {
             else (System.currentTimeMillis() % 2L) == 0L
         var queuedSpotmateTaskId: String? = null
 
-        suspend fun downloadToTempFile(useGamepvz: Boolean?, lastSource: Boolean) {
+        suspend fun downloadToTempFile(source: Source, lastSource: Boolean) {
             if (tempFile.exists()) {
                 tempFile.delete()
             }
 
-            val request = if (useGamepvz == null) {
-                SpotsaverApi.getDownloadRequest(song.title, song.artist, SpotifyApi.parseDuration(song.duration))
-            } else if (useGamepvz) {
-                SpotifyApi.getGamepvzDownloadRequest(song.url)
-            } else {
-                try {
-                    SpotifyApi.getSpotmateDownloadRequest(song.url)
-                } catch (queuedEx: SpotifyApi.SpotmateQueuedException) {
-                    queuedSpotmateTaskId = queuedEx.taskId
-                    Log.w(
-                        TAG,
-                        "Spotmate stream conversion queued (taskId=${queuedEx.taskId}), trying alternate source"
-                    )
-                    throw queuedEx
-                }
-            }
+            val request = requestFor(source, song, live = false) { queuedSpotmateTaskId = it }
 
             FastDownloader.downloadSegmented(
                 url = request.url,
@@ -138,7 +153,7 @@ class MusicService(private val context: Context) {
                 probeRanges = request.probeRanges
             )
 
-            if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidMp3Header(tempFile)) {
+            if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidAudioHeader(tempFile)) {
                 throw Exception("Stream payload is too small")
             }
             verifyLength(tempFile, SpotifyApi.parseDuration(song.duration), lastSource)
@@ -150,8 +165,8 @@ class MusicService(private val context: Context) {
         var fetched = false
         for (source in order) {
             try {
-                withTimeout(if (source == Source.SPOTSAVER) 30_000L else 90_000L) {
-                    downloadToTempFile(source.useGamepvz(), lastSource = source == order.last())
+                withTimeout(if (source == Source.SPOTSAVER) 30_000L else downloadTimeoutMs(source)) {
+                    downloadToTempFile(source, lastSource = source == order.last())
                 }
                 sourceMemory.recordUsed(stableUuid, source)
                 fetched = true
@@ -257,13 +272,14 @@ class MusicService(private val context: Context) {
         }
     }
 
-    private fun isValidMp3Header(file: File): Boolean {
-        if (!file.exists() || file.length() < 3L) return false
+    /** MP3 (ID3 tag or frame sync), MP4/M4A (`ftyp` box) or WebM (EBML): what the sources serve. */
+    private fun isValidAudioHeader(file: File): Boolean {
+        if (!file.exists() || file.length() < 8L) return false
         return try {
             file.inputStream().use { input ->
-                val header = ByteArray(3)
+                val header = ByteArray(8)
                 val bytesRead = input.read(header)
-                if (bytesRead < 3) return@use false
+                if (bytesRead < 8) return@use false
 
                 val isID3 = header[0] == 0x49.toByte() &&
                         header[1] == 0x44.toByte() &&
@@ -272,7 +288,13 @@ class MusicService(private val context: Context) {
                 val isMP3Frame = header[0] == 0xFF.toByte() &&
                         (header[1].toInt() and 0xE0) == 0xE0
 
-                isID3 || isMP3Frame
+                val isMp4 = header[4] == 'f'.code.toByte() && header[5] == 't'.code.toByte() &&
+                        header[6] == 'y'.code.toByte() && header[7] == 'p'.code.toByte()
+
+                val isWebm = header[0] == 0x1A.toByte() && header[1] == 0x45.toByte() &&
+                        header[2] == 0xDF.toByte() && header[3] == 0xA3.toByte()
+
+                isID3 || isMP3Frame || isMp4 || isWebm
             }
         } catch (_: Exception) {
             false
@@ -285,7 +307,7 @@ class MusicService(private val context: Context) {
             return false
         }
 
-        if (!isValidMp3Header(streamFile)) {
+        if (!isValidAudioHeader(streamFile)) {
             return false
         }
 
@@ -363,35 +385,20 @@ class MusicService(private val context: Context) {
                 throw Exception("Invalid Spotify URL format")
             }
 
-            // Prefer Spotsaver; preserve the legacy fallback order.
+            // Backend (when configured), then Spotsaver; preserve the legacy fallback order.
             val useGamepvzFirst = (System.currentTimeMillis() % 2L) == 0L
             Log.d(
                 TAG,
-                "Downloading '${song.title}' — primary: Spotsaver"
+                "Downloading '${song.title}' — primary: ${if (AlexaBackendApi.isDownloadConfigured) "backend" else "Spotsaver"}"
             )
             var queuedSpotmateTaskId: String? = null
 
-            suspend fun trySource(useGamepvz: Boolean?, lastSource: Boolean = false) {
+            suspend fun trySource(source: Source, lastSource: Boolean = false) {
                 if (audioFile.exists()) {
                     audioFile.delete()
                 }
 
-                val request = if (useGamepvz == null) {
-                    SpotsaverApi.getDownloadRequest(song.title, song.artist, SpotifyApi.parseDuration(song.duration))
-                } else if (useGamepvz) {
-                    SpotifyApi.getGamepvzDownloadRequest(song.url)
-                } else {
-                    try {
-                        SpotifyApi.getSpotmateDownloadRequest(song.url)
-                    } catch (queuedEx: SpotifyApi.SpotmateQueuedException) {
-                        queuedSpotmateTaskId = queuedEx.taskId
-                        Log.w(
-                            TAG,
-                            "Spotmate conversion queued (taskId=${queuedEx.taskId}), trying alternate source"
-                        )
-                        throw queuedEx
-                    }
-                }
+                val request = requestFor(source, song, live = false) { queuedSpotmateTaskId = it }
 
                 FastDownloader.downloadSegmented(
                     url = request.url,
@@ -401,8 +408,8 @@ class MusicService(private val context: Context) {
                     probeRanges = request.probeRanges
                 )
 
-                if (!audioFile.exists() || audioFile.length() < 100_000L || !isValidMp3Header(audioFile)) {
-                    throw Exception("Downloaded file is too small to be a valid MP3")
+                if (!audioFile.exists() || audioFile.length() < 100_000L || !isValidAudioHeader(audioFile)) {
+                    throw Exception("Downloaded file is too small to be valid audio")
                 }
                 verifyLength(audioFile, durationSec, lastSource)
             }
@@ -413,8 +420,8 @@ class MusicService(private val context: Context) {
             var usedSource: Source? = null
             for (source in order) {
                 try {
-                    withTimeout(if (source == Source.SPOTSAVER) 45_000L else 90_000L) {
-                        trySource(source.useGamepvz(), lastSource = source == order.last())
+                    withTimeout(downloadTimeoutMs(source)) {
+                        trySource(source, lastSource = source == order.last())
                     }
                     usedSource = source
                     break
@@ -610,19 +617,14 @@ class MusicService(private val context: Context) {
                 val failures = mutableListOf<String>()
                 for (source in sourceMemory.order(songKey, gamepvzFirst = true)) {
                     try {
-                        found = withTimeout(if (source == Source.SPOTSAVER) 8_000L else 15_000L) {
+                        found = withTimeout(
                             when (source) {
-                                Source.SPOTSAVER -> SpotsaverApi.getDownloadRequest(song.title, song.artist, durationSec)
-                                Source.GAMEPVZ -> SpotifyApi.getGamepvzDownloadRequest(song.url).let {
-                                    it.copy(url = com.example.juke.network.gamepvzStreamUrl(it.url))
-                                }
-                                Source.SPOTMATE -> try {
-                                    SpotifyApi.getSpotmateDownloadRequest(song.url)
-                                } catch (e: SpotifyApi.SpotmateQueuedException) {
-                                    queuedSpotmateTaskId = e.taskId
-                                    throw e
-                                }
+                                Source.SPOTSAVER -> 8_000L
+                                Source.BACKEND -> 10_000L
+                                else -> 15_000L
                             }
+                        ) {
+                            requestFor(source, song, live = true) { queuedSpotmateTaskId = it }
                         }
                         resolvedSource = source
                         break
@@ -632,7 +634,17 @@ class MusicService(private val context: Context) {
                     }
                 }
                 found ?: throw Exception("Stream unavailable: ${failures.joinToString(", ")}")
-            } else preferNewProvider(
+            } else (if (AlexaBackendApi.isDownloadConfigured) {
+                // The backend is the first source: one search + a ready-to-stream URL.
+                try {
+                    withTimeout(10_000L) { requestFor(Source.BACKEND, song, live = true) }
+                        .also { resolvedSource = Source.BACKEND }
+                } catch (e: Exception) {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    Log.w(TAG, "Backend stream lookup failed (${e.message}); falling back to Spotsaver")
+                    null
+                }
+            } else null) ?: preferNewProvider(
                 primary = {
                     withTimeout(8_000L) { SpotsaverApi.getDownloadRequest(song.title, song.artist, SpotifyApi.parseDuration(song.duration)) }
                         .also { resolvedSource = Source.SPOTSAVER }
@@ -662,7 +674,9 @@ class MusicService(private val context: Context) {
             // Preserve the existing queued-conversion recovery when neither URL is ready.
             return trackFromLocalFile(resolveStreamToLocalFile(song, uuid, forceSpotmateFirst))
         }
-        if (looksLikePreview(resolvedRequest, durationSec)) {
+        // yt-dlp never serves previews, and a HEAD on the backend's live URL would start a second
+        // download there, so the backend skips this check (its result is length-checked anyway).
+        if (resolvedSource != Source.BACKEND && looksLikePreview(resolvedRequest, durationSec)) {
             // This source serves a ~30 s preview: remember that, and fetch a verified full file from the
             // remaining sources instead of streaming the clip.
             Log.w(TAG, "$resolvedSource returned a preview-sized file for '${song.title}'; switching source")
@@ -707,17 +721,22 @@ class MusicService(private val context: Context) {
                 val finalFile = File(streamDir, "${uuid}_stream.mp3")
                 val tempFile = File(streamDir, "${uuid}_stream.tmp")
 
+                // The backend's live URL has no length; ask for the finished file instead (the server
+                // waits for the stream that is already running, so yt-dlp doesn't run twice).
+                val bgRequest = if (resolvedSource == Source.BACKEND && "/audio/" in resolvedRequest.url) {
+                    resolvedRequest.copy(url = resolvedRequest.url + "&wait=1", probeRanges = true)
+                } else resolvedRequest
                 withTimeout(120_000L) {
                     FastDownloader.downloadSegmented(
-                        url = resolvedRequest.url,
+                        url = bgRequest.url,
                         outputFile = tempFile,
-                        headers = resolvedRequest.headers,
+                        headers = bgRequest.headers,
                         threads = 4,
-                        probeRanges = resolvedRequest.probeRanges
+                        probeRanges = bgRequest.probeRanges
                     )
                 }
 
-                if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidMp3Header(tempFile)) {
+                if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidAudioHeader(tempFile)) {
                     Log.w(TAG, "streamTrackInstant: background download invalid or too small, discarding")
                     tempFile.delete()
                     return@launch
@@ -772,8 +791,8 @@ class MusicService(private val context: Context) {
     suspend fun refetchTrack(track: Track): Track {
         val spotifyId = track.spotifyId ?: throw Exception("Cannot refetch: missing Spotify info")
         val songKey = RecommenderApi.songKey(track.title, track.artist)
-        // Without a record, the legacy default for a first pull is Spotsaver.
-        sourceMemory.avoid(songKey, sourceMemory.lastUsed(track.uuid) ?: Source.SPOTSAVER)
+        // Without a record, assume the first source in the default order produced it.
+        sourceMemory.avoid(songKey, sourceMemory.lastUsed(track.uuid) ?: sourceMemory.available.first())
 
         val song = SpotdownSong(
             title = track.title,
@@ -958,7 +977,7 @@ class MusicService(private val context: Context) {
         // Try to move the existing stream file locally instead of re-fetching
         val streamFileUsable = track.localUri?.let { uri ->
             val streamFile = File(uri)
-            if (streamFile.exists() && streamFile.length() > 100_000 && isValidMp3Header(streamFile)) {
+            if (streamFile.exists() && streamFile.length() > 100_000 && isValidAudioHeader(streamFile)) {
                 try {
                     // Copy to music dir (copy+delete is safer than rename across dirs)
                     streamFile.copyTo(permanentFile, overwrite = true)

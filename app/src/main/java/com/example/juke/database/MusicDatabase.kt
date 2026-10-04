@@ -6,7 +6,7 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
-import androidx.room.OnConflictStrategy
+import androidx.room.Upsert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RawQuery
@@ -368,10 +368,13 @@ fun Track.toEntity(): TrackEntity {
 @Dao
 interface TrackDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, never REPLACE: SQLite carries out REPLACE as delete + insert, and the delete
+    // cascades to playlist_tracks, so re-saving a track (lyrics, romanization, stream promoted to a
+    // download) silently removed it from every playlist.
+    @Upsert
     suspend fun insertTrack(track: TrackEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertTracks(tracks: List<TrackEntity>)
 
     @Query("SELECT * FROM tracks WHERE is_stream = 0 ORDER BY last_played_at DESC")

@@ -59,6 +59,17 @@ android {
             "ALEXA_API_KEY",
             "\"${properties.getProperty("ALEXA_API_KEY", "")}\""
         )
+        // Optional backend audio provider for Spotify tracks (independent of Alexa source mode).
+        buildConfigField(
+            "String",
+            "JUKE_BACKEND_URL",
+            "\"${properties.getProperty("JUKE_BACKEND_URL", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "JUKE_BACKEND_KEY",
+            "\"${properties.getProperty("JUKE_BACKEND_KEY", "")}\""
+        )
     }
 
     androidResources {
@@ -90,6 +101,22 @@ android {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
     }
+    packaging {
+        resources {
+            // Build metadata the app never reads at runtime.
+            excludes += setOf(
+                "META-INF/*.version",
+                "META-INF/*.kotlin_module",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            )
+        }
+    }
+    dependenciesInfo {
+        // Play-only dependency report; this APK is side-loaded from GitHub.
+        includeInApk = false
+        includeInBundle = false
+    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -120,7 +147,6 @@ dependencies {
 
     // Ktor
     implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.logging)
