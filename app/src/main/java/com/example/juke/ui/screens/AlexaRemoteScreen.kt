@@ -71,6 +71,13 @@ fun AlexaRemoteScreen(server: String, onSettings: () -> Unit, onPhoneMusic: () -
             remote.browserConsumed()
         }
     }
+    LaunchedEffect(state.accountCompleted) {
+        if(state.accountCompleted > 0 && accountBrowser != null) {
+            val url = requireNotNull(accountBrowser)
+            val cookies = android.webkit.CookieManager.getInstance().getCookie(server).orEmpty()
+            accountBrowser = null; remote.browserFinished(url,cookies)
+        }
+    }
     accountBrowser?.let { url -> AlexaAccountBrowser(server, url, browserCookies) { cookies ->
         accountBrowser = null; remote.browserFinished(url, cookies)
     } }
@@ -335,6 +342,7 @@ private fun remoteTime(ms: Long): String = "${ms / 60000}:${((ms / 1000) % 60).t
             Row(Modifier.horizontalScroll(rememberScrollState())) { TextButton(onClick = { remote.youtube("start") }) { Text("Reconnect YouTube") }; TextButton(onClick = { remote.youtube("status") }) { Text("Check login") }; TextButton(onClick = { remote.youtube("capture") }) { Text("Capture sign in") } }
             Row { TextButton(onClick = { remote.youtube("retry") }) { Text("Retry") }; TextButton(onClick = { remote.youtube("open-youtube") }) { Text("Open YouTube") }; TextButton(onClick = { remote.youtube("stop") }) { Text("Stop session") } }
         }
+        item { if(state.accountStatus.isNotBlank()) Text(state.accountStatus) }
         item { TextButton(onClick = remote::refreshProfile) { Text("Refresh account status") } }
     }
     if(signout) AlertDialog(onDismissRequest = { signout = false }, title = { Text("Disconnect Amazon?") }, text = { Text("This disconnects the account controlling all Echo devices on this server.") }, confirmButton = { TextButton(onClick = { remote.amazonSignOut(); signout = false }) { Text("Disconnect") } }, dismissButton = { TextButton(onClick = { signout = false }) { Text("Cancel") } })

@@ -18,7 +18,7 @@ data class AlexaRemoteState(
     val profile: JsonObject = JsonObject(emptyMap()), val jam: JsonObject = JsonObject(emptyMap()),
     val suggestions: List<String> = emptyList(), val liked: Set<String> = emptySet(),
     val busy: Boolean = false, val error: String? = null, val notice: String? = null, val authToken: String = "",
-    val browserUrl: String? = null, val canGoBack: Boolean = false, val qr: String = "", val guest: Boolean = false
+    val browserUrl: String? = null, val canGoBack: Boolean = false, val qr: String = "", val guest: Boolean = false, val accountStatus: String = "", val accountCompleted: Long = 0
 )
 
 class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
@@ -39,11 +39,14 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     private var connectionVersion = 0
     private val actionJobs = mutableSetOf<Job>()
     private var likedVersion = -1L
+    private var accountFlow = ""
+    private var accountPolls = 0
 
     fun configure(address: String) {
         val newKey = authPrefs.getString("api_key:$address", "").orEmpty()
         if (api != null && address == server && newKey == key) return
         poll?.cancel(); browse?.cancel(); actionJobs.toList().forEach { it.cancel() }; actionJobs.clear()
+        accountFlow = ""; accountPolls = 0
         api?.close(); version++; connectionVersion++; likedVersion = -1L
         server = AlexaRemotePolicy.server(address); key = newKey
         api = AlexaRemoteApi(server, key)
@@ -93,11 +96,24 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
         if (enabled) poll = viewModelScope.launch {
             while (isActive) {
                 delay(2500)
-                try { commands.withLock { refreshNow() } }
+                try { commands.withLock { refreshAccount(); refreshNow() } }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { _state.update { it.copy(error = e.message) }; delay(5000) }
             }
         }
+    }
+    private suspend fun refreshAccount() {
+        if(accountFlow.isBlank()) return
+        if(accountPolls++ >= 120) { accountFlow = ""; _state.update { it.copy(accountStatus = "Sign-in timed out. Retry from Accounts.") }; return }
+        val result = get(if(accountFlow == "amazon") "/alexa/proxy_check/" else "/api/youtube/browser-session/status").objectOrEmpty()
+        val connected = result.flag("logged_in") || result.text("state") == "connected"
+        val message = result.text("message", "error", "state").ifBlank { "Complete account sign in" }
+        _state.update { it.copy(accountStatus = if(connected) "Connected" else message) }
+        if(connected) {
+            accountFlow = ""
+            _state.update { it.copy(accountCompleted = it.accountCompleted + 1) }
+            initialize()
+        } else if(result.text("error").isNotBlank() || result.text("state") in listOf("unavailable", "reconnect_required", "idle")) accountFlow = ""
     }
     private suspend fun refreshNow() {
         val serial = _state.value.serial
@@ -271,12 +287,16 @@ class AlexaRemoteViewModel(app: Application) : AndroidViewModel(app) {
     fun logout() = launchAction { send("/logout/"); api?.close(); api = AlexaRemoteApi(server, key); _state.value = AlexaRemoteState(notice = "Owner signed out") }
     fun amazon(email: String, password: String) = launchAction {
         val result = send("/alexa/proxy_login/", buildJsonObject { put("email", email); put("password", password) }).objectOrEmpty()
-        _state.update { it.copy(browserUrl = result.text("login_url")) }
+        accountFlow = "amazon"; accountPolls = 0
+        _state.update { it.copy(browserUrl = result.text("login_url"), accountStatus = "Complete Amazon sign in") }
     }
     fun amazonSignOut() = launchAction { send("/alexa/amazon_signout/"); initialize() }
     fun youtube(action: String) = launchAction {
         val result = if(action == "status") get("/api/youtube/browser-session/status") else send("/api/youtube/browser-session/$action")
-        _state.update { it.copy(notice = result.objectOrEmpty().text("message", "status"), browserUrl = result.objectOrEmpty().text("url").takeIf(String::isNotBlank)) }
+        val data = result.objectOrEmpty()
+        if(action in listOf("start", "retry")) { accountFlow = "youtube"; accountPolls = 0 }
+        if(action == "stop" || data.text("state") == "connected") accountFlow = ""
+        _state.update { it.copy(notice = data.text("message", "state", "status"), accountStatus = data.text("message", "state", "status"), browserUrl = data.text("url").takeIf(String::isNotBlank)) }
         refreshProfileInternal()
     }
     suspend fun browserCookies(url: String): List<String> = requireNotNull(api).browserCookies(url)

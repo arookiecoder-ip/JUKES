@@ -36,7 +36,7 @@ fun AlexaAccountBrowser(server: String, url: String, cookies: List<String>, onCl
         val values = manager.getCookie(server).orEmpty()
         clearCookies(); onClose(values)
     }
-    DisposableEffect(Unit) { onDispose { browser?.stopLoading(); browser?.destroy() } }
+    DisposableEffect(Unit) { onDispose { browser?.stopLoading(); browser?.destroy(); clearCookies() } }
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
             Column {
