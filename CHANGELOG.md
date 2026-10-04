@@ -2,6 +2,23 @@
 
 ## Changelog
 
+## [2.3.4-beta] - 2026-10-04
+
+### Added
+
+- Liquid glass UI revamp with redesigned player, search, and library screens; reserve-based recommendations.
+- In-pipeline volume/bass boost with stable volume AGC, edge-only skip silence, playback speed, and queue status.
+- Call handling via audio focus and a shared audio controller.
+- Resumable Spotify playlist imports that survive app close and network loss.
+- Repeat-aware recommendations (daily plays), reseeding from recent songs when a radio runs dry, and offline recommendations scored from play statistics.
+
+### Fixed
+
+- Forward seeking while a track is still streaming now switches to the completed local file at the requested position.
+- Crashes opening Search and during playback with idle audio processors; tab navigation returns to the tab root.
+
+See full release notes: [v2.3.4-beta-RELEASE_NOTES.md](docs/v2.3.4-beta-RELEASE_NOTES.md)
+
 ## [2.3.2-beta] - 2026-04-27
 
 ### Added

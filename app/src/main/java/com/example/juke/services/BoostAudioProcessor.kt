@@ -85,15 +85,18 @@ class BoostAudioProcessor : BaseAudioProcessor() {
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val size = inputBuffer.remaining()
-        val out = replaceOutputBuffer(size)
         val g = gainDb
         val bass = bassDb
         val agc = stable
         if (g < 0.05f && bass < 0.05f && !agc) {
-            out.put(inputBuffer)
+            // Copy first: the reused output buffer can be the buffer we were handed, and put(self) throws.
+            val input = ByteArray(size).also { inputBuffer.get(it) }
+            val out = replaceOutputBuffer(size)
+            out.put(input)
             out.flip()
             return
         }
+        val out = replaceOutputBuffer(size)
         val channels = inputAudioFormat.channelCount
         if (abs(bass - coefBassDb) > 0.01f || coefBassDb.isNaN()) updateCoefficients(bass, sampleRate)
         val lin = 10.0.pow(g / 20.0).toFloat()

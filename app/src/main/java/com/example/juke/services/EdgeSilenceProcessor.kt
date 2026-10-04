@@ -60,9 +60,12 @@ class EdgeSilenceProcessor : BaseAudioProcessor() {
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (!enabled) {
-            val out = replaceOutputBuffer(held.size() + inputBuffer.remaining())
+            // Copy first: BaseAudioProcessor reuses its output buffer, which can be the very buffer
+            // we were handed, and ByteBuffer.put(self) throws.
+            val input = ByteArray(inputBuffer.remaining()).also { inputBuffer.get(it) }
+            val out = replaceOutputBuffer(held.size() + input.size)
             if (held.size() > 0) { out.put(held.toByteArray()); held.reset(); heldFrames = 0 }
-            out.put(inputBuffer)
+            out.put(input)
             out.flip()
             return
         }

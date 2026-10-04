@@ -1091,7 +1091,7 @@ object SpotifyApi {
 
             // Resolve video ID for YT-based sources (use stored or fetch on-the-fly)
             val resolvedVideoId = ytVideoId
-                ?: RecommenderApi.getBestVideoMatch("$title $artist")
+                ?: RecommenderApi.getBestVideoMatch("$title $artist", duration, artist)
 
             if (resolvedVideoId != null) {
                 Log.d(TAG, "Checking YT sources (videoId=$resolvedVideoId) for: $title")

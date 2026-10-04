@@ -104,7 +104,7 @@ class MusicService(private val context: Context) {
             }
 
             val request = if (useGamepvz == null) {
-                SpotsaverApi.getDownloadRequest(song.title, song.artist)
+                SpotsaverApi.getDownloadRequest(song.title, song.artist, SpotifyApi.parseDuration(song.duration))
             } else if (useGamepvz) {
                 SpotifyApi.getGamepvzDownloadRequest(song.url)
             } else {
@@ -321,7 +321,7 @@ class MusicService(private val context: Context) {
                 }
 
                 val request = if (useGamepvz == null) {
-                    SpotsaverApi.getDownloadRequest(song.title, song.artist)
+                    SpotsaverApi.getDownloadRequest(song.title, song.artist, SpotifyApi.parseDuration(song.duration))
                 } else if (useGamepvz) {
                     SpotifyApi.getGamepvzDownloadRequest(song.url)
                 } else {
@@ -431,7 +431,7 @@ class MusicService(private val context: Context) {
 
             val lyricsResult =
                 SpotifyApi.searchLyrics(song.title, song.artist, song.album, durationSec)
-            val ytVideoId = RecommenderApi.getBestVideoMatch("${song.title} ${song.artist}")
+            val ytVideoId = RecommenderApi.getBestVideoMatch("${song.title} ${song.artist}", SpotifyApi.parseDuration(song.duration), song.artist)
 
             var thumbnailUri: String? = null
             if (song.thumbnail.isNotBlank()) {
@@ -572,7 +572,7 @@ class MusicService(private val context: Context) {
         val resolvedRequest = try {
             preferNewProvider(
                 primary = {
-                    withTimeout(8_000L) { SpotsaverApi.getDownloadRequest(song.title, song.artist) }
+                    withTimeout(8_000L) { SpotsaverApi.getDownloadRequest(song.title, song.artist, SpotifyApi.parseDuration(song.duration)) }
                 },
                 fallback = {
                     resolveStreamUrl(
@@ -787,7 +787,7 @@ class MusicService(private val context: Context) {
             null
         }
         val ytVideoId = if (fetchYtVideoIdSynchronously) {
-            RecommenderApi.getBestVideoMatch("${song.title} ${song.artist}")
+            RecommenderApi.getBestVideoMatch("${song.title} ${song.artist}", SpotifyApi.parseDuration(song.duration), song.artist)
         } else {
             Log.d(TAG, "Skipping synchronous YT video ID fetch for instant stream: ${song.title}")
             existing?.ytVideoId
@@ -920,7 +920,7 @@ class MusicService(private val context: Context) {
             durationSec = track.durationSec,
             localUri = permanentFile.absolutePath,
             ytVideoId = track.ytVideoId
-                ?: RecommenderApi.getBestVideoMatch("${track.title} ${track.artist}"),
+                ?: RecommenderApi.getBestVideoMatch("${track.title} ${track.artist}", track.durationSec, track.artist),
             isFavourite = track.isFavourite,
             playCount = track.playCount,
             lastPlayedAt = track.lastPlayedAt,

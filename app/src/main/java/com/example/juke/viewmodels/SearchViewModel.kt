@@ -90,6 +90,20 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private val importManager = com.example.juke.services.PlaylistImportManager.get(application)
     private val queueManager = QueueManager.getInstance(application)
 
+    private val searchPrefs =
+        application.getSharedPreferences("search_history", android.content.Context.MODE_PRIVATE)
+
+    private val _uiState = MutableStateFlow(
+        SearchUiState(
+            recentSearches = loadRecentSearches()
+        )
+    )
+    val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
+
+    private val _artistDetailState = MutableStateFlow(ArtistDetailUiState())
+    val artistDetailState: StateFlow<ArtistDetailUiState> = _artistDetailState.asStateFlow()
+
+    // Must stay below _uiState: viewModelScope runs immediately, so this reads it during construction.
     init {
         // Import progress comes from the persisted job, so it is still there after a restart.
         viewModelScope.launch {
@@ -103,18 +117,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
     }
-    private val searchPrefs =
-        application.getSharedPreferences("search_history", android.content.Context.MODE_PRIVATE)
-
-    private val _uiState = MutableStateFlow(
-        SearchUiState(
-            recentSearches = loadRecentSearches()
-        )
-    )
-    val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
-
-    private val _artistDetailState = MutableStateFlow(ArtistDetailUiState())
-    val artistDetailState: StateFlow<ArtistDetailUiState> = _artistDetailState.asStateFlow()
 
     private var searchJob: Job? = null
     private val suggestionRequestNonce = AtomicLong(0L)

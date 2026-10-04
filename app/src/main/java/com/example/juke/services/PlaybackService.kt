@@ -835,6 +835,7 @@ class PlaybackService : MediaLibraryService() {
                         Locale.US
                     ).format(Date())
                     database.trackDao().incrementPlayCount(trackId, now)
+                    queueManager.recordQualifiedPlay(trackId)
                     Log.d(TAG, "Play count incremented at 50% threshold for track: $trackId")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error incrementing play count at 50% threshold: ${e.message}", e)
