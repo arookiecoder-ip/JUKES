@@ -80,6 +80,7 @@ import androidx.core.net.toUri
 import com.example.juke.network.SpotifyApi
 import com.example.juke.utils.BlacklistManager
 import com.example.juke.utils.rememberJukeHaptics
+import com.example.juke.viewmodels.MusicSource
 import com.example.juke.viewmodels.MusicViewModel
 import kotlin.math.roundToInt
 
@@ -98,6 +99,8 @@ fun AudioSettingsScreen(
     val isStreamMode by musicViewModel.isStreamMode.collectAsStateWithLifecycle()
     val isSkipSilenceEnabled by musicViewModel.isSkipSilenceEnabled.collectAsStateWithLifecycle()
     val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
+    val musicSource by musicViewModel.musicSource.collectAsStateWithLifecycle()
+    val isAlexaMode = musicSource == MusicSource.ALEXA
     val recommendationCount by musicViewModel.recommendationCount.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
     // Power Tools stay locked until the version line is tapped 7 times (like Android's developer options).
@@ -253,6 +256,47 @@ fun AudioSettingsScreen(
                                             musicViewModel.toggleMiniPlayerLyrics(it)
                                         }
                                     )
+                                },
+                                colors = ListItemDefaults.colors(
+                                    containerColor = Color.Transparent
+                                )
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                            // Music source toggle (Spotify / Alexa backend)
+                            CompactItem(
+                                headlineContent = {
+                                    Text(
+                                        "Music source",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(if (isAlexaMode) "Alexa backend" else "Spotify")
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Public, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = if (isAlexaMode) "Alexa" else "Spotify",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Switch(
+                                            checked = isAlexaMode,
+                                            onCheckedChange = {
+                                                haptic.toggle()
+                                                musicViewModel.setMusicSource(
+                                                    if (it) MusicSource.ALEXA else MusicSource.SPOTIFY
+                                                )
+                                            }
+                                        )
+                                    }
                                 },
                                 colors = ListItemDefaults.colors(
                                     containerColor = Color.Transparent
@@ -439,8 +483,9 @@ fun AudioSettingsScreen(
                     }
                 }
 
-                // Market Selection Section
+                // Market Selection Section (Spotify-only, hidden in Alexa mode)
                 item {
+                    if (!isAlexaMode) {
                     val marketCode by musicViewModel.marketCode.collectAsStateWithLifecycle()
                     var showDialog by remember { mutableStateOf(false) }
 
@@ -505,6 +550,7 @@ fun AudioSettingsScreen(
                                 showDialog = false
                             }
                         )
+                    }
                     }
                 }
 

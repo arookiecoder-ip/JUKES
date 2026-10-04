@@ -407,8 +407,9 @@ fun MiniPlayer(
                         )
                     }
 
-                    // Download button — only shown for streamed tracks
-                    if (currentTrack.isStream) {
+                    // Download button — Spotify streams only (Alexa tracks carry
+                    // no Spotify ID so promotion would fail; hidden there)
+                    if (currentTrack.isStream && currentTrack.spotifyId != null) {
                         IconButton(
                             onClick = {
                                 haptic.click()

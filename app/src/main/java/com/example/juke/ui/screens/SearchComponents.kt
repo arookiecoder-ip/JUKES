@@ -117,6 +117,7 @@ import kotlinx.coroutines.launch
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 internal fun hasResults(uiState: com.example.juke.viewmodels.SearchUiState): Boolean {
     return uiState.tracks.isNotEmpty() ||
+            uiState.alexaTracks.isNotEmpty() ||
             uiState.localTracks.isNotEmpty() ||
             uiState.artists.isNotEmpty() ||
             uiState.playlists.isNotEmpty() ||
@@ -219,6 +220,7 @@ internal fun ImportProgressCard(progress: Int, total: Int) {
 internal fun SearchResultsList(
     uiState: com.example.juke.viewmodels.SearchUiState,
     selectedFilter: String,
+    isAlexaMode: Boolean,
     musicViewModel: MusicViewModel,
     searchViewModel: SearchViewModel,
     scope: kotlinx.coroutines.CoroutineScope,
@@ -241,6 +243,25 @@ internal fun SearchResultsList(
         contentPadding = PaddingValues(bottom = bottomPadding + 24.dp),
         modifier = Modifier.nestedScroll(hideKeyboardOnScrollConnection)
     ) {
+        // ── Alexa backend results (tracks only, no detail navigation) ──────
+        if ((selectedFilter == "All" || selectedFilter == "Tracks") && uiState.alexaTracks.isNotEmpty()) {
+            item { SectionHeader("Songs") }
+            items(uiState.alexaTracks.distinctBy { it.uuid }, key = { it.uuid }) { track ->
+                SwipeToAddNextContainer(
+                    onAddNext = {
+                        musicViewModel.queueAlexaTrackNext(track)
+                    }
+                ) {
+                    LocalTrackItem(
+                        track = track,
+                        onClick = { musicViewModel.playAlexaTrack(track) },
+                        showAccentBar = false
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(8.dp)) }
+        }
+
         // ── In Your Library ──────────────────────────────────────────────
         if ((selectedFilter == "All" || selectedFilter == "Tracks") && uiState.localTracks.isNotEmpty()) {
             item { SectionHeader("In Your Library") }
@@ -298,8 +319,8 @@ internal fun SearchResultsList(
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        // ── Artists ──────────────────────────────────────────────────────
-        if ((selectedFilter == "All" || selectedFilter == "Artists") && uiState.artists.isNotEmpty()) {
+        // ── Artists (Spotify-only, hidden in Alexa mode) ─────────────────────
+        if (!isAlexaMode && (selectedFilter == "All" || selectedFilter == "Artists") && uiState.artists.isNotEmpty()) {
             item { SectionHeader("Artists") }
             item {
                 LazyRow(
@@ -316,8 +337,8 @@ internal fun SearchResultsList(
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        // ── Playlists ────────────────────────────────────────────────────
-        if ((selectedFilter == "All" || selectedFilter == "Playlists") && uiState.playlists.isNotEmpty()) {
+        // ── Playlists (Spotify-only, hidden in Alexa mode) ──────────────────
+        if (!isAlexaMode && (selectedFilter == "All" || selectedFilter == "Playlists") && uiState.playlists.isNotEmpty()) {
             item { SectionHeader("Playlists") }
             item {
                 LazyRow(
@@ -335,8 +356,8 @@ internal fun SearchResultsList(
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        // ── Albums ───────────────────────────────────────────────────────
-        if ((selectedFilter == "All" || selectedFilter == "Albums") && uiState.albums.isNotEmpty()) {
+        // ── Albums (Spotify-only, hidden in Alexa mode) ─────────────────────
+        if (!isAlexaMode && (selectedFilter == "All" || selectedFilter == "Albums") && uiState.albums.isNotEmpty()) {
             item { SectionHeader("Albums") }
             item {
                 LazyRow(

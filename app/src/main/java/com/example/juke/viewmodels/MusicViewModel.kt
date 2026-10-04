@@ -26,6 +26,7 @@ import com.example.juke.models.SpotifySimplifiedTrack
 import com.example.juke.models.SpotifyTrack
 import com.example.juke.models.Track
 import com.example.juke.models.withUpdatedLyrics
+import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.RecommenderApi
 import com.example.juke.network.SpotifyApi
 import com.example.juke.services.MusicService
@@ -55,6 +56,15 @@ enum class DownloadStatus {
     DOWNLOADING,
     COMPLETED,
     FAILED
+}
+
+/**
+ * Music source toggle. SPOTIFY is the default so existing behavior is unchanged;
+ * ALEXA routes search + playback through the self-hosted backend.
+ */
+enum class MusicSource {
+    SPOTIFY,
+    ALEXA
 }
 
 data class DownloadItem(
@@ -1251,6 +1261,77 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Play a backend (Alexa-mode) track. Bypasses playInstant's Spotmate/
+     * streamTrackInstant + FastDownloader path (Spotify-only): resolves the
+     * `/proxy/` stream URL via get_stream when missing, inserts the row with
+     * isStream=true, then uses the existing playTrack/setQueue path.
+     */
+    fun playAlexaTrack(track: Track) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                var playable = track
+                if (playable.localUri.isNullOrBlank()) {
+                    val videoId = playable.ytVideoId
+                        ?: throw Exception("No stream available for ${track.title}")
+                    val audioUrl = withContext(Dispatchers.IO) {
+                        AlexaBackendApi.getStreamUrl(videoId)
+                    }
+                    playable = playable.copy(localUri = audioUrl, isStream = true)
+                } else {
+                    playable = playable.copy(isStream = true)
+                }
+                val toInsert = playable
+                withContext(Dispatchers.IO) {
+                    trackDao.insertTrack(toInsert.toEntity())
+                }
+                _uiState.update { it.copy(isLoading = false) }
+                playTrack(toInsert)
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Alexa play failed: ${e.message}", e)
+                _uiState.update { it.copy(isLoading = false, error = "Playback failed: ${e.message}") }
+            }
+        }
+    }
+
+    /** Convenience overload for raw backend items (stream resolved at play time). */
+    fun playAlexaTrack(
+        backendTrack: AlexaBackendApi.BackendTrack,
+        preResolvedStreamUrl: String? = null
+    ) {
+        playAlexaTrack(backendTrack.toTrack(audioUrl = preResolvedStreamUrl))
+    }
+
+    /**
+     * Queue a backend track to play next (Alexa-mode swipe action).
+     * Bypasses queueSpotifyTrackNext's Spotify resolution path.
+     */
+    fun queueAlexaTrackNext(track: Track) {
+        viewModelScope.launch {
+            try {
+                var playable = track
+                if (playable.localUri.isNullOrBlank()) {
+                    val videoId = playable.ytVideoId ?: return@launch
+                    val audioUrl = withContext(Dispatchers.IO) {
+                        AlexaBackendApi.getStreamUrl(videoId)
+                    }
+                    playable = playable.copy(localUri = audioUrl, isStream = true)
+                } else {
+                    playable = playable.copy(isStream = true)
+                }
+                val toInsert = playable
+                withContext(Dispatchers.IO) {
+                    trackDao.insertTrack(toInsert.toEntity())
+                }
+                addNext(toInsert)
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Alexa queue-next failed: ${e.message}", e)
+                _uiState.update { it.copy(error = "Queue failed: ${e.message}") }
+            }
+        }
+    }
+
+    /**
      * Schedules a song for download with de-duplication against active and pending work.
      *
      * Duplicate suppression key: `"title-artist"` for in-memory queue/download tracking.
@@ -1836,6 +1917,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MusicViewModel", "Market code set to $validCode")
     }
 
+    // Music source toggle (Spotify default so current behavior is unchanged).
+    // Persisted in the existing "music_settings_prefs" SharedPreferences.
+    private val _musicSource = MutableStateFlow(
+        runCatching {
+            MusicSource.valueOf(
+                settingsPrefs.getString("music_source", MusicSource.SPOTIFY.name)
+                    ?: MusicSource.SPOTIFY.name
+            )
+        }.getOrDefault(MusicSource.SPOTIFY)
+    )
+    val musicSource: StateFlow<MusicSource> = _musicSource.asStateFlow()
+
+    fun setMusicSource(source: MusicSource) {
+        _musicSource.value = source
+        settingsPrefs.edit { putString("music_source", source.name) }
+        Log.d("MusicViewModel", "Music source set to $source")
+    }
+
+    fun isAlexaMode(): Boolean = _musicSource.value == MusicSource.ALEXA
+
 
     private suspend fun loadRestoredQueue() {
         try {
@@ -2103,6 +2204,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun promoteTrackToDownload(track: Track) {
         if (!track.isStream) return
+        // Alexa/backend tracks carry no Spotify ID so Spotdown promotion would throw;
+        // download buttons are hidden for them, this is a second guard.
+        if (track.spotifyId.isNullOrBlank()) return
 
         viewModelScope.launch {
             try {

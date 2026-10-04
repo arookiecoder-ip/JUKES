@@ -404,7 +404,8 @@ fun PlayerScreen(
                         }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (currentTrack.isStream) {
+                            // Spotify streams only (Alexa tracks have no Spotify ID)
+                            if (currentTrack.isStream && currentTrack.spotifyId != null) {
                                 IconButton(
                                     onClick = { musicViewModel.promoteTrackToDownload(currentTrack) },
                                     modifier = Modifier.size(actionBtnSize)

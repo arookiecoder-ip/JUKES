@@ -1,0 +1,47 @@
+name: Android Feature Build
+
+# Feature-branch CI for feat/alexa-backend. The stable android.yml (push
+# beta,main + PR) is deliberately untouched — this file only builds the
+# Alexa-backend feature branch and uploads a test APK.
+on:
+  push:
+    branches:
+      - feat/alexa-backend
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (required by AGP 8.13.1)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Generate local.properties from secrets
+        run: |
+          cat > local.properties <<'EOF'
+          SPOTIFY_CLIENT_ID=${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET=${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+          ALEXA_BASE_URL=${{ secrets.ALEXA_BASE_URL_STAGING }}
+          ALEXA_API_KEY=${{ secrets.ALEXA_API_KEY_STAGING }}
+          EOF
+
+      - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk

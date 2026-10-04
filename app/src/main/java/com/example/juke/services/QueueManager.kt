@@ -8,6 +8,7 @@ import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toEntity
 import com.example.juke.database.toTrack
 import com.example.juke.models.Track
+import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.OfflineException
 import com.example.juke.network.RecommenderApi
 import com.example.juke.network.SpotifyApi
@@ -475,6 +476,13 @@ class QueueManager private constructor(private val context: Context) {
     }
 
     private fun requestFill(current: Track, remaining: Int, ignoreQueue: Boolean = false) {
+        // Alexa seeds bypass the Spotify-validated window entirely
+        // (refillReserve/resolveRecommendation/matchOnSpotify all require Spotify):
+        // extend the queue from the backend /get_radio/ instead.
+        if (isAlexaTrack(current)) {
+            requestAlexaFill(current, remaining, ignoreQueue)
+            return
+        }
         val gen = sessionGen.get()
         sessionScope.launch {
             fillMutex.withLock {
@@ -486,6 +494,93 @@ class QueueManager private constructor(private val context: Context) {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error filling recommendation window: ${e.message}", e)
                 }
+            }
+        }
+    }
+
+    /**
+     * True for backend (Alexa-mode) seeds: key-less tracks carrying a YouTube
+     * video id and a proxied http stream, with no Spotify ID.
+     */
+    private fun isAlexaTrack(track: Track): Boolean =
+        track.spotifyId == null && track.ytVideoId != null
+
+    /**
+     * Alexa-mode recommendation fill: extend the queue from backend `/get_radio/`,
+     * resolving each item's `/proxy/` stream URL and feeding [addToQueue] directly.
+     * Never touches the `reserve`/`seen`/`claimed` sets or `matchOnSpotify`, and
+     * honors the session generation so a track change cancels stale fills.
+     */
+    private fun requestAlexaFill(current: Track, reported: Int, ignoreQueue: Boolean) {
+        val gen = sessionGen.get()
+        sessionScope.launch {
+            fillMutex.withLock {
+                if (gen != sessionGen.get()) return@withLock
+                try {
+                    fetchAlexaRadioRecommendations(current, reported, ignoreQueue, gen)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error filling Alexa radio window: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchAlexaRadioRecommendations(
+        current: Track,
+        reported: Int,
+        ignoreQueue: Boolean,
+        gen: Int
+    ) {
+        val seedVideoId = current.ytVideoId
+        if (seedVideoId.isNullOrBlank()) {
+            Log.w(TAG, "Alexa radio: seed has no ytVideoId, skipping")
+            return
+        }
+        if (!AlexaBackendApi.isConfigured()) {
+            Log.w(TAG, "Alexa radio: backend not configured, skipping")
+            return
+        }
+        val target = lookahead()
+        val upcoming = if (ignoreQueue) 0 else upcomingAfter(current, reported)
+        val need = target - upcoming
+        if (need <= 0) return
+        try {
+            Log.d(TAG, "Fetching Alexa radio for videoId=$seedVideoId (need $need)")
+            val radio = AlexaBackendApi.getRadio(seedVideoId)
+            if (radio.isEmpty()) {
+                Log.w(TAG, "Alexa radio: empty playlist")
+                return
+            }
+            val blocked = if (ignoreQueue) emptySet() else queuedKeys(current)
+            var added = 0
+            for (item in radio) {
+                if (gen != sessionGen.get()) return
+                if (added >= need) break
+                val key = RecommenderApi.songKey(item.title, item.artist)
+                if (key == RecommenderApi.songKey(current.title, current.artist)) continue
+                if (key in blocked) continue
+                // _externalDownloads uses raw "title-artist" keys (see notifyDownloadStarted)
+                if (_externalDownloads.contains(key)) continue
+                if (_externalDownloads.contains("${item.title.lowercase()}-${item.artist.lowercase()}")) continue
+                try {
+                    val audioUrl = AlexaBackendApi.getStreamUrl(item.videoId)
+                    val track = item.toTrack(audioUrl = audioUrl)
+                    trackDao.insertTrack(track.toEntity())
+                    addToQueue(track)
+                    added++
+                    Log.d(TAG, "Alexa radio queued: ${track.title} by ${track.artist}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Alexa radio: skipping ${item.title}: ${e.message}")
+                }
+            }
+            Log.d(TAG, "Alexa radio: added $added tracks")
+        } catch (e: Exception) {
+            if (e is OfflineException || e.isOffline()) {
+                Log.w(TAG, "Alexa radio: device offline")
+            } else {
+                Log.e(TAG, "Alexa radio failed: ${e.message}", e)
             }
         }
     }
@@ -913,6 +1008,11 @@ class QueueManager private constructor(private val context: Context) {
             }
 
             upcoming.forEach { track ->
+                // Alexa tracks must never trigger a Spotify lookup or expiry
+                // refresh: every prefetch tick would otherwise fire a bogus
+                // Spotify search, and /proxy/ URLs don't expire like Spotmate
+                // URLs. Streams are resolved at queue/play time; nothing to do.
+                if (isAlexaTrack(track)) return@forEach
                 var needsRefresh = false
 
                 if (track.localUri == null) {
