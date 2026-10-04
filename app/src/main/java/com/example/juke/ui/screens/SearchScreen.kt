@@ -142,6 +142,11 @@ fun SearchScreen(
     val filters = if (isAlexaMode) listOf("All", "Tracks")
     else listOf("All", "Tracks", "Artists", "Playlists", "Albums")
 
+    LaunchedEffect(musicSource) {
+        selectedFilter = "All"
+        searchViewModel.onMusicSourceChanged()
+    }
+
     // Warm the YT suggestions connection once when search screen is opened.
     LaunchedEffect(Unit) {
         searchViewModel.warmSuggestionsConnection()

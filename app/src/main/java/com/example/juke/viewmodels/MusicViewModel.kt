@@ -39,6 +39,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -224,8 +226,61 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Reorder only upcoming media items; the current track and its position are preserved. */
+    private fun applyAlexaWindow(window: QueueManager.AlexaQueueWindow) {
+        val state = _uiState.value
+        val current = state.currentTrack ?: return
+        if (current.uuid != window.currentUuid || state.isQueueOperationInProgress) return
+        val currentIndex = state.queue.indexOfFirst { it.uuid == current.uuid }
+        if (currentIndex < 0) return
+        val queue = state.queue.toMutableList()
+        val desired = window.tracks.map { it.uuid }.toSet()
+        for (i in queue.lastIndex downTo currentIndex + 1) {
+            if (queue[i].uuid !in desired) {
+                if (!playbackManager.removeFromQueue(queue[i].uuid)) return
+                queue.removeAt(i)
+            }
+        }
+        window.tracks.forEachIndexed { offset, track ->
+            val targetIndex = currentIndex + 1 + offset
+            val oldIndex = queue.indexOfFirst { it.uuid == track.uuid }
+            if (oldIndex < 0) {
+                if (!playbackManager.addToQueueAt(track, targetIndex)) return
+                queue.add(targetIndex, track)
+            } else if (oldIndex != targetIndex) {
+                if (!playbackManager.moveInQueue(oldIndex, targetIndex)) return
+                queue.add(targetIndex, queue.removeAt(oldIndex))
+            }
+        }
+        _uiState.update { it.copy(queue = queue) }
+    }
+
     init {
         playbackManager.initialize()
+
+        viewModelScope.launch {
+            queueManager.alexaQueueWindow.collect { window ->
+                if (window != null) applyAlexaWindow(window)
+            }
+        }
+        // Refresh while this ViewModel is alive. Notifications/background service keep
+        // using the last resolved window; no networking is added to PlaybackService.
+        viewModelScope.launch {
+            while (isActive) {
+                delay(5_000)
+                val current = _uiState.value.currentTrack ?: continue
+                if (current.isStream && current.spotifyId == null && current.ytVideoId != null) {
+                    try {
+                        val window = withContext(Dispatchers.IO) { queueManager.refreshAlexaQueue(current) }
+                        if (window != null) applyAlexaWindow(window)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("MusicViewModel", "Shared queue refresh failed: ${e.message}")
+                    }
+                }
+            }
+        }
 
         // Observe restored state and update UI with saved queue
         viewModelScope.launch {
@@ -1214,8 +1269,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun skipToNext() {
-        playbackManager.skipToNext()
-        // UI state will be updated automatically via currentTrackIdFlow
+        val current = _uiState.value.currentTrack
+        if (current?.isStream == true && current.spotifyId == null && current.ytVideoId != null) {
+            viewModelScope.launch {
+                try {
+                    val window = withContext(Dispatchers.IO) { queueManager.refreshAlexaQueue(current) }
+                    if (_uiState.value.currentTrack?.uuid != current.uuid) return@launch
+                    if (window != null) applyAlexaWindow(window)
+                    playbackManager.skipToNext()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(error = "Couldn't refresh shared queue: ${e.message}") }
+                }
+            }
+        } else {
+            playbackManager.skipToNext()
+        }
     }
 
     fun skipToPrevious() {
@@ -1285,12 +1355,44 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val toInsert = playable
                 withContext(Dispatchers.IO) {
                     trackDao.insertTrack(toInsert.toEntity())
+                    AlexaBackendApi.updateQueue("start", requireNotNull(toInsert.ytVideoId),
+                        listOf(AlexaBackendApi.backendTrack(toInsert)))
                 }
                 _uiState.update { it.copy(isLoading = false) }
                 playTrack(toInsert)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "Alexa play failed: ${e.message}", e)
                 _uiState.update { it.copy(isLoading = false, error = "Playback failed: ${e.message}") }
+            }
+        }
+    }
+
+    /** Resolve a home shelf before passing it to the existing queue playback path. */
+    fun playAlexaShelf(tracks: List<Track>, startIndex: Int) {
+        if (startIndex !in tracks.indices) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                val playable = withContext(Dispatchers.IO) {
+                    tracks.map { track ->
+                        val videoId = requireNotNull(track.ytVideoId)
+                        track.copy(localUri = AlexaBackendApi.getStreamUrl(videoId), isStream = true)
+                            .also { trackDao.insertTrack(it.toEntity()) }
+                    }
+                }
+                withContext(Dispatchers.IO) {
+                    AlexaBackendApi.updateQueue("start", requireNotNull(playable[startIndex].ytVideoId),
+                        playable.map { AlexaBackendApi.backendTrack(it) })
+                }
+                setQueue(playable, startIndex)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Playback failed: ${e.message}") }
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
             }
         }
     }
@@ -1324,7 +1426,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) {
                     trackDao.insertTrack(toInsert.toEntity())
                 }
-                addNext(toInsert)
+                val current = _uiState.value.currentTrack
+                    ?: throw Exception("Play a track before adding to the shared queue")
+                withContext(Dispatchers.IO) {
+                    AlexaBackendApi.updateQueue("next", requireNotNull(current.ytVideoId),
+                        listOf(AlexaBackendApi.backendTrack(toInsert)))
+                    queueManager.refreshAlexaQueue(current)
+                }?.let { applyAlexaWindow(it) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MusicViewModel", "Alexa queue-next failed: ${e.message}", e)
                 _uiState.update { it.copy(error = "Queue failed: ${e.message}") }

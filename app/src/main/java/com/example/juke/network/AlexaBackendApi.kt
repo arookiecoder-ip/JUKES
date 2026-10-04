@@ -5,6 +5,12 @@ import com.example.juke.BuildConfig
 import com.example.juke.models.Track
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -77,7 +83,72 @@ object AlexaBackendApi {
         val track: BackendTrack? = null
     )
 
-    fun thumbnailUrl(raw: JsonElement?): String? {        if (raw == null) return null
+    @Serializable
+    data class HomeFeedResponse(
+        val schemaVersion: Int = 0,
+        val shelves: List<HomeShelf> = emptyList()
+    )
+
+    @Serializable
+    data class HomeShelf(
+        val id: String = "",
+        val title: String = "",
+        val items: List<HomeItem> = emptyList()
+    )
+
+    @Serializable
+    data class HomeTarget(val kind: String = "", val id: String = "")
+
+    @Serializable
+    data class HomeArtist(val name: String = "")
+
+    @Serializable
+    data class HomeItem(
+        val title: String = "",
+        val subtitle: String = "",
+        val image: String? = null,
+        val videoId: String? = null,
+        val target: HomeTarget? = null,
+        val artists: List<HomeArtist> = emptyList()
+    )
+
+    data class BackendShelf(val id: String, val title: String, val tracks: List<Track>)
+
+    /** Phase 2b supports playable tracks; collection targets stay out of Spotify navigation. */
+    fun homeTrackShelves(feed: HomeFeedResponse): List<BackendShelf> {
+        require(feed.schemaVersion == 2) { "Unsupported backend home schema: ${feed.schemaVersion}" }
+        return feed.shelves.mapNotNull { shelf ->
+            val tracks = shelf.items.mapNotNull { item ->
+                val target = item.target
+                if (target?.kind != "track") return@mapNotNull null
+                val videoId = item.videoId?.takeIf { it.isNotBlank() }
+                    ?: target.id.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                Track(
+                    uuid = UUID.randomUUID().toString(),
+                    title = item.title.ifBlank { "Unknown title" },
+                    artist = item.artists.joinToString(", ") { it.name }.ifBlank { item.subtitle },
+                    thumbnailUri = item.image?.takeIf { it.isNotBlank() },
+                    durationSec = 0,
+                    ytVideoId = videoId,
+                    isStream = true
+                )
+            }.distinctBy { it.ytVideoId }
+            tracks.takeIf { it.isNotEmpty() }?.let { BackendShelf(shelf.id, shelf.title, it) }
+        }
+    }
+
+    suspend fun getHome(refresh: Boolean = false): List<BackendShelf> {
+        requireConfigured()
+        val response: HttpResponse = ApiClient.httpClient.get("${baseUrl()}/api/home/") {
+            parameter("key", apiKey())
+            if (refresh) parameter("refresh", 1)
+        }
+        check(response.status.value in 200..299) { "Backend home failed (${response.status.value})" }
+        return homeTrackShelves(response.body<HomeFeedResponse>())
+    }
+
+    fun thumbnailUrl(raw: JsonElement?): String? {
+        if (raw == null) return null
         return try {
             // Plain string
             raw.jsonPrimitive.let {
@@ -166,6 +237,41 @@ object AlexaBackendApi {
         return parsed.playlist.filter { it.videoId.isNotBlank() }
     }
 
+    @Serializable
+    data class QueueTracksResponse(val tracks: List<BackendTrack> = emptyList())
+
+    @Serializable
+    data class QueueUpdate(val action: String, val after: String, val tracks: List<BackendTrack>)
+
+    suspend fun queueTracks(afterVideoId: String, limit: Int): List<BackendTrack> {
+        requireConfigured()
+        val response = ApiClient.httpClient.get("${baseUrl()}/queue_tracks/") {
+            parameter("after", afterVideoId)
+            parameter("limit", limit)
+            parameter("key", apiKey())
+        }
+        check(response.status.value in 200..299) { "Queue refresh failed (${response.status.value})" }
+        return response.body<QueueTracksResponse>().tracks
+    }
+
+    suspend fun updateQueue(action: String, afterVideoId: String, tracks: List<BackendTrack>) {
+        requireConfigured()
+        val response = ApiClient.httpClient.post("${baseUrl()}/api/app/queue/") {
+            parameter("key", apiKey())
+            contentType(ContentType.Application.Json)
+            setBody(QueueUpdate(action, afterVideoId, tracks))
+        }
+        check(response.status.value in 200..299) { "Queue update failed (${response.status.value})" }
+    }
+
+    fun backendTrack(track: Track): BackendTrack = BackendTrack(
+        title = track.title,
+        artist = track.artist,
+        videoId = requireNotNull(track.ytVideoId),
+        thumbnail = track.thumbnailUri?.let { JsonPrimitive(it) } ?: JsonNull,
+        durationMs = track.durationSec.toLong() * 1000
+    )
+
     /** Authoritative next-up track from the server's live queue (`after` is required). */
     suspend fun nextTrack(afterVideoId: String): BackendTrack? {
         requireConfigured()
@@ -173,7 +279,7 @@ object AlexaBackendApi {
             parameter("after", afterVideoId)
             parameter("key", apiKey())
         }
-        if (response.status.value !in 200..299) return null
+        check(response.status.value in 200..299) { "Next-track lookup failed (${response.status.value})" }
         val parsed: NextTrackResponse = response.body()
         return parsed.track?.takeIf { it.videoId.isNotBlank() }
     }

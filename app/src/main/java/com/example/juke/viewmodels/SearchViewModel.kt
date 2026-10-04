@@ -28,6 +28,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -127,6 +128,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private var searchJob: Job? = null
+    private var searchWasAlexa = isAlexaMode()
     private val suggestionRequestNonce = AtomicLong(0L)
     private val warmupRequestNonce = AtomicLong(0L)
     private val suggestionPrefixCache =
@@ -323,6 +325,19 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Discard results and in-flight requests belonging to the previous source. */
+    fun onMusicSourceChanged() {
+        val alexa = isAlexaMode()
+        if (alexa == searchWasAlexa) return
+        searchWasAlexa = alexa
+        searchJob?.cancel()
+        suggestionRequestNonce.incrementAndGet()
+        _uiState.value = SearchUiState(
+            query = _uiState.value.query,
+            recentSearches = _uiState.value.recentSearches
+        )
+    }
+
     fun search(query: String) {
         val trimmedQuery = query.trim()
         searchJob?.cancel() // Cancel any pending suggestion fetch
@@ -349,7 +364,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         // Save to recent searches
         saveRecentSearch(trimmedQuery)
 
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSearching = true, error = null)
 
             try {
@@ -514,6 +529,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isSearching = false,
