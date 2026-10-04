@@ -104,6 +104,13 @@ private fun GlassLevel.spec(dark: Boolean) = when (this) {
 private fun glassBase(accent: Color, dark: Boolean): Color =
     if (dark) lerp(Color.White, accent, 0.08f) else Color.White
 
+/**
+ * Fill color for the near-opaque "solid surfaces" mode. Dark glass is a faint white tint, which turns
+ * into a white slab when pushed to 94% opacity, so solid dark surfaces use a dark panel instead.
+ */
+private fun solidBase(glass: Color, accent: Color, dark: Boolean): Color =
+    if (dark) lerp(Color(0xFF1C1C22), accent, 0.10f) else glass
+
 /** Specular rim: bright at the lit top-left edge, fades through the body, catches again bottom-right. */
 private fun Modifier.glassRim(shape: Shape, rimAlpha: Float, dark: Boolean): Modifier =
     drawWithContent {
@@ -176,7 +183,10 @@ fun Modifier.glassPane(
     return this
         .glassShadow(shape, spec.elevation, 0.30f)
         .clip(shape)
-        .background(base.copy(alpha = if (GlassPrefs.solid) 0.94f else spec.fill))
+        .background(
+            if (GlassPrefs.solid) solidBase(base, tint ?: LocalGlassAccent.current, dark).copy(alpha = 0.94f)
+            else base.copy(alpha = spec.fill)
+        )
         .glassRim(shape, spec.rimAlpha, dark)
 }
 
@@ -226,7 +236,7 @@ fun Modifier.glassLens(
     source: HazeState? = LocalHazeState.current,
     strength: () -> Float = { 0f },
 ): Modifier {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || source == null) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || source == null || GlassPrefs.solid) {
         return glassPane(shape, GlassLevel.Thick, tint)
     }
     val dark = isGlassDark()
@@ -289,7 +299,10 @@ fun Modifier.glassFloat(
         .clip(shape)
         .then(
             if (hazeState != null && !GlassPrefs.solid) Modifier.hazeEffect(hazeState, style)
-            else Modifier.background(base.copy(alpha = if (GlassPrefs.solid) 0.96f else (spec.fill + 0.30f).coerceAtMost(0.9f)))
+            else Modifier.background(
+                if (GlassPrefs.solid) solidBase(base, tint ?: LocalGlassAccent.current, dark).copy(alpha = 0.96f)
+                else base.copy(alpha = (spec.fill + 0.30f).coerceAtMost(0.9f))
+            )
         )
         .glassRim(shape, spec.rimAlpha, dark)
 }
