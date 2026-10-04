@@ -49,13 +49,13 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Speaker
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.Lyrics
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Refresh
@@ -438,8 +438,8 @@ fun PlayerScreen(
                                 modifier = Modifier.size(actionBtnSize)
                             ) {
                                 Icon(
-                                    imageVector = if (currentTrack.isFavourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                    contentDescription = if (currentTrack.isFavourite) "Unfavorite" else "Favorite",
+                                    imageVector = if (currentTrack.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                    contentDescription = if (currentTrack.isFavourite) "Unlike" else "Like",
                                     tint = if (currentTrack.isFavourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(actionIconSize)
                                 )

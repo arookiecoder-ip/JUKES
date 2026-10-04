@@ -41,8 +41,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -264,9 +264,7 @@ fun MiniPlayer(
                     onDoubleClick = if (gesturePrefs.getBoolean("mini_double_tap_play_pause", false)) {
                         { haptic.heavyClick(); musicViewModel.togglePlayPause() }
                     } else null,
-                    onLongClick = if (gesturePrefs.getBoolean("mini_long_press_favorite", false)) {
-                        { haptic.confirm(); musicViewModel.toggleFavorite(currentTrack) }
-                    } else { { haptic.heavyClick(); menu?.show(currentTrack) } },
+                    onLongClick = { haptic.heavyClick(); menu?.show(currentTrack) },
                     onClick = {
                         haptic.click()
                         onExpand()
@@ -338,14 +336,14 @@ fun MiniPlayer(
                             contentDescription = currentTrack.title,
                             modifier = Modifier
                                 .size(46.dp)
-                                .clip(RoundedCornerShape(18.dp)),
+                                .clip(androidx.compose.ui.graphics.RectangleShape),
                             contentScale = ContentScale.Crop
                         )
                     } else {
                         Box(
                             modifier = Modifier
                                 .size(46.dp)
-                                .clip(RoundedCornerShape(18.dp)),
+                                .clip(androidx.compose.ui.graphics.RectangleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -409,8 +407,8 @@ fun MiniPlayer(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = if (currentTrack.isFavourite) Icons.Filled.Favorite
-                            else Icons.Outlined.FavoriteBorder,
+                            imageVector = if (currentTrack.isFavourite) Icons.Filled.ThumbUp
+                            else Icons.Outlined.ThumbUp,
                             contentDescription = if (currentTrack.isFavourite) "Remove from favourites"
                             else "Add to favourites",
                             tint = if (currentTrack.isFavourite) MaterialTheme.colorScheme.primary
@@ -511,7 +509,7 @@ private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modi
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(46.dp).clip(RoundedCornerShape(18.dp)),
+            modifier = Modifier.size(46.dp).clip(androidx.compose.ui.graphics.RectangleShape),
             contentAlignment = Alignment.Center
         ) {
             if (track.thumbnailUri != null) {
@@ -546,7 +544,7 @@ private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modi
             )
         }
         Icon(
-            imageVector = if (track.isFavourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            imageVector = if (track.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
             contentDescription = null,
             tint = if (track.isFavourite) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),

@@ -20,10 +20,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
@@ -164,8 +164,8 @@ fun LibraryTrackItem(
                     modifier = Modifier.scale(favoriteScale)
                 ) {
                     Icon(
-                        if (track.isFavourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = if (track.isFavourite) "Remove from favorites" else "Add to favorites",
+                        if (track.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                        contentDescription = if (track.isFavourite) "Unlike" else "Like",
                         tint = if (track.isFavourite) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.size(20.dp)

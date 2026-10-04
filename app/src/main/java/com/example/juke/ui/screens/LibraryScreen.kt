@@ -35,13 +35,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.DropdownMenu
@@ -266,7 +266,7 @@ fun LibraryScreen(
                         label = { Text("Liked songs") },
                         leadingIcon = {
                             Icon(
-                                if (uiState.view == LibraryView.LIKED) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                if (uiState.view == LibraryView.LIKED) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -464,7 +464,7 @@ fun LibraryScreen(
                         bottomPadding = bottomPadding
                     )
                     uiState.tracks.isEmpty() -> LibraryMessage(
-                        icon = if (uiState.searchQuery.isNotEmpty()) Icons.Outlined.SearchOff else Icons.Outlined.FavoriteBorder,
+                        icon = if (uiState.searchQuery.isNotEmpty()) Icons.Outlined.SearchOff else Icons.Outlined.ThumbUp,
                         title = when {
                             uiState.searchQuery.isNotEmpty() -> "No tracks found"
                             uiState.view == LibraryView.LIKED -> "No liked songs yet"

@@ -41,7 +41,7 @@ object BrowseParser {
             browse.startsWith("VL") || browse.startsWith("RD") || browse.startsWith("PL") -> "playlist"
             browse.startsWith("UC") || declared == "artist" || hint == "artists" || hint == "related" -> "artist"
             raw.text("params").isNotBlank() -> "mood"
-            declared == "album" || hint in listOf("albums", "singles", "new_releases") -> "album"
+            declared in listOf("album", "single", "singles") || hint in listOf("albums", "singles", "new_releases") -> "album"
             else -> "playlist"
         }
         val artists = raw.array("artists")

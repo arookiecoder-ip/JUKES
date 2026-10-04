@@ -29,6 +29,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -72,7 +73,7 @@ fun GlassNavBar(items: List<GlassNavItem>, modifier: Modifier = Modifier) {
     GlassTabGroup(
         items = items,
         vertical = false,
-        modifier = modifier.fillMaxWidth().glassFloat(GlassShapes.Bar, GlassLevel.Regular).padding(6.dp)
+        modifier = modifier.fillMaxWidth().glassFloat(GlassShapes.Bar, GlassLevel.Regular).navigationBarsPadding().padding(6.dp)
     )
 }
 

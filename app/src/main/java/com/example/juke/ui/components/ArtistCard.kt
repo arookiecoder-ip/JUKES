@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.juke.ui.theme.GlassCard
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,14 +36,12 @@ fun ArtistCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
     Column(
         modifier = modifier
             .width(120.dp)
             .clip(RoundedCornerShape(16.dp))
-            .clickable {
-                haptic.click()
-                onClick()
-            }
+            .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(artist) }, onLongClickLabel = "Artist options")
             .padding(bottom = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

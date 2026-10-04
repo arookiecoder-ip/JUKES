@@ -40,7 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -185,7 +185,8 @@ fun HomeScreen(
                                     items = shelf.items,
                                     tracks = shelf.tracks,
                                     onTrackClick = { trackIndex -> musicViewModel.setQueue(shelf.tracks, trackIndex) },
-                                    onOpen = onOpenItem
+                                    onOpen = onOpenItem,
+                                    onPlayCollection = { musicViewModel.playCollection(it) }
                                 )
                             }
                         }
@@ -398,7 +399,8 @@ private fun BrowseShelfRow(
     items: List<BrowseItem>,
     tracks: List<Track>,
     onTrackClick: (Int) -> Unit,
-    onOpen: (BrowseItem) -> Unit
+    onOpen: (BrowseItem) -> Unit,
+    onPlayCollection: (BrowseItem) -> Unit
 ) {
     Column {
         SectionHeader(title = title)
@@ -411,8 +413,10 @@ private fun BrowseShelfRow(
                     val trackIndex = tracks.indexOfFirst { it.ytVideoId == item.videoId }
                     val track = tracks.getOrNull(trackIndex) ?: return@itemsIndexed
                     MusicCard(track = track, onClick = { onTrackClick(trackIndex) })
+                } else if (item.kind == "artist") {
+                    ArtistCircle(artist = item, onClick = { onOpen(item) })
                 } else {
-                    CollectionCard(item = item, onClick = { onOpen(item) })
+                    CollectionCard(item = item, onClick = { onOpen(item) }, onPlay = { onPlayCollection(item) })
                 }
             }
         }
@@ -474,213 +478,36 @@ private fun SectionHeader(
 }
 
 @Composable
-private fun MusicCard(
-    track: Track,
-    onClick: () -> Unit
-) {
-    val haptic = rememberJukeHaptics()
+private fun MusicCard(track: Track, onClick: () -> Unit) {
     val menu = LocalMediaMenu.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val cardScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = tween(durationMillis = 140),
-        label = "musicCardScale"
-    )
-
-    Box(
-        modifier = Modifier
-            .size(160.dp)
-            .graphicsLayer {
-                scaleX = cardScale
-                scaleY = cardScale
-            }
-            .glassPane(GlassShapes.Card, GlassLevel.Regular)
-            .semantics(mergeDescendants = true) {
-                contentDescription = buildString {
-                    append(track.title)
-                    append(" by ")
-                    append(track.artist)
-                    if (track.playCount > 0) {
-                        append(", played ")
-                        append(track.playCount)
-                        append(" times")
-                    }
-                }
-            }
-            .combinedClickable(
-                interactionSource = interactionSource,
-                role = Role.Button,
-                onLongClick = { menu?.show(track) },
-                onLongClickLabel = "Song options",
-                onClickLabel = "Play ${track.title}"
-            ) {
-                haptic.click()
-                onClick()
-            }
-    ) {
-        if (track.thumbnailUri != null) {
-            AsyncImage(
-                model = track.thumbnailUri,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
+    Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options")) {
+        Box(Modifier.size(160.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            AsyncImage(track.thumbnailUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            androidx.compose.material3.FilledIconButton(onClick = onClick, modifier = Modifier.size(64.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                Icon(Icons.Filled.PlayArrow, "Play ${track.title}", Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onPrimary)
             }
         }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
-                        startY = 120f
-                    )
-                )
-        )
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(16.dp)
-        ) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = track.artist,
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.75f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        if (track.playCount > 0) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .glassPane(GlassShapes.Pill, GlassLevel.Thin, Color.Black)
-                    .background(Color.Black.copy(alpha = 0.34f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    tint = Color.White
-                )
-                Text(
-                    text = track.playCount.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
+        Spacer(Modifier.height(8.dp))
+        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-/** Album, playlist or station card, in the same glass tile as songs. */
 @Composable
-private fun CollectionCard(
-    item: BrowseItem,
-    onClick: () -> Unit
-) {
-    val haptic = rememberJukeHaptics()
+private fun CollectionCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> Unit) {
     val menu = LocalMediaMenu.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val cardScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = tween(durationMillis = 140),
-        label = "collectionCardScale"
-    )
-
-    Column(
-        modifier = Modifier
-            .width(160.dp)
-            .graphicsLayer {
-                scaleX = cardScale
-                scaleY = cardScale
-            }
-            .semantics(mergeDescendants = true) {
-                contentDescription = "${item.title}, ${item.kind}"
-            }
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Button,
-                onLongClick = { menu?.show(item) },
-                onLongClickLabel = "Collection options",
-                onClickLabel = "Open ${item.title}"
-            ) {
-                haptic.click()
-                onClick()
-            }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(160.dp)
-                .glassPane(GlassShapes.Card, GlassLevel.Regular),
-            contentAlignment = Alignment.Center
-        ) {
-            if (item.image.isNotBlank()) {
-                AsyncImage(
-                    model = item.image,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
+    Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = { menu?.show(item) }, onLongClickLabel = "Collection options")) {
+        Box(Modifier.size(160.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
+            AsyncImage(item.image, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (item.kind in listOf("album", "playlist")) {
+                androidx.compose.material3.FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(48.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                    Icon(Icons.Filled.PlayArrow, "Play ${item.title}", Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            minLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (item.subtitle.isNotBlank()) {
-            Text(
-                text = item.subtitle,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Spacer(Modifier.height(8.dp))
+        Text(item.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.subtitle.ifBlank { item.kind.replaceFirstChar { it.uppercase() } }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -690,6 +517,7 @@ private fun ArtistCircle(
     onClick: () -> Unit
 ) {
     val haptic = rememberJukeHaptics()
+    val menu = LocalMediaMenu.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val cardScale by animateFloatAsState(
@@ -709,7 +537,9 @@ private fun ArtistCircle(
                 contentDescription = "Artist ${artist.title}"
             }
             .clip(RoundedCornerShape(12.dp))
-            .clickable(
+            .combinedClickable(
+                onLongClick = { haptic.heavyClick(); menu?.show(artist) },
+                onLongClickLabel = "Artist options",
                 interactionSource = interactionSource,
                 role = Role.Button,
                 onClickLabel = "Open ${artist.title}"
