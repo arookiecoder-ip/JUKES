@@ -30,6 +30,17 @@ class SourceMemory(context: Context) {
         else prefs.edit { putString("avoid:$songKey", next.joinToString(",") { it.name }) }
     }
 
+    /** User's preferred first provider (Advanced settings), or null for the automatic order. */
+    var preferred: Source?
+        get() = prefs.getString("preferred", null)?.toSourceOrNull()
+        set(value) = prefs.edit { if (value == null) remove("preferred") else putString("preferred", value.name) }
+
+    /** How many songs currently have a rejected provider. */
+    fun rejectedSongCount(): Int = prefs.all.keys.count { it.startsWith("avoid:") }
+
+    /** Forget every rejected provider (the per-song "wrong song" history). */
+    fun resetRejected() = prefs.edit { prefs.all.keys.filter { it.startsWith("avoid:") }.forEach { remove(it) } }
+
     /**
      * Provider order for one pull of [songKey]: Spotsaver first, then the legacy pair in
      * [gamepvzFirst] order, with rejected providers moved to the end.
@@ -38,7 +49,9 @@ class SourceMemory(context: Context) {
         val base = if (gamepvzFirst) listOf(Source.SPOTSAVER, Source.GAMEPVZ, Source.SPOTMATE)
         else listOf(Source.SPOTSAVER, Source.SPOTMATE, Source.GAMEPVZ)
         val avoided = avoided(songKey)
-        return base.filterNot { it in avoided } + base.filter { it in avoided }
+        val ordered = base.filterNot { it in avoided } + base.filter { it in avoided }
+        val first = preferred?.takeIf { it !in avoided } ?: return ordered
+        return listOf(first) + ordered.filter { it != first }
     }
 
     private fun String.toSourceOrNull() = Source.entries.firstOrNull { it.name == this }

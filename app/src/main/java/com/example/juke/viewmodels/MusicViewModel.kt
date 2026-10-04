@@ -2006,6 +2006,64 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    enum class QueueTool { SHUFFLE_UPCOMING, SORT_UPCOMING, CLEAR_PLAYED }
+
+    /** Power tools for the queue. The playing song and its position are untouched. */
+    fun applyQueueTool(tool: QueueTool) {
+        val state = _uiState.value
+        val current = state.currentTrack ?: return
+        val index = state.queueIndex
+        val queue = state.queue
+        if (index !in queue.indices) return
+        val played = queue.take(index)
+        val upcoming = queue.drop(index + 1)
+        val newQueue = when (tool) {
+            QueueTool.SHUFFLE_UPCOMING -> played + current + upcoming.shuffled()
+            QueueTool.SORT_UPCOMING -> played + current + upcoming.sortedBy { it.title.lowercase() }
+            QueueTool.CLEAR_PLAYED -> listOf(current) + upcoming
+        }
+        val newIndex = newQueue.indexOfFirst { it.uuid == current.uuid }
+        _uiState.update { it.copy(queue = newQueue, queueIndex = newIndex) }
+        playbackManager.setQueue(newQueue, newIndex, playbackManager.getCurrentPosition(), keepShuffleMode = false)
+        Toast.makeText(
+            getApplication(),
+            when (tool) {
+                QueueTool.SHUFFLE_UPCOMING -> "Shuffled ${upcoming.size} upcoming songs"
+                QueueTool.SORT_UPCOMING -> "Upcoming songs sorted A–Z"
+                QueueTool.CLEAR_PLAYED -> "Cleared ${played.size} played songs"
+            },
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    /** Save the whole queue as a new playlist named after the moment it was saved. */
+    fun saveQueueAsPlaylist() {
+        val queue = _uiState.value.queue
+        if (queue.isEmpty()) return
+        viewModelScope.launch {
+            val name = "Queue " + java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            withContext(Dispatchers.IO) {
+                // Playlist rows reference tracks by uuid, so streamed tracks must exist in the library table first.
+                queue.forEach { trackDao.insertTrack(it.toEntity()) }
+                val playlistDao = database.playlistDao()
+                val id = java.util.UUID.randomUUID().toString()
+                playlistDao.insertPlaylist(
+                    com.example.juke.database.PlaylistEntity(
+                        id = id, name = name, trackCount = queue.size, createdAt = System.currentTimeMillis()
+                    )
+                )
+                queue.forEachIndexed { i, t ->
+                    playlistDao.insertPlaylistTrack(
+                        com.example.juke.database.PlaylistTrackEntity(
+                            playlistId = id, trackUuid = t.uuid, position = i, addedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+            Toast.makeText(getApplication(), "Saved ${queue.size} songs as \"$name\"", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private val refetchingUuids = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     /**

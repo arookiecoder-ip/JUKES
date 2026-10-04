@@ -22,6 +22,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,6 +59,8 @@ fun SearchHeader(
     placeholder: String,
     modifier: Modifier = Modifier,
     onSearch: () -> Unit = {},
+    /** Bump to focus the field, select everything in it and show the keyboard (Search tab re-tap). */
+    selectAllTrigger: Int = 0,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val haptic = rememberJukeHaptics()
@@ -59,6 +68,22 @@ fun SearchHeader(
     val focus = remember { FocusRequester() }
     LaunchedEffect(open) {
         if (open) {
+            try { focus.requestFocus() } catch (_: Exception) {}
+            keyboard?.show()
+        }
+    }
+
+    // The field keeps its own selection so a re-tap can select the whole query for replacing.
+    var field by remember { mutableStateOf(TextFieldValue(query, TextRange(query.length))) }
+    LaunchedEffect(query) {
+        if (field.text != query) field = TextFieldValue(query, TextRange(query.length))
+    }
+    var handledSelectAll by remember { mutableIntStateOf(selectAllTrigger) }
+    LaunchedEffect(selectAllTrigger, open) {
+        if (open && selectAllTrigger != handledSelectAll) {
+            handledSelectAll = selectAllTrigger
+            delay(60) // let the field enter composition when the bar was closed
+            field = field.copy(selection = TextRange(0, field.text.length))
             try { focus.requestFocus() } catch (_: Exception) {}
             keyboard?.show()
         }
@@ -86,8 +111,11 @@ fun SearchHeader(
                         onOpenChange(false)
                     }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search") }
                     BasicTextField(
-                        value = query,
-                        onValueChange = onQueryChange,
+                        value = field,
+                        onValueChange = {
+                            field = it
+                            if (it.text != query) onQueryChange(it.text)
+                        },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface

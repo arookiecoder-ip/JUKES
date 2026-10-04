@@ -25,7 +25,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,6 +112,7 @@ private fun computeAdaptiveLyricsGapThreshold(lyrics: List<LyricLine>): Long {
     return (median * 2.2).toLong().coerceIn(1_800L, 12_000L)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MiniPlayer(
     musicViewModel: MusicViewModel,
@@ -125,6 +127,8 @@ fun MiniPlayer(
     val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
     val context = LocalContext.current
+    // Power tools → Gestures: optional double-tap and long-press shortcuts on the mini player.
+    val gesturePrefs = remember { context.getSharedPreferences("power_prefs", android.content.Context.MODE_PRIVATE) }
 
     // Poll for progress updates when playing
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -244,10 +248,20 @@ fun MiniPlayer(
             modifier = modifier
                 .fillMaxWidth()
                 .glassFloat(GlassShapes.Bar, GlassLevel.Regular)
-                .clickable(onClickLabel = "Open player", role = Role.Button) {
-                    haptic.click()
-                    onExpand()
-                }
+                .combinedClickable(
+                    onClickLabel = "Open player",
+                    role = Role.Button,
+                    onDoubleClick = if (gesturePrefs.getBoolean("mini_double_tap_play_pause", false)) {
+                        { haptic.heavyClick(); musicViewModel.togglePlayPause() }
+                    } else null,
+                    onLongClick = if (gesturePrefs.getBoolean("mini_long_press_favorite", false)) {
+                        { haptic.confirm(); musicViewModel.toggleFavorite(currentTrack) }
+                    } else null,
+                    onClick = {
+                        haptic.click()
+                        onExpand()
+                    }
+                )
                 .onSizeChanged { cardWidthPx = it.width.toFloat() }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(

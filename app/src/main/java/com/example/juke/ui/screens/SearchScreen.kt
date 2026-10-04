@@ -132,7 +132,6 @@ fun SearchScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = rememberJukeHaptics()
 
-    var previousTrigger by remember { mutableIntStateOf(searchResetTrigger) }
     var previousFocusTrigger by remember { mutableIntStateOf(searchFocusTrigger) }
     var selectedFilter by rememberSaveable { mutableStateOf("All") }
     var active by rememberSaveable { mutableStateOf(false) }
@@ -143,16 +142,7 @@ fun SearchScreen(
         searchViewModel.warmSuggestionsConnection()
     }
 
-    // 2nd tap: reset query, open bar, show keyboard
-    LaunchedEffect(searchResetTrigger) {
-        if (searchResetTrigger != previousTrigger && searchResetTrigger > 0) {
-            previousTrigger = searchResetTrigger
-            searchViewModel.updateQuery("")
-            active = true
-        }
-    }
-
-    // 3rd tap: keep current state, just show keyboard
+    // Re-tapping the Search tab while on Search: open the bar; the header selects the query and shows the keyboard.
     LaunchedEffect(searchFocusTrigger) {
         if (searchFocusTrigger != previousFocusTrigger && searchFocusTrigger > 0) {
             previousFocusTrigger = searchFocusTrigger
@@ -174,6 +164,7 @@ fun SearchScreen(
                 open = active,
                 onOpenChange = { active = it },
                 placeholder = "Songs, artists, albums",
+                selectAllTrigger = searchFocusTrigger,
                 onSearch = {
                     if (uiState.query.isNotBlank() && !uiState.isSearching) {
                         keyboardController?.hide()

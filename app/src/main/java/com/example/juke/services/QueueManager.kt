@@ -63,8 +63,8 @@ class QueueManager private constructor(private val context: Context) {
         @Volatile
         private var instance: QueueManager? = null
 
-        /** Plays in one day after which a song counts as "on repeat" and is no longer held back. */
-        private const val INDULGE_PLAYS = 2
+        /** Default plays in one day after which a song counts as "on repeat" and is no longer held back. */
+        const val DEFAULT_INDULGE_PLAYS = 2
 
         fun getInstance(context: Context): QueueManager {
             return instance ?: synchronized(this) {
@@ -114,6 +114,10 @@ class QueueManager private constructor(private val context: Context) {
     // Per-day play counts by song key. Survives restarts and resets itself when the date changes,
     // so recommendations can tell "heard once earlier today" from "on repeat today".
     private val dailyPrefs = context.getSharedPreferences("daily_plays", Context.MODE_PRIVATE)
+
+    /** Plays per day after which a song counts as "on repeat" (Power tools → Advanced). */
+    private val INDULGE_PLAYS: Int
+        get() = settingsPrefs.getInt("repeat_threshold", DEFAULT_INDULGE_PLAYS).coerceIn(2, 6)
 
     private fun today(): String = java.time.LocalDate.now().toString()
 
