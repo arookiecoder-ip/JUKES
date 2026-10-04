@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -29,9 +32,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.abs
 import com.example.juke.ui.theme.LocalGlassAccent
 import com.example.juke.ui.theme.isGlassDark
 import com.example.juke.utils.rememberJukeHaptics
@@ -102,29 +109,45 @@ fun SwipeToAddNextContainer(
                 val toEnd = direction == SwipeToDismissBoxValue.StartToEnd
                 val strength = dismissState.progress.coerceIn(0f, 1f)
                 val onGlow = if (dark) Color.White else MaterialTheme.colorScheme.onSurface
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(shape)
-                        .background(
-                            Brush.horizontalGradient(
-                                if (toEnd) listOf(glow.copy(alpha = 0.55f * strength + 0.15f), glow.copy(alpha = 0.04f))
-                                else listOf(glow.copy(alpha = 0.04f), glow.copy(alpha = 0.55f * strength + 0.15f))
+                // Only the strip the card has slid away from may show the label; anything under the
+                // card would bleed through the glass and clash with the song title.
+                val offsetPx = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
+                val revealed = with(LocalDensity.current) { abs(offsetPx).toDp() }
+                Box(Modifier.fillMaxSize().clip(shape)) {
+                    // Light source behind the glass: blurred so it reads as a glow, never as shapes.
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .blur(18.dp)
+                            .background(
+                                Brush.horizontalGradient(
+                                    if (toEnd) listOf(glow.copy(alpha = 0.55f * strength + 0.15f), glow.copy(alpha = 0.04f))
+                                    else listOf(glow.copy(alpha = 0.04f), glow.copy(alpha = 0.55f * strength + 0.15f))
+                                )
                             )
-                        ),
-                    contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    )
+                    Box(
+                        Modifier
+                            .width(revealed)
+                            .fillMaxHeight()
+                            .align(if (toEnd) Alignment.CenterStart else Alignment.CenterEnd)
+                            .clipToBounds(),
+                        contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd
                     ) {
-                        if (toEnd) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Add next", tint = onGlow)
-                            Text("Add to queue next", style = MaterialTheme.typography.bodyLarge, color = onGlow)
-                        } else {
-                            Text("Delete", style = MaterialTheme.typography.bodyLarge, color = onGlow)
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = onGlow)
+                        Row(
+                            modifier = Modifier
+                                .wrapContentWidth(if (toEnd) Alignment.Start else Alignment.End, unbounded = true)
+                                .padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (toEnd) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = "Add next", tint = onGlow)
+                                Text("Add to queue next", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
+                            } else {
+                                Text("Delete", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = onGlow)
+                            }
                         }
                     }
                 }
@@ -141,7 +164,10 @@ fun SwipeToAddNextContainer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(shape)
-                    .background(accent.copy(alpha = (if (dark) 0.16f else 0.10f) * glass))
+                    .background(
+                        (if (dark) Color(0xFF14141A) else Color.White).copy(alpha = 0.55f * glass)
+                    )
+                    .background(accent.copy(alpha = (if (dark) 0.14f else 0.10f) * glass))
                     .border(0.6.dp, Color.White.copy(alpha = (if (dark) 0.22f else 0.5f) * glass), shape),
                 content = content
             )
