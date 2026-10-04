@@ -158,32 +158,5 @@ fun PlayerControls(
             )
         }
 
-        // Repeat Button
-        IconButton(
-            onClick = {
-                haptic.toggle()
-                musicViewModel.toggleRepeat()
-            },
-            modifier = Modifier.size(resolvedButtonSize).semantics {
-                stateDescription = when (uiState.repeatMode) {
-                    Player.REPEAT_MODE_ONE -> "Repeat one"
-                    Player.REPEAT_MODE_ALL -> "Repeat all"
-                    else -> "Off"
-                }
-            }
-        ) {
-            val (icon, tint) = when (uiState.repeatMode) {
-                Player.REPEAT_MODE_ONE -> Icons.Default.RepeatOne to MaterialTheme.colorScheme.primary
-                Player.REPEAT_MODE_ALL -> Icons.Default.Repeat to MaterialTheme.colorScheme.primary
-                else -> Icons.Default.Repeat to MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            }
-
-            Icon(
-                imageVector = icon,
-                contentDescription = "Repeat",
-                tint = tint,
-                modifier = Modifier.size(resolvedSmallIconSize)
-            )
-        }
     }
 }

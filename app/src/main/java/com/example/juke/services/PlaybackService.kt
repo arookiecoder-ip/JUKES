@@ -970,7 +970,7 @@ class PlaybackService : MediaLibraryService() {
                             MediaMetadata.Builder()
                                 .setIsBrowsable(true)
                                 .setIsPlayable(false)
-                                .setTitle("JUKE")
+                                .setTitle("Music Box")
                                 .build()
                         )
                         .build(),

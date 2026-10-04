@@ -102,11 +102,11 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         GlassButton(onClick = {
                             haptic.click()
-                            scope.launch { share("JUKE diagnostics", Diagnostics.report(context)) }
+                            scope.launch { share("Music Box diagnostics", Diagnostics.report(context)) }
                         }) { Text("Share diagnostics") }
                         GlassButton(onClick = {
                             haptic.click()
-                            scope.launch { share("JUKE backup", Diagnostics.backupJson(context)) }
+                            scope.launch { share("Music Box backup", Diagnostics.backupJson(context)) }
                         }) { Text("Export backup") }
                     }
                     Label("Backup contents", "App settings as JSON. No credentials. Your library stays in your account. Diagnostics include recent app log lines.")

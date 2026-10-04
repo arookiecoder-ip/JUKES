@@ -103,7 +103,7 @@ object UpdateManager {
             val appContext = context.applicationContext
             val fileName = resolveDownloadFileName(asset.name, release.tagName)
             val request = DownloadManager.Request(Uri.parse(asset.browserDownloadUrl)).apply {
-                setTitle("Downloading JUKE Update")
+                setTitle("Downloading Music Box Update")
                 setDescription("Fetching ${release.tagName}...")
                 setMimeType(APK_MIME_TYPE)
                 setNotificationVisibility(
@@ -150,7 +150,7 @@ object UpdateManager {
         ) {
             Toast.makeText(
                 context,
-                "Allow installs from JUKE to continue.",
+                "Allow installs from Music Box to continue.",
                 Toast.LENGTH_LONG
             ).show()
             val settingsIntent = Intent(

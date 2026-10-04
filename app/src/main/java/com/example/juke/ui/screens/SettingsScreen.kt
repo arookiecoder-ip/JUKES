@@ -146,7 +146,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        "JUKE v${com.example.juke.BuildConfig.VERSION_NAME}",
+                        "Music Box v${com.example.juke.BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                         modifier = Modifier.clickable(
