@@ -251,25 +251,29 @@ fun QueueBottomSheetContent(
                         enableDismissFromStartToEnd = false,
                         enableDismissFromEndToStart = !isDragging,
                         backgroundContent = {
-                            val color by animateColorAsState(
-                                when (dismissState.targetValue) {
-                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                    else -> Color.Transparent
-                                }, label = "DismissColor"
+                            // Tinted glow from behind the glass card, not an opaque block.
+                            val glowAlpha by animateFloatAsState(
+                                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) 0.6f else 0.25f,
+                                label = "DismissGlow"
                             )
 
                             if (!isDragging && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                val error = MaterialTheme.colorScheme.error
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(color),
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                                listOf(error.copy(alpha = 0.04f), error.copy(alpha = glowAlpha))
+                                            )
+                                        ),
                                     contentAlignment = Alignment.CenterEnd
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Delete,
                                         contentDescription = "Remove",
-                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        tint = Color.White,
                                         modifier = Modifier.padding(end = 16.dp)
                                     )
                                 }
