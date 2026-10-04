@@ -16,6 +16,9 @@ import com.example.juke.network.SpotifyApi
 import com.example.juke.utils.FastDownloader
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.head
+import io.ktor.client.request.header
+import io.ktor.http.contentLength
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -105,7 +108,7 @@ class MusicService(private val context: Context) {
             else (System.currentTimeMillis() % 2L) == 0L
         var queuedSpotmateTaskId: String? = null
 
-        suspend fun downloadToTempFile(useGamepvz: Boolean?) {
+        suspend fun downloadToTempFile(useGamepvz: Boolean?, lastSource: Boolean) {
             if (tempFile.exists()) {
                 tempFile.delete()
             }
@@ -138,15 +141,17 @@ class MusicService(private val context: Context) {
             if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidMp3Header(tempFile)) {
                 throw Exception("Stream payload is too small")
             }
+            verifyLength(tempFile, SpotifyApi.parseDuration(song.duration), lastSource)
         }
 
-        val order = sourceMemory.order(RecommenderApi.songKey(song.title, song.artist), useGamepvzFirst)
+        val streamKey = RecommenderApi.songKey(song.title, song.artist)
+        val order = sourceMemory.order(streamKey, useGamepvzFirst)
         val failures = mutableListOf<String>()
         var fetched = false
         for (source in order) {
             try {
                 withTimeout(if (source == Source.SPOTSAVER) 30_000L else 90_000L) {
-                    downloadToTempFile(source.useGamepvz())
+                    downloadToTempFile(source.useGamepvz(), lastSource = source == order.last())
                 }
                 sourceMemory.recordUsed(stableUuid, source)
                 fetched = true
@@ -156,6 +161,8 @@ class MusicService(private val context: Context) {
                 currentCoroutineContext().ensureActive()
                 Log.w(TAG, "$source stream fetch failed (${e.message}), trying next source")
                 failures += "$source=${e.message}"
+                // A preview clip or wrong version: remember, so later pulls of this song skip this source.
+                if (e is WrongLengthException) sourceMemory.avoid(streamKey, source)
             }
         }
         if (!fetched) {
@@ -172,6 +179,7 @@ class MusicService(private val context: Context) {
                 }
                 if (tempFile.exists()) tempFile.delete()
                 tempFile.writeBytes(queuedData)
+                verifyLength(tempFile, SpotifyApi.parseDuration(song.duration), lenient = true)
                 sourceMemory.recordUsed(stableUuid, Source.SPOTMATE)
             } catch (queuedTaskEx: Exception) {
                 Log.e(TAG, "Queued Spotmate task failed: ${queuedTaskEx.message}")
@@ -194,6 +202,59 @@ class MusicService(private val context: Context) {
         }
 
         return finalFile.absolutePath
+    }
+
+    /**
+     * Cheap check for a provider URL that serves a short preview clip instead of the song: the file
+     * is far too small for the Spotify length even at a low bitrate (under ~64 kbps equivalent).
+     * Unknown size (no HEAD support, chunked) is treated as fine and left to the later length check.
+     */
+    private suspend fun looksLikePreview(request: SpotifyApi.DirectDownloadRequest, expectedSec: Int): Boolean {
+        if (expectedSec < 60) return false
+        return try {
+            val bytes = withTimeout(4_000L) {
+                ApiClient.httpClient.head(request.url) {
+                    request.headers.forEach { (k, v) -> header(k, v) }
+                }.contentLength()
+            }
+            bytes != null && bytes > 0 && bytes < expectedSec * 8_000L
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            currentCoroutineContext().ensureActive()
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private class WrongLengthException(message: String) : Exception(message)
+
+    private fun fileDurationSec(file: File): Int? = try {
+        val mmr = MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(file.absolutePath)
+            mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { (it / 1000).toInt() }
+        } finally {
+            mmr.release()
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * Compare the fetched audio with the Spotify length. A source that returns a preview clip
+     * (about 30 s) or a clearly different version is rejected so the next source is tried. When
+     * [lenient] (the last source left) only truncated audio is rejected, so a track whose length
+     * legitimately differs a little is not lost.
+     */
+    private fun verifyLength(file: File, expectedSec: Int, lenient: Boolean) {
+        if (expectedSec < 45) return
+        val actual = fileDurationSec(file) ?: return
+        val truncated = actual < expectedSec * 0.85 - 3
+        val different = abs(actual - expectedSec) > maxOf(8, expectedSec * 7 / 100)
+        Log.d(TAG, "Length check: got ${actual}s, expected ${expectedSec}s (truncated=$truncated, different=$different)")
+        if (truncated || (different && !lenient)) {
+            throw WrongLengthException("got ${actual}s, expected ${expectedSec}s")
+        }
     }
 
     private fun isValidMp3Header(file: File): Boolean {
@@ -310,7 +371,7 @@ class MusicService(private val context: Context) {
             )
             var queuedSpotmateTaskId: String? = null
 
-            suspend fun trySource(useGamepvz: Boolean?) {
+            suspend fun trySource(useGamepvz: Boolean?, lastSource: Boolean = false) {
                 if (audioFile.exists()) {
                     audioFile.delete()
                 }
@@ -343,6 +404,7 @@ class MusicService(private val context: Context) {
                 if (!audioFile.exists() || audioFile.length() < 100_000L || !isValidMp3Header(audioFile)) {
                     throw Exception("Downloaded file is too small to be a valid MP3")
                 }
+                verifyLength(audioFile, durationSec, lastSource)
             }
 
             val songKey = RecommenderApi.songKey(song.title, song.artist)
@@ -352,7 +414,7 @@ class MusicService(private val context: Context) {
             for (source in order) {
                 try {
                     withTimeout(if (source == Source.SPOTSAVER) 45_000L else 90_000L) {
-                        trySource(source.useGamepvz())
+                        trySource(source.useGamepvz(), lastSource = source == order.last())
                     }
                     usedSource = source
                     break
@@ -360,6 +422,7 @@ class MusicService(private val context: Context) {
                     currentCoroutineContext().ensureActive()
                     Log.w(TAG, "$source download failed (${e.message}), trying next source")
                     failures += "$source=${e.message}"
+                    if (e is WrongLengthException) sourceMemory.avoid(songKey, source)
                 }
             }
             if (usedSource == null) {
@@ -374,6 +437,7 @@ class MusicService(private val context: Context) {
                 }
                 if (audioFile.exists()) audioFile.delete()
                 audioFile.writeBytes(queuedData)
+                verifyLength(audioFile, durationSec, lenient = true)
                 usedSource = Source.SPOTMATE
             }
             sourceMemory.recordUsed(uuid, usedSource)
@@ -384,39 +448,6 @@ class MusicService(private val context: Context) {
                 throw Exception("Failed to write audio file")
             }
 
-            // Verify duration
-            try {
-                val mmr = MediaMetadataRetriever()
-                mmr.setDataSource(audioFile.absolutePath)
-                val durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                val fileDurationSec = (durationStr?.toLongOrNull() ?: 0L) / 1000
-                mmr.release()
-
-                Log.d(
-                    TAG,
-                    "Downloaded file duration: ${fileDurationSec}s, Expected: ${durationSec}s"
-                )
-
-                if (abs(fileDurationSec - durationSec) > 5) {
-                    // Wrong length usually means the wrong song: try the next source in the order.
-                    val alt = order.firstOrNull { it != usedSource && it != Source.SPOTSAVER }
-                    Log.w(
-                        TAG,
-                        "Duration mismatch! Expected ${durationSec}s, got ${fileDurationSec}s. Retrying with $alt"
-                    )
-                    if (alt != null) {
-                        try {
-                            withTimeout(90_000L) { trySource(alt.useGamepvz()) }
-                            sourceMemory.recordUsed(uuid, alt)
-                            Log.d(TAG, "Alternative download succeeded, overwrote file.")
-                        } catch (retryEx: Exception) {
-                            Log.w(TAG, "Alternative also failed (${retryEx.message}), keeping original")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error verifying duration: ${e.message}")
-            }
 
             val lyricsResult =
                 SpotifyApi.searchLyrics(song.title, song.artist, song.album, durationSec)
@@ -560,6 +591,17 @@ class MusicService(private val context: Context) {
         var queuedSpotmateTaskId: String? = null
         val songKey = RecommenderApi.songKey(song.title, song.artist)
         var resolvedSource = Source.SPOTSAVER
+        fun trackFromLocalFile(localPath: String) = Track(
+            uuid = uuid, title = song.title, artist = song.artist,
+            thumbnailUri = song.thumbnail.takeIf { it.isNotBlank() },
+            durationSec = durationSec, localUri = localPath, isStream = true,
+            isFavourite = existing?.isFavourite ?: false,
+            playCount = existing?.playCount ?: 0,
+            lastPlayedAt = existing?.lastPlayedAt,
+            downloadedAt = existing?.downloadedAt ?: System.currentTimeMillis(),
+            spotifyId = song.spotifyId, albumSpotifyId = song.albumSpotifyId,
+            artistSpotifyIds = song.artistSpotifyIds
+        )
         val resolvedRequest = try {
             if (sourceMemory.avoided(songKey).isNotEmpty() || sourceMemory.preferred != null) {
                 // The user rejected a source for this song: go through the providers one at a time,
@@ -618,18 +660,14 @@ class MusicService(private val context: Context) {
         } catch (e: Exception) {
             if (queuedSpotmateTaskId.isNullOrBlank()) throw e
             // Preserve the existing queued-conversion recovery when neither URL is ready.
-            val localPath = resolveStreamToLocalFile(song, uuid, forceSpotmateFirst)
-            return Track(
-                uuid = uuid, title = song.title, artist = song.artist,
-                thumbnailUri = song.thumbnail.takeIf { it.isNotBlank() },
-                durationSec = durationSec, localUri = localPath, isStream = true,
-                isFavourite = existing?.isFavourite ?: false,
-                playCount = existing?.playCount ?: 0,
-                lastPlayedAt = existing?.lastPlayedAt,
-                downloadedAt = existing?.downloadedAt ?: System.currentTimeMillis(),
-                spotifyId = song.spotifyId, albumSpotifyId = song.albumSpotifyId,
-                artistSpotifyIds = song.artistSpotifyIds
-            )
+            return trackFromLocalFile(resolveStreamToLocalFile(song, uuid, forceSpotmateFirst))
+        }
+        if (looksLikePreview(resolvedRequest, durationSec)) {
+            // This source serves a ~30 s preview: remember that, and fetch a verified full file from the
+            // remaining sources instead of streaming the clip.
+            Log.w(TAG, "$resolvedSource returned a preview-sized file for '${song.title}'; switching source")
+            sourceMemory.avoid(songKey, resolvedSource)
+            return trackFromLocalFile(resolveStreamToLocalFile(song, uuid, forceSpotmateFirst))
         }
         Log.d(TAG, "Stream URL resolved in ${android.os.SystemClock.elapsedRealtime() - resolveStarted}ms via $resolvedSource")
         sourceMemory.recordUsed(uuid, resolvedSource)
@@ -682,6 +720,14 @@ class MusicService(private val context: Context) {
                 if (!tempFile.exists() || tempFile.length() < 100_000L || !isValidMp3Header(tempFile)) {
                     Log.w(TAG, "streamTrackInstant: background download invalid or too small, discarding")
                     tempFile.delete()
+                    return@launch
+                }
+                try {
+                    verifyLength(tempFile, durationSec, lenient = true)
+                } catch (e: WrongLengthException) {
+                    Log.w(TAG, "streamTrackInstant: ${e.message} from $resolvedSource, discarding and avoiding it")
+                    tempFile.delete()
+                    sourceMemory.avoid(songKey, resolvedSource)
                     return@launch
                 }
 
