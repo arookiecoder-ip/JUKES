@@ -33,7 +33,7 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 object AlexaBackendApi {
 
-    fun isConfigured(): Boolean = Backend.baseUrl.isNotEmpty() && Backend.apiKey.isNotEmpty()
+    fun isConfigured(): Boolean = Backend.audioBaseUrl.isNotEmpty() && Backend.apiKey.isNotEmpty()
 
     // ---------- Wire models (thumbnail is polymorphic: string | {url} | null) ----------
 
@@ -98,12 +98,12 @@ object AlexaBackendApi {
      * server's audio cache, so the song that plays next uses that.
      */
     fun proxyUrl(videoId: String): String =
-        "${Backend.baseUrl}/proxy/?video_id=${enc(videoId)}&key=${enc(Backend.apiKey)}"
+        "${Backend.audioBaseUrl}/proxy/?video_id=${enc(videoId)}&key=${enc(Backend.apiKey)}"
 
     /** Resolve a playable `/proxy/...` audio URL for a video_id. */
     suspend fun getStreamUrl(videoId: String): String {
         requireConfigured()
-        val response: HttpResponse = ApiClient.httpClient.get("${Backend.baseUrl}/get_stream/") {
+        val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/get_stream/") {
             header("X-Api-Key", Backend.apiKey)
             parameter("video_id", videoId)
         }
@@ -119,7 +119,7 @@ object AlexaBackendApi {
     /** Radio/autoplay continuation seeded from one video. Stream URLs resolved lazily. */
     suspend fun getRadio(videoId: String): List<BackendTrack> {
         requireConfigured()
-        val response: HttpResponse = ApiClient.httpClient.get("${Backend.baseUrl}/get_radio/") {
+        val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/get_radio/") {
             header("X-Api-Key", Backend.apiKey)
             parameter("video_id", videoId)
             parameter("update_queue", 0)
@@ -134,7 +134,7 @@ object AlexaBackendApi {
 
     suspend fun queueTracks(afterVideoId: String, limit: Int): List<BackendTrack> {
         requireConfigured()
-        val response = ApiClient.httpClient.get("${Backend.baseUrl}/queue_tracks/") {
+        val response = ApiClient.httpClient.get("${Backend.audioBaseUrl}/queue_tracks/") {
             header("X-Api-Key", Backend.apiKey)
             parameter("after", afterVideoId)
             parameter("limit", limit)
@@ -148,7 +148,7 @@ object AlexaBackendApi {
         playing: Boolean? = null, positionMs: Long? = null
     ) {
         requireConfigured()
-        val response = ApiClient.httpClient.post("${Backend.baseUrl}/api/app/queue/") {
+        val response = ApiClient.httpClient.post("${Backend.audioBaseUrl}/api/app/queue/") {
             header("X-Api-Key", Backend.apiKey)
             contentType(ContentType.Application.Json)
             setBody(QueueUpdate(action, afterVideoId, tracks, playing, positionMs))
@@ -167,7 +167,7 @@ object AlexaBackendApi {
     /** Authoritative next-up track from the server's live queue (`after` is required). */
     suspend fun nextTrack(afterVideoId: String): BackendTrack? {
         requireConfigured()
-        val response: HttpResponse = ApiClient.httpClient.get("${Backend.baseUrl}/next_track/") {
+        val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/next_track/") {
             header("X-Api-Key", Backend.apiKey)
             parameter("after", afterVideoId)
         }

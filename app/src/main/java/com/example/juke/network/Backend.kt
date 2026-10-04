@@ -43,7 +43,8 @@ object Backend {
 
     private const val DEFAULT_SERVER = "https://alexa.synthora.in"
 
-    val baseUrl: String get() = BuildConfig.ALEXA_BASE_URL.trim().trimEnd('/').ifBlank { DEFAULT_SERVER }
+    val audioBaseUrl: String get() = BuildConfig.ALEXA_BASE_URL.trim().trimEnd('/').ifBlank { DEFAULT_SERVER }
+    val baseUrl: String get() = BuildConfig.ALEXA_SESSION_BASE_URL.trim().trimEnd('/').ifBlank { audioBaseUrl }
     val apiKey: String get() = BuildConfig.ALEXA_API_KEY.trim()
 
     private lateinit var jar: PersistentCookieJar
@@ -136,7 +137,12 @@ object Backend {
             throw BackendAuthException(errorMessage(parsed) ?: "Your session has ended. Sign in again.")
         }
         // Without a session the server redirects browser-style requests to its login page.
-        if (code in 300..399) throw BackendAuthException("Sign in to continue.")
+        if (code in 300..399) {
+            if (path == "/login/") {
+                throw IllegalStateException("Account login is unavailable on this server. Update the app or contact the server administrator.")
+            }
+            throw BackendAuthException("Sign in to continue.")
+        }
         if (code !in 200..299) {
             throw IllegalStateException(errorMessage(parsed) ?: "Server error ($code)")
         }
