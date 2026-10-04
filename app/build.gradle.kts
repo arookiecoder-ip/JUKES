@@ -80,6 +80,22 @@ android {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
     }
+    packaging {
+        resources {
+            // Build metadata the app never reads at runtime.
+            excludes += setOf(
+                "META-INF/*.version",
+                "META-INF/*.kotlin_module",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            )
+        }
+    }
+    dependenciesInfo {
+        // Play-only dependency report; this APK is side-loaded from GitHub.
+        includeInApk = false
+        includeInBundle = false
+    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -110,7 +126,6 @@ dependencies {
 
     // Ktor
     implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.logging)
