@@ -24,6 +24,7 @@ object AlexaRemotePolicy {
         val target = URI(requireNotNull(url))
         fun port(uri: URI) = if (uri.port < 0) 443 else uri.port
         target.scheme.equals("https", ignoreCase = true) && target.rawUserInfo == null &&
+            target.path.orEmpty().split('/').none { it == "." || it == ".." } &&
             target.host.equals(root.host, ignoreCase = true) && port(target) == port(root) &&
             (root.path.isNullOrEmpty() || target.path == root.path || target.path.startsWith(root.path + "/"))
     }.getOrDefault(false)

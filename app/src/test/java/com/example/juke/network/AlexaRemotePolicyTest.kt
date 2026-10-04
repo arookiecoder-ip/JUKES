@@ -40,5 +40,7 @@ class AlexaRemotePolicyTest {
         assertTrue(AlexaRemotePolicy.trusted(server,"$server/youtube-login/vnc.html"))
         assertFalse(AlexaRemotePolicy.trusted(server,"https://alexa.synthora.in/youtube-login/vnc.html"))
         assertFalse(AlexaRemotePolicy.trusted(server,"https://alexa.synthora.in/staging-evil/login"))
+        assertFalse(AlexaRemotePolicy.trusted(server,"$server/../login/"))
+        assertFalse(AlexaRemotePolicy.trusted(server,"$server/%2e%2e/login/"))
     }
 }
