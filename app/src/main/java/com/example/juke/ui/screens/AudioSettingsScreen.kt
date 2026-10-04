@@ -60,6 +60,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +100,12 @@ fun AudioSettingsScreen(
     val isMiniPlayerLyricsEnabled by musicViewModel.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val recommendationCount by musicViewModel.recommendationCount.collectAsStateWithLifecycle()
     val haptic = rememberJukeHaptics()
+    // Power Tools stay locked until the version line is tapped 7 times (like Android's developer options).
+    val powerCtx = androidx.compose.ui.platform.LocalContext.current
+    val powerPrefs = remember { powerCtx.getSharedPreferences("power_prefs", android.content.Context.MODE_PRIVATE) }
+    var powerUnlocked by remember { mutableStateOf(powerPrefs.getBoolean("power_tools_unlocked", false)) }
+    var versionTaps by remember { mutableIntStateOf(0) }
+    var lastVersionTapAt by remember { mutableLongStateOf(0L) }
     var lastBoosterTickBucket by remember { mutableIntStateOf((boosterLevel / 5).coerceIn(0, 20)) }
     var lastRecommendationTick by remember {
         mutableIntStateOf(recommendationCount.coerceIn(3, 15))
@@ -629,16 +638,40 @@ fun AudioSettingsScreen(
                     GlassCard(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { haptic.click(); onNavigateToPowerTools() }
+                            .alpha(if (powerUnlocked) 1f else 0.45f)
+                            .clickable {
+                                if (powerUnlocked) {
+                                    haptic.click()
+                                    onNavigateToPowerTools()
+                                } else {
+                                    haptic.reject()
+                                    android.widget.Toast.makeText(
+                                        powerCtx, "Locked. Tap the version below 7 times to unlock.",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
                     ) {
                         CompactItem(
                             headlineContent = {
                                 Text("Power Tools", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                             },
-                            supportingContent = { Text("Sources, repeat threshold, gestures, diagnostics and backup") },
-                            leadingContent = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                            supportingContent = {
+                                Text(
+                                    if (powerUnlocked) "Sources, repeat threshold, gestures, diagnostics and backup"
+                                    else "Locked. Tap the version below 7 times to unlock"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    if (powerUnlocked) Icons.Rounded.AutoAwesome else Icons.Rounded.Lock,
+                                    contentDescription = if (powerUnlocked) null else "Locked"
+                                )
+                            },
                             trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (powerUnlocked) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         )
                     }
@@ -654,6 +687,37 @@ fun AudioSettingsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        Text(
+                            "JUKE v${com.example.juke.BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                val now = System.currentTimeMillis()
+                                if (now - lastVersionTapAt > 2000L) versionTaps = 0
+                                lastVersionTapAt = now
+                                if (powerUnlocked) {
+                                    android.widget.Toast.makeText(powerCtx, "Power Tools are already unlocked", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    versionTaps++
+                                    haptic.tick()
+                                    val left = 7 - versionTaps
+                                    if (left <= 0) {
+                                        powerUnlocked = true
+                                        powerPrefs.edit().putBoolean("power_tools_unlocked", true).apply()
+                                        haptic.confirm()
+                                        android.widget.Toast.makeText(powerCtx, "Power Tools unlocked", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else if (versionTaps >= 3) {
+                                        android.widget.Toast.makeText(
+                                            powerCtx, "$left more tap${if (left == 1) "" else "s"} to unlock Power Tools",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                        )
                         Text(
                             "Made with ❤️ by MEEK",
                             style = MaterialTheme.typography.bodySmall,

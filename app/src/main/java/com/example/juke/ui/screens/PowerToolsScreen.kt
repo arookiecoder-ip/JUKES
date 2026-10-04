@@ -142,6 +142,17 @@ fun PowerToolsScreen(onNavigateBack: () -> Unit, bottomPadding: androidx.compose
             }
 
             item {
+                Section("Lock") {
+                    Label("Hide Power Tools", "Locks this page again. Unlock it by tapping the version in Audio Control 7 times.")
+                    GlassButton(onClick = {
+                        haptic.confirm()
+                        power.edit().putBoolean("power_tools_unlocked", false).apply()
+                        onNavigateBack()
+                    }) { Text("Lock Power Tools") }
+                }
+            }
+
+            item {
                 Section("Diagnostics and export") {
                     val s = stats
                     if (s == null) {
