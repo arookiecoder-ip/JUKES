@@ -43,6 +43,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     onClose: () -> Unit, onMoveTrack: (Int, Int) -> Unit, onRemoveTrack: (String) -> Unit,
     onPlayTrack: (Track) -> Unit, statusText: String? = null, onShuffleUpcoming: () -> Unit = {},
     error: String? = null, onRetry: () -> Unit = {}, onSortUpcoming: () -> Unit = {}, onClearPlayed: () -> Unit = {}, onSaveAsPlaylist: () -> Unit = {}) {
+    val haptics = com.example.juke.utils.rememberJukeHaptics()
     val menu = LocalMediaMenu.current
     val rows = queue.ifEmpty { listOf(currentTrack) }
     val currentIndex = if (queue.isEmpty()) 0 else queueIndex.takeIf { it in queue.indices }
@@ -55,7 +56,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     LaunchedEffect(Unit) { if (currentIndex > 0) list.scrollToItem((currentIndex - 1).coerceAtLeast(0)) }
     val occurrences = mutableMapOf<String, Int>()
     val keys = rows.map { track ->
-        val id = track.ytVideoId ?: track.uuid
+        val id = track.uuid
         val occurrence = occurrences.getOrDefault(id, 0)
         occurrences[id] = occurrence + 1
         "$id:$occurrence"
@@ -128,10 +129,11 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 })
                 val grip = Modifier.size(width = 36.dp, height = 56.dp).pointerInput(key, editable) {
                     if (editable) detectDragGestures(onDragStart = {
-                        origin = index; draggedKey = key; dragDelta = 0f
+                        haptics.gestureStart(); origin = index; draggedKey = key; dragDelta = 0f
                         initialTop = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset?.toFloat() ?: 0f
                         dragCenter = initialTop + rowHeight / 2
                     }, onDragCancel = { draggedKey = null; order = keys }, onDragEnd = {
+                        haptics.gestureEnd()
                         val target = order.indexOf(key)
                         draggedKey = null
                         if (target >= 0 && target != origin) onMoveTrack(origin, target)
