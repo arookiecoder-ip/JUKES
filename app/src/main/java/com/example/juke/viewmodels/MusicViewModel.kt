@@ -1101,7 +1101,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     if (com.example.juke.network.NetworkFeedback.online.value) {
                         com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                         serverPlaybackChecked = true
-                    }
+                    } else com.example.juke.services.PhonePlaybackOwnership.forget()
                     withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
                 },
                 play = { playable ->
@@ -1159,7 +1159,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (com.example.juke.network.NetworkFeedback.online.value) {
                     com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                     serverPlaybackChecked = true
-                }
+                } else com.example.juke.services.PhonePlaybackOwnership.forget()
                 playbackManager.togglePlayPause()
                 synchronizePhoneQueue()
             }
