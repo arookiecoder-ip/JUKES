@@ -14,7 +14,7 @@ data class DownloadedCollection(val id: String, val kind: String, val title: Str
         val byVideo = downloaded.associateBy { it.ytVideoId }
         return tracks.mapNotNull { original -> byVideo[original.ytVideoId]?.let { original.copy(localUri = it.localUri, isStream = false) } }
     }
-    fun browseItem() = BrowseItem(id, kind, title, subtitle, image, "", if (kind == "playlist") id else "",
+    fun browseItem() = BrowseItem(id, kind, title, subtitle, image, "", if (kind == "playlist") id.removePrefix("VL") else "",
         0L, "", "", false, JsonObject(mapOf("offline" to kotlinx.serialization.json.JsonPrimitive(true))))
 }
 
