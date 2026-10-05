@@ -12,3 +12,8 @@ data class SharedPlaybackOutput(val mode: String = "", val owner: String = "", v
 
 fun sharedPlaybackOutput(json: JsonObject) = SharedPlaybackOutput(json.text("playback_output"),
     json.text("output_owner"), json.text("output_token"), json.number("phone_lease_ms"), json.text("output_serial"))
+
+/** Reject prepared audio from an older play intent, including a relinquished online lease. */
+internal fun canStartPhonePlayback(expectedToken: String, currentToken: String, relinquishing: Boolean,
+    leaseUntil: Long, now: Long): Boolean = !relinquishing && expectedToken == currentToken &&
+    (currentToken.isBlank() || now < leaseUntil)

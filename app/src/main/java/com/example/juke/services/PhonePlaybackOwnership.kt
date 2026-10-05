@@ -17,6 +17,7 @@ object PhonePlaybackOwnership {
         private set
     @Volatile var leaseUntilMs = 0L
         private set
+    @Volatile private var relinquishing = false
     @Volatile var localHandoff = false
     val ownerId: String get() = prefs.getString("owner_id", "").orEmpty()
 
@@ -35,6 +36,7 @@ object PhonePlaybackOwnership {
     fun accept(output: SharedPlaybackOutput) {
         check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank())
         token = output.token
+        relinquishing = false
         // Pause before the server lease expires, leaving room for a slow status request.
         leaseUntilMs = SystemClock.elapsedRealtime() + (output.leaseMs - 4_000).coerceAtLeast(0)
         prefs.edit().putString("last_token", token).apply()
@@ -48,6 +50,7 @@ object PhonePlaybackOwnership {
     }
 
     suspend fun releaseTo(output: SharedPlaybackOutput) {
+        relinquishing = true
         token = ""
         leaseUntilMs = 0
         // Call only after the actual Media3 player has paused.
@@ -55,5 +58,12 @@ object PhonePlaybackOwnership {
         finally { if (token.isBlank()) remote.value = output }
     }
 
-    fun forget() { token = ""; leaseUntilMs = 0 }
+    fun permitsPlayback(expectedToken: String = token): Boolean =
+        canStartPhonePlayback(expectedToken, token, relinquishing, leaseUntilMs, SystemClock.elapsedRealtime())
+
+    fun forget(allowOffline: Boolean = false) {
+        relinquishing = !allowOffline
+        token = ""
+        leaseUntilMs = 0
+    }
 }

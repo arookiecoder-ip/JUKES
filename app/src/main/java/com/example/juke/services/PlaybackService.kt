@@ -514,6 +514,10 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (playWhenReady && !PhonePlaybackOwnership.permitsPlayback()) {
+                player.pause()
+                return
+            }
             if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
                 recoveryShouldResume = false
                 streamRecoveryJob?.cancel()
@@ -1575,7 +1579,10 @@ class PlaybackManager private constructor(private val context: Context) {
 
         val mediaItems = tracks.mapNotNull { track -> createValidatedMediaItem(track) }
 
-        val action: (MediaController) -> Unit = { ctrl -> ctrl.apply {
+        val claim = PhonePlaybackOwnership.token
+        val action: (MediaController) -> Unit = action@{ ctrl ->
+            if (!PhonePlaybackOwnership.permitsPlayback(claim)) return@action
+            ctrl.apply {
             // When starting a fresh queue the caller is responsible for ordering the tracks
             // (pre-shuffling in Kotlin when shuffle is on). Disabling ExoPlayer's own shuffle
             // prevents double-shuffling where ExoPlayer would override the intended playback

@@ -1091,6 +1091,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true) {
         _uiState.update { it.copy(isLoading = true, error = null) }
+        var startupClaim = ""
         try {
             phoneQueueSyncJob?.cancel()
             sharedPhoneQueueReady = !synchronizeQueue
@@ -1101,10 +1102,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     if (com.example.juke.network.NetworkFeedback.online.value) {
                         com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                         serverPlaybackChecked = true
-                    } else com.example.juke.services.PhonePlaybackOwnership.forget()
+                    } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
+                    startupClaim = com.example.juke.services.PhonePlaybackOwnership.token
                     withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
                 },
                 play = { playable ->
+                    if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(startupClaim))
+                        throw CancellationException("Playback moved to another output during preparation")
                     val start = playable[startIndex]
                     playbackManager.setQueue(playable, startIndex,
                         startPositionMs = if (positionMs > 0) positionMs else androidx.media3.common.C.TIME_UNSET,
@@ -1159,7 +1163,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (com.example.juke.network.NetworkFeedback.online.value) {
                     com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                     serverPlaybackChecked = true
-                } else com.example.juke.services.PhonePlaybackOwnership.forget()
+                } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
                 playbackManager.togglePlayPause()
                 synchronizePhoneQueue()
             }
