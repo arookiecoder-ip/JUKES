@@ -128,7 +128,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val output: StateFlow<PlaybackOutput> = _output.asStateFlow()
     private val outputChosen get() = settingsPrefs.contains(KEY_OUTPUT)
 
-    private var queuedOutputSwitch: Pair<Boolean, String?>? = null
+    private val outputSwitchRequests = com.example.juke.services.OutputSwitchRequests()
     private val _isSwitchingOutput = MutableStateFlow(false)
     val isSwitchingOutput: StateFlow<Boolean> = _isSwitchingOutput.asStateFlow()
 
@@ -486,7 +486,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
         signedIn = false
-        queuedOutputSwitch = null
+        outputSwitchRequests.clearPending()
         com.example.juke.services.RemotePlaybackService.stop(getApplication())
         signInJob?.cancel()
         echo.clear()
@@ -530,7 +530,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun switchOutput(serial: String?) {
         if (_isSwitchingOutput.value) {
-            queuedOutputSwitch = true to serial
+            outputSwitchRequests.request(serial)
             return
         }
         val toPhone = serial == null
@@ -540,6 +540,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
+        outputSwitchRequests.request(serial)
         _isSwitchingOutput.value = true
         viewModelScope.launch {
             try {
@@ -582,9 +583,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _messages.tryEmit(e.message ?: "Couldn't switch playback")
             } finally {
                 _isSwitchingOutput.value = false
-                val next = queuedOutputSwitch
-                queuedOutputSwitch = null
-                if (signedIn && next != null) switchOutput(next.second)
+                val next = outputSwitchRequests.finish()
+                if (signedIn && next != null) switchOutput(next.serial)
             }
         }
     }
@@ -605,7 +605,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             pauseSource = { if (wasPlaying) echo.command("pause") },
             startTarget = {
                 phoneSetQueue(queue.map { it.copy(uuid = java.util.UUID.randomUUID().toString()) }, index,
-                    positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
+                    positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true, synchronizeQueue = false)
                 playbackManager.awaitReady()
             },
             restoreSource = { if (wasPlaying) echo.command("play") },
@@ -953,7 +953,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * their proxy URLs. The shared queue on the server is replaced so the Echo and the web
      * remote see the same songs.
      */
-    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true) {
+    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true) {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
             phoneQueueSyncJob?.cancel()
@@ -969,7 +969,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         isPlaying = play, duration = start.durationSec * 1000L) }
                 },
                 synchronize = sync@{ playable ->
-                    if (!com.example.juke.network.NetworkFeedback.online.value) return@sync
+                    if (!synchronizeQueue || !com.example.juke.network.NetworkFeedback.online.value) return@sync
                     withContext(Dispatchers.IO) {
                         val from = (startIndex - 20).coerceAtLeast(0)
                         AlexaBackendApi.updateQueue("start", requireNotNull(playable[startIndex].ytVideoId),

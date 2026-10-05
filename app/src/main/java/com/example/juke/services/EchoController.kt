@@ -294,7 +294,7 @@ class EchoController(
             while (!confirmed) {
                 refresh()
                 val s = _state.value
-                confirmed = s.confirmed && s.track?.ytVideoId == videoId
+                confirmed = s.confirmed && s.playing && s.track?.ytVideoId == videoId
                 if (!confirmed) delay(1_000)
             }
             true
