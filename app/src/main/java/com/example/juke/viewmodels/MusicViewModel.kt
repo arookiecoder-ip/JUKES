@@ -990,7 +990,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     Backend.get("/alexa/status/")
                 }
                 _queueLoadError.value = if (expired) "Your session expired. Sign in again to sync the queue."
-                    else "The server rejected queue sync. Your login has been kept. Try again."
+                    else "Queue sync rejected at ${e.endpoint ?: "the queue endpoint"} (HTTP ${e.statusCode}). Your login has been kept."
+                Log.w(TAG, "Queue sync rejected: endpoint=${e.endpoint}; HTTP ${e.statusCode}; sessionExpired=$expired")
                 if (expired) _signedOut.tryEmit(Unit)
             }
             catch (e: Exception) {

@@ -32,7 +32,11 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** The web-remote session expired or was never opened: the user must sign in again. */
-class BackendAuthException(message: String) : Exception(message)
+class BackendAuthException(
+    message: String,
+    val endpoint: String? = null,
+    val statusCode: Int = 401
+) : Exception(message)
 class BackendHttpException(val statusCode: Int, message: String) : IllegalStateException(message)
 
 /** Result of the first login step. */
@@ -173,14 +177,14 @@ object Backend {
         val code = response.status.value
         if (code == 401) {
             if (audio) throw BackendHttpException(code, "The audio server needs its owner login or a valid API key.")
-            throw BackendAuthException(errorMessage(parsed) ?: "Your session has ended. Sign in again.")
+            throw BackendAuthException(errorMessage(parsed) ?: "Your session has ended. Sign in again.", path, code)
         }
         // Without a session the server redirects browser-style requests to its login page.
         if (code in 300..399) {
             if (path == "/login/") {
                 throw IllegalStateException("Account login is unavailable on this server. Update the app or contact the server administrator.")
             }
-            throw BackendAuthException("Sign in to continue.")
+            throw BackendAuthException("Sign in to continue.", path, code)
         }
         if (code !in 200..299) {
             val message = when (code) {
