@@ -145,6 +145,7 @@ sealed class Screen(
 class MainActivity : ComponentActivity() {
 
     private val showPlayerOnLaunch = mutableStateOf(false)
+    private var downloadsOpenTrigger by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -226,6 +227,25 @@ class MainActivity : ComponentActivity() {
 
                 val context = LocalContext.current
                 var showPlayerModal by remember { mutableStateOf(false) }
+                LaunchedEffect(downloadsOpenTrigger) {
+                    if (downloadsOpenTrigger > 0) {
+                        showPlayerModal = false
+                        navController.navigate(Screen.Library.route) { popUpTo(navController.graph.findStartDestination().id); launchSingleTop = true }
+                    }
+                }
+                val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                val activeDownloads by musicViewModel.downloads.status.collectAsStateWithLifecycle()
+                LaunchedEffect(activeDownloads.active > 0) {
+                    if (activeDownloads.active > 0 && Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        val permissionPrefs = getSharedPreferences("notification_permission", MODE_PRIVATE)
+                        if (!permissionPrefs.getBoolean("download_requested", false)) {
+                            permissionPrefs.edit().putBoolean("download_requested", true).apply()
+                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
                 var searchResetTrigger by remember { mutableIntStateOf(0) }
                 var searchFocusTrigger by remember { mutableIntStateOf(0) }
 
@@ -411,7 +431,7 @@ class MainActivity : ComponentActivity() {
                 fun isDetailRoute(route: String?) =
                     route != null && (route.startsWith("artist/") ||
                         route.startsWith("album/") || route.startsWith("playlist/") ||
-                        route.startsWith("artist-releases/") || route.startsWith("artist-songs/"))
+                        route.startsWith("artist-releases/") || route.startsWith("artist-songs/") || route.startsWith("downloads/"))
 
                 val onNavigate: (Screen) -> Unit = { screen ->
                     val wasDetail = isDetailRoute(currentRoute)
@@ -428,7 +448,7 @@ class MainActivity : ComponentActivity() {
 
                     if (navController.currentDestination?.route == screen.route) {
                         // Already on Search: select the query and open the keyboard for typing.
-                        if (!wasDetail && screen == Screen.Search) searchFocusTrigger++
+                        if (!wasDetail && screen == Screen.Search) searchResetTrigger++
                     } else {
                         navController.navigate(screen.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -456,7 +476,8 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(LocalHazeState provides hazeState, com.example.juke.ui.components.LocalMediaMenu provides mediaMenu) {
                 com.example.juke.ui.components.MediaActionMenuHost(mediaMenu, musicViewModel, libraryViewModel, onOpen = { item ->
                     showPlayerModal = false
-                    when (item.kind) {
+                    if (item.raw["offline"]?.toString() == "true") navController.navigate("downloads/${android.net.Uri.encode("${item.kind}:${item.id}")}")
+                    else when (item.kind) {
                         "artist" -> { searchViewModel.loadArtistDetails(item); navController.navigate("artist/${item.id}") }
                         "album" -> { activityViewModelProvider[AlbumDetailViewModel::class.java].loadAlbumDetails(item); navController.navigate("album/${item.id}") }
                         "playlist" -> { activityViewModelProvider[PlaylistDetailViewModel::class.java].loadPlaylistDetails(item); navController.navigate("playlist/${item.id}") }
@@ -572,6 +593,8 @@ class MainActivity : ComponentActivity() {
                                             navController.navigate("playlist/${item.id}")
                                         }
                                     },
+                                    onOpenDownloadedCollection = { collection -> navController.navigate("downloads/${android.net.Uri.encode(collection.key)}") },
+                                    downloadsOpenTrigger = downloadsOpenTrigger,
                                     onOpenSettings = { navController.navigate("settings") },
                                     onOpenHistory = { navController.navigate("history") },
                                     onOpenArtist = { artist ->
@@ -580,6 +603,10 @@ class MainActivity : ComponentActivity() {
                                     },
                                     bottomPadding = bottomPadding
                                 )
+                            }
+                            composable("downloads/{collectionKey}") { entry ->
+                                com.example.juke.ui.screens.DownloadedCollectionScreen(entry.arguments?.getString("collectionKey").orEmpty(),
+                                    musicViewModel, { navController.popBackStack() }, bottomPadding)
                             }
                             composable("history") {
                                 com.example.juke.ui.screens.HistoryScreen(musicViewModel, { navController.popBackStack() }, bottomPadding)
@@ -735,6 +762,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handlePlayerIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(com.example.juke.services.DownloadService.OPEN_DOWNLOADS, false) == true) {
+            showPlayerOnLaunch.value = false
+            downloadsOpenTrigger++
+            intent.removeExtra(com.example.juke.services.DownloadService.OPEN_DOWNLOADS)
+        }
         if (intent?.getBooleanExtra("open_player", false) == true) {
             showPlayerOnLaunch.value = true
         }

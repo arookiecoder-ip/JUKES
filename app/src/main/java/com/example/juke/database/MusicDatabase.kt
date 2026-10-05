@@ -175,6 +175,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE uuid = :uuid")
     suspend fun getTrackByUuid(uuid: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE uuid IN (:uuids)")
+    suspend fun getTracksByUuids(uuids: List<String>): List<TrackEntity>
+
     @Query("SELECT * FROM tracks WHERE last_played_at IS NOT NULL ORDER BY last_played_at DESC LIMIT :limit")
     suspend fun getRecentlyPlayed(limit: Int = 10): List<TrackEntity>
 

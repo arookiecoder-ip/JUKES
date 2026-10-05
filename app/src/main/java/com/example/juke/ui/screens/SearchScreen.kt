@@ -155,7 +155,7 @@ fun SearchScreen(
     LaunchedEffect(searchResetTrigger) {
         if (searchResetTrigger != previousResetTrigger) {
             previousResetTrigger = searchResetTrigger
-            leaveDiscovery(); active = false
+            leaveDiscovery(); searchViewModel.resetToDiscovery(); selectedFilter = "All"; active = false
         }
     }
 

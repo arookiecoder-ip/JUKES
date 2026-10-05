@@ -49,6 +49,7 @@ data class SearchUiState(
     val tracks: List<Track> = emptyList(),
     val artists: List<BrowseItem> = emptyList(),
     val topResult: BrowseItem? = null,
+    val topArtistTracks: List<Track> = emptyList(),
     val playlists: List<BrowseItem> = emptyList(),
     val albums: List<BrowseItem> = emptyList(),
     val isSearching: Boolean = false,
@@ -158,7 +159,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 tracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
-                albums = emptyList(), topResult = null
+                albums = emptyList(), topResult = null, topArtistTracks = emptyList()
             )
         }
     }
@@ -306,6 +307,14 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun resetToDiscovery() {
+        searchJob?.cancel()
+        suggestionRequestNonce.incrementAndGet()
+        _uiState.value = _uiState.value.copy(query = "", suggestions = emptyList(), isShowingSuggestions = false,
+            tracks = emptyList(), artists = emptyList(), playlists = emptyList(), albums = emptyList(), topResult = null,
+            topArtistTracks = emptyList(), isSearching = false, error = null)
+    }
+
     fun search(query: String) {
         val trimmedQuery = query.trim()
         searchJob?.cancel() // Cancel any pending suggestion fetch
@@ -320,7 +329,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 tracks = emptyList(),
                 artists = emptyList(),
                 playlists = emptyList(),
-                albums = emptyList(), topResult = null
+                albums = emptyList(), topResult = null, topArtistTracks = emptyList()
             )
             return
         }
@@ -334,15 +343,31 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 val result = Backend.get("/alexa/search/", mapOf("q" to trimmedQuery)).objectOrEmpty()
                 val liked = AccountRepository.liked.value
                 fun rows(key: String) = result.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, key) } }
+                val all = rows("all")
+                val songs = rows("songs").filter { com.example.juke.network.isAudioSearchItem(it) }
+                val hero = com.example.juke.network.audioSearchHero(all, songs)
+                val heroIndex = all.indexOf(hero)
+                val preview = if (hero?.kind == "artist") all.drop(heroIndex + 1).takeWhile { it.kind == "track" }
+                    .filter { com.example.juke.network.isAudioSearchItem(it) }.take(3).map { it.toTrack(liked) } else emptyList()
                 _uiState.value = _uiState.value.copy(
-                    tracks = rows("songs").filter { it.videoId.isNotBlank() }.map { it.toTrack(liked) },
-                    topResult = rows("all").firstOrNull { it.raw.text("category").equals("Top result", true) && it.id.isNotBlank() }
-                        ?: rows("all").firstOrNull { it.id.isNotBlank() },
+                    tracks = songs.filter { it.videoId.isNotBlank() }.map { it.toTrack(liked) },
+                    topResult = hero, topArtistTracks = preview,
                     artists = rows("artists").filter { it.id.isNotBlank() },
                     albums = rows("albums").filter { it.id.isNotBlank() },
                     playlists = rows("playlists").filter { it.playlistId.isNotBlank() || it.id.isNotBlank() },
                     isSearching = false
                 )
+                if (hero?.kind == "artist" && preview.size < 3) {
+                    try {
+                        val artist = Backend.get("/api/artist/${hero.id}").objectOrEmpty()
+                        val topSongs = artist.array("topSongs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                            .filter { it.videoId.isNotBlank() }.take(3).map { it.toTrack(liked) }
+                        if (_uiState.value.query == trimmedQuery && _uiState.value.topResult?.id == hero.id) {
+                            _uiState.value = _uiState.value.copy(topArtistTracks = topSongs.ifEmpty { preview })
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { /* Keep the successful search when artist enrichment is unavailable. */ }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: BackendAuthException) {

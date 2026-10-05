@@ -149,30 +149,19 @@ internal fun SearchResultsList(
             val hero = uiState.topResult
             if (hero != null) item(key = "top-result") {
                 SectionHeader("Top result")
-                if (hero.kind == "track") {
-                    com.example.juke.ui.components.HeroTrackCard(track = hero.toTrack(com.example.juke.services.AccountRepository.liked.value), onClick = { musicViewModel.playTrack(hero.toTrack()) }, modifier = Modifier.padding(horizontal = 20.dp))
-                } else {
-                    val menu = LocalMediaMenu.current
-                    val open = { when (hero.kind) {
-                        "artist" -> onNavigateToArtist(hero)
-                        "album" -> onNavigateToAlbum(hero)
-                        else -> onNavigateToPlaylist(hero)
-                    } }
-                    Column(Modifier.padding(horizontal = 20.dp).combinedClickable(onClick = open, onLongClick = { menu?.show(hero) }, onLongClickLabel = "More options")) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(120.dp).clip(if (hero.kind == "artist") CircleShape else androidx.compose.ui.graphics.RectangleShape)) {
-                                AsyncImage(hero.image, hero.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                if (hero.kind in listOf("album", "playlist")) com.example.juke.ui.components.CollectionPlayButton(
-                                    "Play ${hero.title}", { musicViewModel.playCollection(hero) }, Modifier.align(Alignment.BottomEnd).padding(8.dp))
-                            }
-                            Column(Modifier.padding(start = 16.dp).weight(1f)) {
-                                Text(hero.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(hero.subtitle.ifBlank { hero.kind.replaceFirstChar { it.uppercase() } }, style = MaterialTheme.typography.bodyMedium)
-                                androidx.compose.material3.TextButton(onClick = open) { Text("Open ${hero.kind}") }
-                            }
-                        }
-                    }
-                }
+                val menu = LocalMediaMenu.current
+                val track = if (hero.kind == "track") hero.toTrack(com.example.juke.services.AccountRepository.liked.value) else null
+                val open = { when (hero.kind) {
+                    "artist" -> onNavigateToArtist(hero)
+                    "album" -> onNavigateToAlbum(hero)
+                    "playlist" -> onNavigateToPlaylist(hero)
+                    else -> track?.let(musicViewModel::playTrack)
+                }; Unit }
+                SearchHeroCard(hero, uiState.topArtistTracks, onOpen = open,
+                    onPlay = { if (track != null) musicViewModel.playTrack(track) else musicViewModel.playCollection(hero) },
+                    onSong = musicViewModel::playTrack,
+                    onOptions = { if (track != null) menu?.show(track) else menu?.show(hero) },
+                    modifier = Modifier.padding(horizontal = 20.dp))
                 Spacer(Modifier.height(16.dp))
             }
         }
@@ -320,9 +309,10 @@ internal fun LocalTrackItem(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                com.example.juke.ui.components.DownloadedBadge(track.ytVideoId)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "%d:%02d".format(track.durationSec / 60, track.durationSec % 60),
+                    text = if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )

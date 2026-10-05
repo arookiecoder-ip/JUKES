@@ -139,13 +139,8 @@ object AlexaBackendApi {
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
         playing: Boolean? = null, positionMs: Long? = null
     ) {
-        requireConfigured()
-        val response = ApiClient.httpClient.post("${Backend.audioBaseUrl}/api/app/queue/") {
-            header("X-Api-Key", Backend.apiKey)
-            contentType(ContentType.Application.Json)
-            setBody(QueueUpdate(action, afterVideoId, tracks, playing, positionMs))
-        }
-        check(response.status.value in 200..299) { "Queue update failed (${response.status.value})" }
+        Backend.post("/api/app/queue/", kotlinx.serialization.json.Json.encodeToJsonElement(
+            QueueUpdate.serializer(), QueueUpdate(action, afterVideoId, tracks, playing, positionMs)).jsonObject)
     }
 
     fun backendTrack(track: Track): BackendTrack = BackendTrack(

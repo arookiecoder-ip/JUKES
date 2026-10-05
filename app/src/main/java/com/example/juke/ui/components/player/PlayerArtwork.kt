@@ -139,26 +139,7 @@ private fun ArtworkCard(
             },
         contentAlignment = Alignment.Center
     ) {
-        if (track.thumbnailUri != null) {
-            // Use an explicit ImageRequest so Coil can key the memory/disk cache by URI
-            // and immediately serve from cache when the composable is re-entered after
-            // a track switch (avoids the blank-frame flash on already-rendered components).
-            com.example.juke.ui.components.TrackArtwork(track, Modifier.fillMaxSize(), large = true)
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        com.example.juke.ui.components.TrackArtwork(track, Modifier.fillMaxSize(), large = true)
 
         run {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxSize().background(

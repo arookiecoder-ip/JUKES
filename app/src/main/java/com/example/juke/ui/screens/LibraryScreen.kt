@@ -4,6 +4,10 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -56,33 +61,39 @@ fun LibraryScreen(
     onOpenCollection: (BrowseItem) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onOpenDownloadedCollection: (com.example.juke.services.DownloadedCollection) -> Unit = {},
+    downloadsOpenTrigger: Int = 0,
     bottomPadding: Dp = 0.dp
 ) {
     val state by libraryViewModel.uiState.collectAsStateWithLifecycle()
     val downloadedCollections by musicViewModel.downloadedCollections.collectAsStateWithLifecycle()
-    var downloadedCollection by remember { mutableStateOf<com.example.juke.services.DownloadedCollection?>(null) }
+    val selection = remember { DownloadSelection() }
     val downloaded by musicViewModel.downloadedTracks.collectAsStateWithLifecycle()
+    val progress by musicViewModel.downloadProgress.collectAsStateWithLifecycle()
     val online by com.example.juke.network.NetworkFeedback.online.collectAsStateWithLifecycle()
-    val downloadedSongs = remember(downloaded, state.searchQuery) {
-        downloaded.filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
+    val downloadedSongs = remember(downloaded, downloadedCollections, state.searchQuery) {
+        com.example.juke.services.standaloneDownloads(downloaded, downloadedCollections).filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
     }
     val collectionDownloads = downloadedCollections.filter { it.title.contains(state.searchQuery, true) || it.subtitle.contains(state.searchQuery, true) }
     val context = LocalContext.current
     val mediaMenu = LocalMediaMenu.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var grid by rememberSaveable { mutableStateOf(false) }
-    var filter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
+    val pager = rememberPagerState { LibraryFilter.entries.size }
+    val scope = rememberCoroutineScope()
+    val filter = LibraryFilter.entries[pager.currentPage]
+    LaunchedEffect(pager.currentPage) { selection.clear() }
+    LaunchedEffect(downloadsOpenTrigger) { if (downloadsOpenTrigger > 0) pager.scrollToPage(LibraryFilter.DOWNLOADS.ordinal) }
     var createPlaylist by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf<BrowseItem?>(null) }
     var delete by remember { mutableStateOf<BrowseItem?>(null) }
     LaunchedEffect(Unit) {
         libraryViewModel.start()
     }
-    val entries = remember(state.playlists, state.albums, state.artists, filter, state.searchQuery) {
+    val allEntries = remember(state.playlists, state.albums, state.artists, state.searchQuery) {
         val query = state.searchQuery.trim()
         (state.playlists + state.albums + state.artists).filter {
-            (filter.kind == null || it.kind == filter.kind) &&
-                (query.isEmpty() || it.title.contains(query, ignoreCase = true) || librarySubtitle(it).contains(query, ignoreCase = true))
+            (query.isEmpty() || it.title.contains(query, ignoreCase = true) || librarySubtitle(it).contains(query, ignoreCase = true))
         }
     }
     fun open(item: BrowseItem) {
@@ -107,7 +118,10 @@ fun LibraryScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
+            if (filter == LibraryFilter.DOWNLOADS) Row(Modifier.padding(bottom = bottomPadding), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                SmallFloatingActionButton(onClick = { if (downloaded.isNotEmpty()) musicViewModel.playDownloaded(downloaded.shuffled(), 0) }) { Icon(Icons.Default.Shuffle, "Shuffle downloads") }
+                FloatingActionButton(onClick = { if (downloaded.isNotEmpty()) musicViewModel.playDownloaded(downloaded, 0) }) { Icon(Icons.Default.PlayArrow, "Play downloads") }
+            } else FloatingActionButton(
                 onClick = { createPlaylist = true },
                 modifier = Modifier.padding(bottom = bottomPadding),
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -121,7 +135,7 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(LibraryFilter.entries) { option ->
-                    FilterChip(selected = option == filter, onClick = { filter = option }, label = { Text(option.label) },
+                    FilterChip(selected = option == filter, onClick = { selection.clear(); scope.launch { pager.animateScrollToPage(option.ordinal) } }, label = { Text(option.label) },
                         shape = androidx.compose.ui.graphics.RectangleShape,
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -133,6 +147,11 @@ fun LibraryScreen(
                             borderWidth = 1.dp, selectedBorderWidth = 1.dp))
                 }
             }
+            LibraryPages(pager) { page ->
+            val filter = LibraryFilter.entries[page]
+            val entries = allEntries.filter { filter.kind == null || it.kind == filter.kind }
+            Column(Modifier.fillMaxSize()) {
+            if (filter == LibraryFilter.DOWNLOADS) DownloadSelectionBar(selection, downloadedSongs, musicViewModel.downloads::removeAll)
             if (filter != LibraryFilter.DOWNLOADS && online && state.error != null && entries.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.error.orEmpty(), Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = libraryViewModel::refresh) { Text("Retry") }
@@ -146,7 +165,7 @@ fun LibraryScreen(
                             items(collectionDownloads, key = { "collection:${it.key}" }) { collection ->
                                 val available = collection.available(downloaded)
                                 Row(Modifier.fillMaxWidth().combinedClickable(
-                                    onClick = { downloadedCollection = collection },
+                                    onClick = { onOpenDownloadedCollection(collection) },
                                     onLongClick = { mediaMenu?.show(collection.browseItem()) }
                                 ).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                     LibraryArtwork(collection.browseItem(), Modifier.size(64.dp))
@@ -157,14 +176,15 @@ fun LibraryScreen(
                                         Text("${collection.kind.replaceFirstChar { it.uppercase() }} · ${available.size}/${collection.tracks.size} downloaded",
                                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    Icon(if (available.size == collection.tracks.size) Icons.Default.DownloadDone else Icons.Default.Download,
+                                    if (collection.tracks.any { it.ytVideoId in progress }) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                    else Icon(if (available.size == collection.tracks.size) Icons.Default.DownloadDone else Icons.Default.Download,
                                         if (available.size == collection.tracks.size) "Downloaded collection" else "Downloading collection", tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                             items(downloadedSongs, key = { it.ytVideoId ?: it.uuid }) { song ->
-                                com.example.juke.ui.components.FlatTrackRow(song.thumbnailUri, song.title, song.artist,
-                                    if (song.durationSec > 0) "%d:%02d".format(song.durationSec / 60, song.durationSec % 60) else "",
-                                    onClick = { musicViewModel.playDownloaded(downloadedSongs, downloadedSongs.indexOf(song)) }, track = song, showMore = true)
+                                DownloadTrackRow(song, selection, onPlay = {
+                                    musicViewModel.playDownloaded(downloadedSongs, downloadedSongs.indexOf(song))
+                                })
                             }
                         }
                     }
@@ -211,25 +231,7 @@ fun LibraryScreen(
                     }
                 }
             }
-        }
-    }
-    downloadedCollection?.let { collection ->
-        val available = collection.available(downloaded)
-        ModalBottomSheet(onDismissRequest = { downloadedCollection = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = androidx.compose.ui.graphics.RectangleShape) {
-            Text(collection.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(enabled = available.isNotEmpty(), onClick = { musicViewModel.playDownloaded(available, 0); downloadedCollection = null }) { Text("Play") }
-                OutlinedButton(enabled = available.isNotEmpty(), onClick = { musicViewModel.playDownloaded(available.shuffled(), 0); downloadedCollection = null }) { Text("Shuffle") }
-                TextButton(onClick = { musicViewModel.downloads.removeCollection(collection); downloadedCollection = null }) { Text("Remove") }
             }
-            if (available.isEmpty()) Text("Songs are still downloading. Completed songs will appear here.", Modifier.padding(20.dp))
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp), contentPadding = PaddingValues(20.dp)) {
-                items(available, key = { it.ytVideoId ?: it.uuid }) { song ->
-                    com.example.juke.ui.components.FlatTrackRow(song.thumbnailUri, song.title, song.artist,
-                        if (song.durationSec > 0) "%d:%02d".format(song.durationSec / 60, song.durationSec % 60) else "",
-                        onClick = { musicViewModel.playDownloaded(available, available.indexOf(song)); downloadedCollection = null }, track = song, showMore = true)
-                }
             }
         }
     }
@@ -306,4 +308,10 @@ private fun LibraryItemOptions(item: BrowseItem, onRename: () -> Unit, onDelete:
             DropdownMenuItem(text = { Text("Delete") }, onClick = { expanded = false; onDelete() })
         }
     }
+}
+
+/** Right swipe advances through the library filters, matching their displayed order. */
+@Composable
+fun LibraryPages(pager: PagerState, content: @Composable (Int) -> Unit) {
+    HorizontalPager(state = pager, reverseLayout = true, modifier = Modifier.fillMaxSize().testTag("Library pages")) { content(it) }
 }

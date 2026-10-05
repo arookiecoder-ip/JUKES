@@ -21,10 +21,11 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.io.File
 
-@Serializable
-private data class DownloadEntry(val id: Long, val track: Track)
+@Serializable private data class DownloadEntry(val id: Long, val track: Track)
+data class DownloadStatus(val active: Int = 0, val total: Int = 0, val completed: Int = 0,
+    val failed: Int = 0, val title: String = "", val percent: Int = -1)
 
-/** Downloads are offline copies of account songs, keyed by YouTube video id. */
+/** System-managed audio transfers with bounded concurrency and app-owned download notifications. */
 class DownloadRepository private constructor(private val context: Context) {
     companion object {
         @Volatile private var instance: DownloadRepository? = null
@@ -36,19 +37,25 @@ class DownloadRepository private constructor(private val context: Context) {
     private val prefs = context.getSharedPreferences("account_downloads", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val pending = read("pending").toMutableList()
-    private val completed = read("completed").filter { file(it.track)?.let { f -> f.exists() && f.length() > 0 } == true }.toMutableList()
+    private val pending = readEntries("pending").toMutableList()
+    private val completed = readEntries("completed").filter { file(it.track)?.let { f -> f.exists() && f.length() > 0 } == true }.toMutableList()
+    private val queued = runCatching { json.decodeFromString<List<Track>>(prefs.getString("queued", "[]").orEmpty()) }
+        .getOrDefault(emptyList()).associateBy { it.ytVideoId.orEmpty() }.toMutableMap()
+    private val starting = mutableSetOf<String>()
+    private val savedCollections = runCatching { json.decodeFromString<List<DownloadedCollection>>(prefs.getString("collections", "[]").orEmpty()) }
+        .getOrDefault(emptyList()).toMutableList()
+    @Volatile private var completedByVideo = completed.map { it.track }.associateBy { it.ytVideoId }
     private val _tracks = MutableStateFlow(completed.map { it.track })
     val tracks = _tracks.asStateFlow()
     private val _progress = MutableStateFlow<Map<String, Int>>(emptyMap())
     val progress = _progress.asStateFlow()
-    private val savedCollections = runCatching {
-        json.decodeFromString<List<DownloadedCollection>>(prefs.getString("collections", "[]").orEmpty())
-    }.getOrDefault(emptyList()).toMutableList()
     private val _collections = MutableStateFlow(savedCollections.toList())
     val collections = _collections.asStateFlow()
-    private val collectionJobs = mutableMapOf<String, Job>()
-    private val starting = mutableSetOf<String>()
+    private val _status = MutableStateFlow(DownloadStatus())
+    val status = _status.asStateFlow()
+    private var batchTotal = pending.size + queued.size
+    private var batchCompleted = 0
+    private var batchFailed = 0
     private var polling: Job? = null
 
     init {
@@ -57,107 +64,109 @@ class DownloadRepository private constructor(private val context: Context) {
                 if (intent.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE) poll()
             }
         }, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
-        poll()
-        savedCollections.forEach(::retryCollection)
+        // Do not automatically download intentionally removed collection songs again on launch.
+        publishStatus(); pump(); poll()
+        if (_status.value.active > 0) DownloadService.start(context)
     }
-
-    private fun read(key: String): List<DownloadEntry> = runCatching {
+    private fun readEntries(key: String): List<DownloadEntry> = runCatching {
         json.decodeFromString<List<DownloadEntry>>(prefs.getString(key, "[]").orEmpty())
     }.getOrDefault(emptyList())
     private fun file(track: Track): File? = track.localUri?.let { File(it.toUri().path ?: it) }
-    fun localTrack(track: Track): Track? = _tracks.value.firstOrNull {
-        it.ytVideoId == track.ytVideoId && file(it)?.let { f -> f.exists() && f.length() > 0 } == true
+    fun localTrack(track: Track): Track? = completedByVideo[track.ytVideoId]?.takeIf {
+        file(it)?.let { f -> f.exists() && f.length() > 0 } == true
     }?.let { track.copy(localUri = it.localUri, isStream = false) }
 
     fun download(track: Track, silent: Boolean = false) {
-        val video = track.ytVideoId?.takeIf { Regex("[A-Za-z0-9_-]{11}").matches(it) } ?: return
         if (localTrack(track) != null) { if (!silent) NetworkFeedback.notify("Already downloaded"); return }
-        if (pending.any { it.track.ytVideoId == video } || video in _progress.value) return
-        starting += video
-        _progress.value = _progress.value + (video to -1)
-        scope.launch {
-            try {
-                check(AlexaBackendApi.isConfigured()) { "Device downloads are unavailable in this build" }
-                val directory = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-                    ?: error("Device storage is unavailable")
-                val target = File(directory, "$video.audio")
-                val id = withContext(Dispatchers.IO) {
-                    directory.mkdirs()
-                    target.delete()
-                    manager.enqueue(DownloadManager.Request(AlexaBackendApi.audioUrl(video).toUri())
-                        .addRequestHeader("X-Api-Key", com.example.juke.network.Backend.apiKey)
-                        .setTitle(track.title).setDescription(track.artist)
-                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        .setDestinationUri(target.toUri()))
-                }
-                starting -= video
-                pending += DownloadEntry(id, track.copy(localUri = target.toUri().toString(), isStream = false))
-                save(); poll()
-                if (!silent) NetworkFeedback.notify("Downloading ${track.title}")
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) {
-                starting -= video
-                _progress.value = _progress.value - video
-                NetworkFeedback.notify("Couldn't start download: ${e.message ?: "Please try again"}")
+        if (enqueue(listOf(track)) && !silent) NetworkFeedback.notify("Downloading ${track.title}")
+    }
+    private fun enqueue(tracks: List<Track>): Boolean {
+        val pendingIds = pending.map { it.track.ytVideoId }.toSet()
+        val additions = tracks.filter { it.ytVideoId?.matches(Regex("[A-Za-z0-9_-]{11}")) == true &&
+            it.ytVideoId !in queued && it.ytVideoId !in pendingIds && localTrack(it) == null }.distinctBy { it.ytVideoId }
+        if (additions.isEmpty()) return false
+        if (_status.value.active == 0) { batchTotal = 0; batchCompleted = 0; batchFailed = 0 }
+        additions.forEach { queued[requireNotNull(it.ytVideoId)] = it }; batchTotal += additions.size
+        save(); publishStatus(); DownloadService.start(context); pump()
+        return true
+    }
+    private fun pump() {
+        val slots = (3 - pending.size - starting.size).coerceAtLeast(0)
+        queued.filterKeys { it !in starting }.entries.take(slots).forEach { (video, track) ->
+            starting += video
+            scope.launch {
+                try {
+                    check(AlexaBackendApi.isConfigured()) { "Device downloads are unavailable in this build" }
+                    val directory = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: error("Device storage is unavailable")
+                    val target = File(directory, "$video.audio")
+                    val id = withContext(Dispatchers.IO) {
+                        directory.mkdirs(); target.delete()
+                        manager.enqueue(DownloadManager.Request(AlexaBackendApi.audioUrl(video).toUri())
+                            .addRequestHeader("X-Api-Key", com.example.juke.network.Backend.apiKey)
+                            .setTitle(track.title).setDescription(track.artist)
+                            // The app notification opens Downloads, never an incomplete/raw audio file.
+                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
+                            .setDestinationUri(target.toUri()))
+                    }
+                    if (video in queued) pending += DownloadEntry(id, track.copy(localUri = target.toUri().toString(), isStream = false))
+                    else withContext(Dispatchers.IO) { manager.remove(id); target.delete() }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { batchFailed++; NetworkFeedback.notify("Couldn't download ${track.title}. Please try again.") }
+                finally { starting -= video; queued.remove(video); save(); publishStatus(); poll(); pump() }
             }
         }
     }
-
     fun downloadCollection(item: BrowseItem, tracks: List<Track>) {
-        val eligible = tracks.filter { it.ytVideoId?.matches(Regex("[A-Za-z0-9_-]{11}")) == true }.distinctBy { it.ytVideoId }
+        val eligible = tracks.filter { it.ytVideoId?.matches(Regex("[A-Za-z0-9_-]{11}")) == true }
         check(eligible.isNotEmpty()) { "This collection has no downloadable songs" }
         val collection = DownloadedCollection(item.id, item.kind, item.title, item.image, item.subtitle, eligible)
-        savedCollections.removeAll { it.key == collection.key }
-        savedCollections += collection
-        save()
-        retryCollection(collection)
+        savedCollections.removeAll { it.key == collection.key }; savedCollections += collection
+        save(); retryCollection(collection)
         NetworkFeedback.notify("Downloading ${collection.title}")
     }
-
-    fun retryCollection(collection: DownloadedCollection) {
-        if (collectionJobs[collection.key]?.isActive == true) return
-        collectionJobs[collection.key] = scope.launch {
-            for (track in collection.tracks) {
-                if (localTrack(track) != null || pending.any { it.track.ytVideoId == track.ytVideoId }) continue
-                while ((pending.map { it.track.ytVideoId } + starting).distinct().size >= 3) delay(500)
-                download(track, silent = true)
-                yield()
-            }
-        }
-    }
-
+    fun retryCollection(collection: DownloadedCollection) { enqueue(collection.tracks) }
     fun removeCollection(collection: DownloadedCollection) {
-        collectionJobs.remove(collection.key)?.cancel()
         savedCollections.removeAll { it.key == collection.key }
         val retained = savedCollections.flatMap { it.tracks }.map { it.ytVideoId }.toSet()
-        collection.tracks.filter { it.ytVideoId !in retained }.forEach(::remove)
-        save()
-        NetworkFeedback.notify("Collection download removed")
+        save(); removeAll(collection.tracks.filter { it.ytVideoId !in retained })
     }
-
-    fun remove(track: Track) {
+    fun remove(track: Track) = removeAll(listOf(track))
+    fun removeAll(tracks: List<Track>) {
+        val videos = tracks.mapNotNull { it.ytVideoId }.toSet()
+        // Collection membership deliberately survives deletion, so re-download rejoins its collection.
+        videos.forEach(queued::remove)
         scope.launch {
-            val entries = (pending + completed).filter { it.track.ytVideoId == track.ytVideoId }
-            withContext(Dispatchers.IO) { entries.forEach { manager.remove(it.id); file(it.track)?.delete() } }
+            val entries = (pending + completed).filter { it.track.ytVideoId in videos }
             pending.removeAll(entries.toSet()); completed.removeAll(entries.toSet())
-            _progress.value = _progress.value - track.ytVideoId.orEmpty()
-            save(); NetworkFeedback.notify("Download removed")
+            save(); publishStatus()
+            withContext(Dispatchers.IO) { entries.forEach { manager.remove(it.id); file(it.track)?.delete() } }
+            pump(); NetworkFeedback.notify(if (videos.size == 1) "Download removed" else "${videos.size} downloads removed")
         }
     }
-
+    fun cancelAll() { removeAll(pending.map { it.track } + queued.values) }
     private fun save() {
         prefs.edit().putString("pending", json.encodeToString(pending.toList()))
             .putString("completed", json.encodeToString(completed.toList()))
+            .putString("queued", json.encodeToString(queued.values.toList()))
             .putString("collections", json.encodeToString(savedCollections.toList())).apply()
-        _collections.value = savedCollections.toList()
-        _tracks.value = completed.map { it.track }
+        _collections.value = savedCollections.toList(); _tracks.value = completed.map { it.track }
+        completedByVideo = _tracks.value.associateBy { it.ytVideoId }
     }
-
+    private fun publishStatus(percentages: Map<String, Int> = _progress.value) {
+        val activeTracks = (pending.map { it.track } + queued.values).distinctBy { it.ytVideoId }
+        val ids = activeTracks.mapNotNull { it.ytVideoId }
+        _progress.value = ids.associateWith { percentages[it] ?: -1 }
+        val known = _progress.value.values.filter { it >= 0 }
+        _status.value = DownloadStatus(activeTracks.size, batchTotal, batchCompleted, batchFailed,
+            activeTracks.firstOrNull()?.title.orEmpty(),
+            if (known.isEmpty() || batchTotal == 0) -1 else ((batchCompleted * 100 + known.sum()) / batchTotal).coerceIn(0, 100))
+    }
     private fun poll() {
         if (polling?.isActive == true || pending.isEmpty()) return
         polling = scope.launch {
             while (pending.isNotEmpty()) {
-                val progress = mutableMapOf<String, Int>()
+                val percentages = mutableMapOf<String, Int>()
+                var changed = false
                 for (entry in pending.toList()) {
                     val result = withContext(Dispatchers.IO) {
                         manager.query(DownloadManager.Query().setFilterById(entry.id)).use { cursor ->
@@ -171,25 +180,25 @@ class DownloadRepository private constructor(private val context: Context) {
                     val (status, bytes, total) = result
                     when (status) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
-                            pending.remove(entry)
+                            pending.remove(entry); changed = true
                             if (file(entry.track)?.let { it.exists() && it.length() > 0 } == true) {
-                                completed.removeAll { it.track.ytVideoId == entry.track.ytVideoId }
-                                completed += entry
-                                NetworkFeedback.notify("Downloaded ${entry.track.title}")
-                            } else NetworkFeedback.notify("Download unavailable. Please download ${entry.track.title} again.")
+                                completed.removeAll { it.track.ytVideoId == entry.track.ytVideoId }; completed += entry; batchCompleted++
+                            } else { batchFailed++; NetworkFeedback.notify("Couldn't save ${entry.track.title}. Please download it again.") }
                         }
                         DownloadManager.STATUS_FAILED -> {
-                            pending.remove(entry)
+                            pending.remove(entry); batchFailed++; changed = true
                             withContext(Dispatchers.IO) { manager.remove(entry.id); file(entry.track)?.delete() }
                             NetworkFeedback.notify("Couldn't download ${entry.track.title}. Check your connection and try again.")
                         }
-                        else -> progress[entry.track.ytVideoId.orEmpty()] = if (total > 0) (bytes * 100 / total).toInt() else -1
+                        else -> percentages[entry.track.ytVideoId.orEmpty()] = if (total > 0) (bytes * 100 / total).toInt().coerceIn(0, 100) else -1
                     }
                 }
-                _progress.value = progress + starting.associateWith { -1 }
-                save()
-                if (pending.isNotEmpty()) delay(3_000)
+                if (changed) save()
+                pump(); publishStatus(percentages)
+                if (pending.isNotEmpty()) delay(1_000)
             }
+            polling = null
+            if (pending.isNotEmpty()) poll()
         }
     }
 }

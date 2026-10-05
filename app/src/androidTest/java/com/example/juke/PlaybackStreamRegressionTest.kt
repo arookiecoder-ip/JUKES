@@ -102,6 +102,56 @@ class PlaybackStreamRegressionTest {
         }
     }
 
+    @Test fun largeQueueShuffleAndReorderPreserveEverySongAndCurrentItem() {
+        val audio = File(context.cacheDir, "large-queue-fixture.wav").apply { writeBytes(AudioServer.audioSample()) }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                lateinit var connection: ListenableFuture<MediaController>
+                instrumentation.runOnMainSync {
+                    connection = MediaController.Builder(context,
+                        SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync()
+                }
+                val controller = connection.get(20, TimeUnit.SECONDS)
+                val manager = PlaybackManager.getInstance(context)
+                val tracks = (0 until 2_000).map { Track("large-$it", "Song $it", "Artist", durationSec = 4,
+                    localUri = audio.toURI().toString(), isStream = false) }
+                try {
+                    instrumentation.runOnMainSync { manager.setQueue(tracks, 100, playWhenReady = false) }
+                    awaitQueue(controller, 2_000, tracks[100].uuid)
+                    instrumentation.runOnMainSync { manager.toggleShuffle() }
+                    awaitQueue(controller, 2_000, tracks[100].uuid)
+                    instrumentation.runOnMainSync {
+                        val ids = (0 until controller.mediaItemCount).map { controller.getMediaItemAt(it).mediaId }
+                        assertEquals(tracks.map { it.uuid }.toSet(), ids.toSet())
+                        assertEquals(tracks.take(101).map { it.uuid }, ids.take(101))
+                        assertNotEquals(tracks.drop(101).map { it.uuid }, ids.drop(101))
+                        manager.replaceUpcoming(tracks.take(101) + tracks.drop(101).reversed(), 100)
+                    }
+                    val deadline = SystemClock.elapsedRealtime() + 10_000
+                    var reversed = false
+                    while (!reversed && SystemClock.elapsedRealtime() < deadline) {
+                        instrumentation.runOnMainSync { reversed = controller.getMediaItemAt(101).mediaId == tracks.last().uuid }
+                        if (!reversed) SystemClock.sleep(50)
+                    }
+                    assertTrue("Large queue reorder never reached the player", reversed)
+                    awaitQueue(controller, 2_000, tracks[100].uuid)
+                } finally {
+                    instrumentation.runOnMainSync { controller.stop(); controller.clearMediaItems(); controller.release(); manager.release() }
+                }
+            }
+        } finally { audio.delete() }
+    }
+    private fun awaitQueue(controller: MediaController, count: Int, currentId: String) {
+        val deadline = SystemClock.elapsedRealtime() + 10_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            var ready = false
+            instrumentation.runOnMainSync { ready = controller.mediaItemCount == count && controller.currentMediaItem?.mediaId == currentId }
+            if (ready) return
+            SystemClock.sleep(50)
+        }
+        fail("Large queue did not preserve all $count songs and the current item")
+    }
+
     private fun playAndAdvance(base: String, key: String, uri: String, timeoutMs: Long) {
         val directory = File(context.cacheDir, "online-player-test-${UUID.randomUUID()}")
         val cache = SimpleCache(directory, LeastRecentlyUsedCacheEvictor(4L * 1024 * 1024), StandaloneDatabaseProvider(context))
@@ -189,7 +239,7 @@ class PlaybackStreamRegressionTest {
         }
         override fun close() { socket.close(); worker.join(1_000) }
         companion object {
-            private fun audioSample(): ByteArray {
+            fun audioSample(): ByteArray {
                 val rate = 16_000
                 val bytes = rate * 4 * 2
                 return ByteBuffer.allocate(44 + bytes).order(ByteOrder.LITTLE_ENDIAN).apply {

@@ -27,7 +27,7 @@ import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 
 data class QueueSongActions(val play: () -> Unit, val moveUp: (() -> Unit)? = null,
-    val moveDown: (() -> Unit)? = null, val remove: (() -> Unit)? = null)
+    val moveDown: (() -> Unit)? = null, val remove: (() -> Unit)? = null, val select: (() -> Unit)? = null)
 
 data class ExtraSongOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val action: () -> Unit)
 
@@ -105,6 +105,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         "Remove download" -> Icons.Filled.DownloadDone
                         "Save to Playlist" -> Icons.Filled.PlaylistAdd
                         "Remove from queue" -> Icons.Filled.Delete
+                        "Select" -> Icons.Filled.CheckBoxOutlineBlank
                         "Shuffle play" -> Icons.Filled.Shuffle
                         else -> Icons.Filled.OpenInNew
                     }
@@ -113,6 +114,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                 if (track != null) {
                     queueActions?.let { actions ->
                         action("Play now", actions.play)
+                        actions.select?.let { action("Select", it) }
                         actions.moveUp?.let { action("Move up", it) }
                         actions.moveDown?.let { action("Move down", it) }
                     }

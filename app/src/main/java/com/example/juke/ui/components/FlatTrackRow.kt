@@ -44,19 +44,20 @@ fun FlatTrackRow(
     collection: com.example.juke.network.BrowseItem? = null,
     sharpArtwork: Boolean = false,
     showMore: Boolean = false,
-    number: Int? = null
+    number: Int? = null,
+    onOptions: (() -> Unit)? = null
 ) {
     val menu = LocalMediaMenu.current
     val context = LocalContext.current
     val downloads = remember { com.example.juke.services.DownloadRepository.get(context) }
     val downloaded by downloads.tracks.collectAsStateWithLifecycle()
-    val isDownloaded = track?.ytVideoId?.let { video -> downloaded.any { it.ytVideoId == video } } == true
+    val options: () -> Unit = onOptions ?: { track?.let { menu?.show(it) } ?: collection?.let { menu?.show(it) }; Unit }
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .combinedClickable(onClick = onClick, onLongClick = { track?.let { menu?.show(it) } ?: collection?.let { menu?.show(it) } }, onLongClickLabel = "Song options")
+                .combinedClickable(onClick = onClick, onLongClick = options, onLongClickLabel = "Song options")
                 .heightIn(min = 48.dp)
                 .padding(horizontal = 4.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -91,9 +92,7 @@ fun FlatTrackRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (isDownloaded) androidx.compose.material3.Icon(
-                androidx.compose.material.icons.Icons.Default.DownloadDone, "Downloaded",
-                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            DownloadedBadge(track?.ytVideoId)
             Spacer(Modifier.width(8.dp))
             Text(
                 duration,
@@ -102,9 +101,7 @@ fun FlatTrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.width(48.dp).padding(end = 8.dp)
             )
-            if (showMore) androidx.compose.material3.IconButton(onClick = {
-                track?.let { menu?.show(it) } ?: collection?.let { menu?.show(it) }
-            }) {
+            if (showMore) androidx.compose.material3.IconButton(onClick = options) {
                 androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.MoreVert, "More options")
             }
         }
