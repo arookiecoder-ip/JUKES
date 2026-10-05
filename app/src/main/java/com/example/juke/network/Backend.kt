@@ -10,6 +10,7 @@ import android.content.SharedPreferences
 import com.example.juke.BuildConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -92,6 +93,11 @@ object Backend {
     suspend fun post(path: String, body: JsonObject = JsonObject(emptyMap())): JsonElement =
         call(HttpMethod.Post, path, emptyMap(), body)
 
+    /** Download cookies belong to the audio server, which may differ from account sign-in. */
+    suspend fun downloadCookieRequest(method: HttpMethod, body: JsonObject? = null, force: Boolean = false): JsonElement =
+        performCall(method, if (method == HttpMethod.Get) "/api/youtube/download-cookies/status" else "/api/youtube/download-cookies",
+            if (force) mapOf("refresh" to "1") else emptyMap(), body, audio = true)
+
     suspend fun patch(path: String, body: JsonObject): JsonElement =
         call(HttpMethod.Patch, path, emptyMap(), body)
 
@@ -146,10 +152,15 @@ object Backend {
         }
     }
 
-    private suspend fun performCall(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?): JsonElement {
+    private suspend fun performCall(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?, audio: Boolean = false): JsonElement {
         require(path.startsWith("/") && !path.startsWith("//"))
-        val response = client.request(baseUrl + path) {
+        val response = client.request((if (audio) audioBaseUrl else baseUrl) + path) {
             this.method = method
+            if (audio && apiKey.isNotBlank()) header("X-Api-Key", apiKey)
+            if (audio || path == "/api/profile_status/") timeout {
+                requestTimeoutMillis = 90_000
+                socketTimeoutMillis = 90_000
+            }
             header(HttpHeaders.Accept, "application/json")
             query.forEach { (name, value) -> parameter(name, value) }
             if (body != null) {
@@ -161,6 +172,7 @@ object Backend {
         val parsed = runCatching { Json.parseToJsonElement(text) }.getOrNull()
         val code = response.status.value
         if (code == 401) {
+            if (audio) throw BackendHttpException(code, "The audio server needs its owner login or a valid API key.")
             throw BackendAuthException(errorMessage(parsed) ?: "Your session has ended. Sign in again.")
         }
         // Without a session the server redirects browser-style requests to its login page.

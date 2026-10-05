@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.juke.network.Backend
+import com.example.juke.network.DownloadCookies
 import com.example.juke.network.BackendAuthException
 import com.example.juke.network.LoginStep
 import com.example.juke.network.flag
@@ -31,7 +32,7 @@ data class AccountStatus(
     val amazonConnected: Boolean = false,
     /** YouTube Music browser headers work: personalized Home, library, likes. */
     val youtubeLibrary: Boolean = false,
-    /** yt-dlp cookies work: signed-in playback. */
+    /** An actual audio sample download passed on the configured audio server. */
     val youtubeCookies: Boolean = false,
     val youtubeCookiesPresent: Boolean = false,
     val youtubeBrowserAvailable: Boolean = false,
@@ -43,6 +44,9 @@ data class AccountStatus(
 data class AccountUiState(
     val stage: AuthStage = AuthStage.CHECKING,
     val busy: Boolean = false,
+    val cookieBusy: Boolean = false,
+    val cookieMessage: String? = null,
+    val cookieSaved: Long = 0,
     val error: String? = null,
     /** Shown once after signing in, while the accounts are checked. */
     val showAccountCheck: Boolean = false,
@@ -71,6 +75,8 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     private var busyJob: Job? = null
     private var statusJob: Job? = null
     private var accountPoll: Job? = null
+    private val downloadCookies = DownloadCookies()
+    private var cookieJob: Job? = null
     private var browserFlow: String? = null
 
     init {
@@ -156,6 +162,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
 
     /** Check Amazon and YouTube on the server (the YouTube cookie check takes a few seconds). */
     fun refreshStatus() {
+        if (cookieJob?.isActive == true) return
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
             _state.update { it.copy(checkingStatus = true) }
@@ -164,14 +171,18 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 val status = AccountStatus(
                     amazonConnected = profile.flag("amazon_connected"),
                     youtubeLibrary = profile.flag("youtube_auth_working"),
-                    youtubeCookies = profile.flag("youtube_cookies_working"),
+                    youtubeCookies = _state.value.status?.youtubeCookies ?: false,
                     youtubeCookiesPresent = profile.flag("youtube_cookies_present"),
                     youtubeBrowserAvailable = profile.flag("youtube_browser_available"),
                     youtubeReconnectRequired = profile.flag("youtube_browser_reconnect_required")
                 )
                 _state.update { it.copy(status = status) }
+                if (cookieJob?.isActive != true) {
+                    val audio = downloadCookies.check()
+                    _state.update { it.copy(status = it.status?.copy(youtubeCookies = audio.valid), cookieMessage = audio.message) }
+                }
                 // Everything is connected: carry on into the app without a tap.
-                if (status.allConnected && _state.value.showAccountCheck) {
+                if (_state.value.status?.allConnected == true && _state.value.showAccountCheck) {
                     delay(1_200)
                     _state.update { it.copy(showAccountCheck = false) }
                 }
@@ -184,6 +195,28 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             } finally {
                 _state.update { it.copy(checkingStatus = false) }
             }
+        }
+    }
+
+    fun testDownloadCookies() = cookieAction {
+        val result = downloadCookies.check()
+        _state.update { it.copy(status = (it.status ?: AccountStatus()).copy(youtubeCookies = result.valid), cookieMessage = result.message) }
+    }
+
+    fun replaceDownloadCookies(export: String) = cookieAction {
+        val result = downloadCookies.replace(export)
+        _state.update { it.copy(status = (it.status ?: AccountStatus()).copy(youtubeCookies = result.valid, youtubeCookiesPresent = true),
+            cookieMessage = "Audio download passed. New cookies saved.", cookieSaved = it.cookieSaved + 1) }
+    }
+
+    private fun cookieAction(block: suspend () -> Unit) {
+        if (cookieJob?.isActive == true || _state.value.checkingStatus) return
+        cookieJob = viewModelScope.launch {
+            _state.update { it.copy(cookieBusy = true, cookieMessage = "Downloading an audio sample…") }
+            try { block() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _state.update { it.copy(cookieMessage = e.message ?: "Cookie test failed. Existing cookies were kept.") } }
+            finally { _state.update { it.copy(cookieBusy = false) } }
         }
     }
 
@@ -329,6 +362,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     fun signOut() {
         busyJob?.cancel()
         statusJob?.cancel()
+        cookieJob?.cancel()
         accountPoll?.cancel()
         codeToken = ""
         browserFlow = null
@@ -345,6 +379,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     fun sessionEnded() {
         if (_state.value.stage == AuthStage.SIGNED_OUT) return
         Backend.clearSession()
+        cookieJob?.cancel()
         busyJob?.cancel()
         codeToken = ""
         browserFlow = null
