@@ -799,6 +799,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun collectionTracks(item: com.example.juke.network.BrowseItem): List<Track> {
+        com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
         val path = if (item.kind == "album") "/api/album/${item.id}" else "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
         val tracks = mutableListOf<Track>()
         var offset = 0L
@@ -827,7 +828,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playCollection(item: com.example.juke.network.BrowseItem, shuffle: Boolean = false) {
         if (item.raw.flag("offline")) {
-            val tracks = downloads.collections.value.firstOrNull { it.id == item.id && it.kind == item.kind }?.available(downloads.tracks.value).orEmpty()
+            val tracks = com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value).orEmpty()
             if (tracks.isNotEmpty()) playDownloaded(if (shuffle) tracks.shuffled() else tracks, 0)
             else _messages.tryEmit("This collection has no completed downloads yet")
             return
@@ -849,6 +850,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val tracks = collectionTracks(item)
+                check(tracks.isNotEmpty()) { "This collection has no available songs" }
                 if (next) addNext(tracks) else addToQueue(tracks)
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }

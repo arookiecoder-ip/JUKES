@@ -30,4 +30,16 @@ class DownloadedCollectionTest {
         assertEquals("album:MPRE123", restored.key)
         assertEquals("MPRE123", restored.browseItem().id)
     }
+    @Test fun offlineQueueActionsUseOnlyCompletedLocalFilesAndNeverFallbackToOnline() {
+        val a = song("aaaaaaaaaaa"); val b = song("bbbbbbbbbbb")
+        val collection = DownloadedCollection("PL123", "playlist", "Mix", "", "", listOf(a, b, a))
+        val item = collection.browseItem()
+        val files = listOf(a.copy(localUri = "file:///a"))
+        val tracks = requireNotNull(offlineCollectionTracks(item, listOf(collection), files))
+        assertEquals(listOf(a, a).map { it.ytVideoId }, tracks.map { it.ytVideoId })
+        assertTrue(tracks.all { it.localUri == "file:///a" && !it.isStream })
+        assertEquals(emptyList<Track>(), offlineCollectionTracks(item, listOf(collection), emptyList()))
+        assertEquals(emptyList<Track>(), offlineCollectionTracks(item, emptyList(), files))
+        assertNull(offlineCollectionTracks(item.copy(raw = kotlinx.serialization.json.JsonObject(emptyMap())), listOf(collection), files))
+    }
 }

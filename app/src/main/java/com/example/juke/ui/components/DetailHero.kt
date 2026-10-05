@@ -25,7 +25,7 @@ fun DetailHero(image: String?, artist: Boolean = false, content: @Composable Col
     val surface = MaterialTheme.colorScheme.background
     Box(Modifier.fillMaxWidth().clip(androidx.compose.ui.graphics.RectangleShape)) {
         AsyncImage(image, null,  (if (artist) Modifier.fillMaxWidth().height(240.dp) else Modifier.matchParentSize()).then(
-            if (artist) Modifier.testTag("Artist banner") else Modifier.blur(22.dp).alpha(0.55f)), contentScale = if (artist) ContentScale.FillWidth else ContentScale.Crop, alignment = Alignment.TopCenter)
+            if (artist) Modifier.testTag("Artist banner") else Modifier.blur(22.dp).alpha(0.55f)), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
         Box((if (artist) Modifier.fillMaxWidth().height(240.dp) else Modifier.matchParentSize()).background(Brush.verticalGradient(listOf(
             surface.copy(alpha = if (artist) 0.05f else 0.18f),
             surface.copy(alpha = 0.45f), surface))))

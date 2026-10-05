@@ -49,10 +49,9 @@ fun ArtistDetailScreen(
     Box(Modifier.fillMaxSize()) {
         when {
             state.error != null && (artist == null || state.topTracks.isEmpty()) -> {
-                Column(Modifier.statusBarsPadding().padding(top = 56.dp, start = 24.dp, end = 24.dp)) {
-                    Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                    artist?.let { TextButton(onClick = { searchViewModel.loadArtistDetails(it) }) { Text("Retry") } }
-                }
+                ConnectionErrorState(state.error.orEmpty(), {
+                    artist?.let { searchViewModel.loadArtistDetails(it) }
+                }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
             }
             state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
             else -> LazyColumn(

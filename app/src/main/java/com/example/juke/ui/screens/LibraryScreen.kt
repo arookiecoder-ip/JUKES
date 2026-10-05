@@ -39,6 +39,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.juke.network.BrowseItem
 import com.example.juke.network.text
+import com.example.juke.network.metadata
+import com.example.juke.network.BrowseParser
 import com.example.juke.ui.components.CreatePlaylistDialog
 import com.example.juke.ui.components.GlassAlertDialog
 import com.example.juke.ui.components.GlassFilterChip
@@ -96,6 +98,11 @@ fun LibraryScreen(
         (state.playlists + state.albums + state.artists).filter {
             (query.isEmpty() || it.title.contains(query, ignoreCase = true) || librarySubtitle(it).contains(query, ignoreCase = true))
         }
+    }
+    fun showOptions(item: BrowseItem) {
+        mediaMenu?.show(item, if (item.editable) listOf(
+            com.example.juke.ui.components.ExtraSongOption(Icons.Default.Edit, "Rename") { rename = item },
+            com.example.juke.ui.components.ExtraSongOption(Icons.Default.Delete, "Delete") { delete = item }) else emptyList())
     }
     fun open(item: BrowseItem) {
         if (item.kind == "artist") onOpenArtist(item) else onOpenCollection(item)
@@ -162,6 +169,25 @@ fun LibraryScreen(
                 when {
                     filter == LibraryFilter.DOWNLOADS -> {
                         if (downloadedSongs.isEmpty() && collectionDownloads.isEmpty()) LibraryNotice("No downloads", "Download songs, albums or playlists from their options to listen without internet.")
+                        else if (grid && !selection.active) LazyVerticalGrid(GridCells.Adaptive(180.dp),
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 96.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                            gridItems(collectionDownloads, key = { "collection:${it.key}" }) { collection ->
+                                LibraryEntryCard(collection.browseItem(), { onOpenDownloadedCollection(collection) },
+                                    { mediaMenu?.show(collection.browseItem()) })
+                            }
+                            gridItems(downloadedSongs, key = { it.ytVideoId ?: it.uuid }) { song ->
+                                val play = {
+                                    if (song.ytVideoId in progress) com.example.juke.network.NetworkFeedback.notify("This song is still downloading")
+                                    else {
+                                        val ready = downloadedSongs.filter { it.ytVideoId !in progress }
+                                        musicViewModel.playDownloaded(ready, ready.indexOf(song))
+                                    }
+                                }
+                                LibraryEntryCard(BrowseParser.item(song.metadata()), play,
+                                    { mediaMenu?.show(song, com.example.juke.ui.components.QueueSongActions(play = play, select = { selection.select(song) })) })
+                            }
+                        }
                         else LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = bottomPadding + 96.dp)) {
                             items(collectionDownloads, key = { "collection:${it.key}" }) { collection ->
                                 val available = collection.available(downloaded)
@@ -199,7 +225,7 @@ fun LibraryScreen(
                     }, Modifier.fillMaxSize(), offline = true)
                     state.isLoading && entries.isEmpty() -> TrackListSkeleton(modifier = Modifier.fillMaxSize())
                     state.needsYouTube -> LibraryNotice("Connect YouTube Music", "Your library comes from your connected account.", "Open Settings", onOpenSettings)
-                    state.error != null && entries.isEmpty() -> LibraryNotice("Couldn't load your library", state.error.orEmpty(), "Try again", libraryViewModel::refresh)
+                    state.error != null && entries.isEmpty() -> com.example.juke.ui.components.ConnectionErrorState(state.error.orEmpty(), libraryViewModel::refresh, Modifier.fillMaxSize())
                     entries.isEmpty() -> LibraryNotice(
                         if (state.searchQuery.isNotBlank()) "No matches" else "No ${filter.label.lowercase()} yet",
                         if (state.searchQuery.isNotBlank()) "Try another search or filter." else "Saved items from your YouTube Music account appear here.")
@@ -209,16 +235,7 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
                         gridItems(entries, key = { "${it.kind}:${it.id}" }) { item ->
-                            Column(Modifier.fillMaxWidth().combinedClickable(onClick = { open(item) }, onLongClick = { mediaMenu?.show(item) })) {
-                                LibraryArtwork(item, Modifier.fillMaxWidth().aspectRatio(1f))
-                                Spacer(Modifier.height(8.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) { LibraryLabels(item) }
-                                    LibraryItemOptions(item, { rename = item }, { delete = item }, { mediaMenu?.show(item,
-                                        if (item.editable) listOf(com.example.juke.ui.components.ExtraSongOption(Icons.Default.Edit, "Rename") { rename = item },
-                                            com.example.juke.ui.components.ExtraSongOption(Icons.Default.Delete, "Delete") { delete = item }) else emptyList()) })
-                                }
-                            }
+                            LibraryEntryCard(item, { open(item) }, { showOptions(item) })
                         }
                     }
                     else -> LazyColumn(
@@ -227,15 +244,13 @@ fun LibraryScreen(
                     ) {
                         items(entries, key = { "${it.kind}:${it.id}" }) { item ->
                             Row(
-                                Modifier.fillMaxWidth().combinedClickable(onClick = { open(item) }, onLongClick = { mediaMenu?.show(item) })
+                                Modifier.fillMaxWidth().combinedClickable(onClick = { open(item) }, onLongClick = { showOptions(item) })
                                     .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically
                             ) {
                                 LibraryArtwork(item, Modifier.size(64.dp))
                                 Spacer(Modifier.width(16.dp))
                                 Column(Modifier.weight(1f)) { LibraryLabels(item) }
-                                LibraryItemOptions(item, { rename = item }, { delete = item }, { mediaMenu?.show(item,
-                                        if (item.editable) listOf(com.example.juke.ui.components.ExtraSongOption(Icons.Default.Edit, "Rename") { rename = item },
-                                            com.example.juke.ui.components.ExtraSongOption(Icons.Default.Delete, "Delete") { delete = item }) else emptyList()) })
+                                LibraryItemOptions(item, { rename = item }, { delete = item }, { showOptions(item) })
                             }
                         }
                     }
@@ -267,9 +282,27 @@ fun LibraryScreen(
 private fun librarySubtitle(item: BrowseItem): String {
     if (item.playlistId == "LM" || item.id == "LM") return "Auto playlist"
     if (item.kind == "artist") return "Artist"
+    if (item.kind == "track") return item.subtitle
     if (item.kind == "album") return listOf("Album", item.subtitle).filter { it.isNotBlank() }.joinToString(" · ")
     val count = item.raw.text("count", "trackCount", "track_count")
     return if (count.isNotBlank()) "$count songs" else "Playlist"
+}
+
+@Composable
+private fun LibraryEntryCard(item: BrowseItem, onOpen: () -> Unit, onOptions: () -> Unit) {
+    Column(Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onOptions)) {
+        Box {
+            LibraryArtwork(item, Modifier.fillMaxWidth().aspectRatio(1f))
+            if (item.raw["offline"]?.toString() == "true") Icon(Icons.Default.DownloadDone, "Downloaded collection",
+                Modifier.align(Alignment.BottomEnd).padding(8.dp).size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            else com.example.juke.ui.components.DownloadedBadge(item.videoId, Modifier.align(Alignment.BottomEnd).padding(8.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { LibraryLabels(item) }
+            IconButton(onClick = onOptions) { Icon(Icons.Default.MoreVert, "Options for ${item.title}") }
+        }
+    }
 }
 
 @Composable
