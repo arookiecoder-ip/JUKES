@@ -27,7 +27,11 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
     val state by albumDetailViewModel.uiState.collectAsStateWithLifecycle()
     val album = state.album
     Box(Modifier.fillMaxSize()) {
-        if (album == null || (state.isLoading && state.tracks.isEmpty())) {
+        if (state.error != null && state.tracks.isEmpty()) {
+            ConnectionErrorState(state.error.orEmpty(), {
+                album?.let { albumDetailViewModel.loadAlbumDetails(it) }
+            }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
+        } else if (album == null || (state.isLoading && state.tracks.isEmpty())) {
             MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
             item(key = "hero") {

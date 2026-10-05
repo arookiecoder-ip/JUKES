@@ -26,7 +26,11 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
     val state by playlistDetailViewModel.uiState.collectAsStateWithLifecycle()
     val playlist = state.playlist
     Box(Modifier.fillMaxSize()) {
-        if (playlist == null || (state.isLoading && state.tracks.isEmpty())) {
+        if (state.error != null && state.tracks.isEmpty()) {
+            ConnectionErrorState(state.error.orEmpty(), {
+                playlist?.let { playlistDetailViewModel.loadPlaylistDetails(it) }
+            }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
+        } else if (playlist == null || (state.isLoading && state.tracks.isEmpty())) {
             MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
             item(key = "hero") {

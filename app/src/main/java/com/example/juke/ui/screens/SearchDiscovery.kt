@@ -78,25 +78,29 @@ fun SearchLandingContent(history: List<String>, recommendations: List<Track>, lo
 
 @Composable
 fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewModel,
-    onOpenAlbum: (BrowseItem) -> Unit, onOpenPlaylist: (BrowseItem) -> Unit, bottomPadding: Dp) {
+    onOpenAlbum: (BrowseItem) -> Unit, onOpenPlaylist: (BrowseItem) -> Unit, bottomPadding: Dp,
+    session: com.example.juke.viewmodels.DiscoverySessionViewModel) {
     val context = LocalContext.current
     val cache = remember { DiscoveryCache(context) }
     var selectedMoodJson by rememberSaveable(mode) { mutableStateOf<String?>(null) }
     val selectedMood = remember(selectedMoodJson) {
         selectedMoodJson?.let { runCatching { BrowseParser.item(Json.parseToJsonElement(it) as JsonObject) }.getOrNull() }
     }
-    var page by remember(mode) { mutableStateOf<BrowsePage?>(null) }
-    var loading by remember { mutableStateOf(true) }
+    var page by remember(mode) { mutableStateOf(session.get("$mode:${selectedMood?.raw?.text("params").orEmpty()}")
+        ?.let { BrowseParser.page(it, selectedMood?.title ?: if (mode == "moods") "Moods & genres" else "New releases") }) }
+    var loading by remember { mutableStateOf(page == null) }
     var error by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     val title = selectedMood?.title ?: if (mode == "moods") "Moods & genres" else "New releases"
     fun back() { if (selectedMood != null) selectedMoodJson = null else onBack() }
     BackHandler { back() }
     LaunchedEffect(mode, selectedMood, retry) {
-        val cached = if (mode == "moods" && selectedMood == null) cache.moods() else null
+        val key = "$mode:${selectedMood?.raw?.text("params").orEmpty()}"
+        val retained = session.get(key)
+        val cached = retained ?: if (mode == "moods" && selectedMood == null) cache.moods() else null
         page = cached?.let { BrowseParser.page(it, title) }
         loading = page == null; error = null
-        if (cached != null && cache.fresh() && retry == 0) return@LaunchedEffect
+        if (cached != null && retry == 0 && (retained != null || cache.fresh())) return@LaunchedEffect
         try {
             val mood = selectedMood
             val data = if (mood == null) Backend.get("/api/explore/").objectOrEmpty()
@@ -104,18 +108,20 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
             if (mood == null) cache.save(data)
             val filtered = if (mood != null) JsonObject(data.filterKeys { it != "playlists" || data.array("featured_playlists").isEmpty() }) else
                 JsonObject(data.filterKeys { it == if (mode == "moods") "moods_and_genres" else "new_releases" })
+            session.put(key, filtered)
             page = BrowseParser.page(filtered, title)
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = networkErrorMessage(e) ?: e.message ?: "Couldn't load $title" }
         finally { loading = false }
     }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 60.dp, bottom = bottomPadding + 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text(title, style = MaterialTheme.typography.headlineMedium) }
-            if (loading && page == null) item { DiscoverySkeleton(mode == "moods" && selectedMood == null) }
-            error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = { retry++ }) { Text("Retry") } } }
+        if (error != null) ConnectionErrorState(error.orEmpty(), { retry++ },
+            Modifier.fillMaxSize().padding(bottom = bottomPadding))
+        else LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text(title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineMedium) }
+            if (loading && page == null) item { Box(Modifier.padding(horizontal = 20.dp)) { DiscoverySkeleton(mode == "moods" && selectedMood == null) } }
             page?.shelves?.forEach { shelf ->
-                if (selectedMood != null) item { Text(shelf.title, style = MaterialTheme.typography.titleMedium) }
+                if (selectedMood != null) item { Text(shelf.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
                 if (mode == "new_releases" || shelf.items.all { it.kind == "track" }) {
                     items(shelf.items, key = { it.id }) { item ->
                         val track = item.takeIf { it.kind == "track" }?.toTrack()
@@ -125,11 +131,11 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
                                 "track" -> music.playTrack(requireNotNull(track))
                                 "album" -> onOpenAlbum(item)
                                 else -> onOpenPlaylist(item)
-                            } }, track = track, collection = item.takeIf { it.kind != "track" }, sharpArtwork = true, showMore = mode == "new_releases")
+                            } }, track = track, collection = item.takeIf { it.kind != "track" }, modifier = Modifier.padding(horizontal = 20.dp), sharpArtwork = true, showMore = mode == "new_releases")
                     }
                 } else if (shelf.items.all { it.kind == "mood" }) {
                     items(shelf.items.chunked(2)) { pair ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             pair.forEach { item ->
                                 val accents = listOf(0xFFFF8C3A, 0xFFE80000, 0xFF8A3FFC, 0xFFFFE264, 0xFF00A928, 0xFF00A9D7)
                                 val accent = Color(accents[shelf.items.indexOf(item) % accents.size])
@@ -145,10 +151,10 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
                     }
                 } else {
                     item {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(shelf.items, key = { it.id }) { item ->
-                                if (item.kind == "album") AlbumCard(item, { onOpenAlbum(item) }, onPlay = { music.playCollection(item) }, artworkSize = 112.dp)
-                                else PlaylistCard(item, { onOpenPlaylist(item) }, onPlay = { music.playCollection(item) }, artworkSize = 112.dp)
+                                if (item.kind == "album") AlbumCard(item, { onOpenAlbum(item) }, onPlay = { music.playCollection(item) }, artworkSize = 160.dp)
+                                else PlaylistCard(item, { onOpenPlaylist(item) }, onPlay = { music.playCollection(item) }, artworkSize = 160.dp)
                             }
                         }
                     }
