@@ -521,12 +521,24 @@ fun PlayerHeader(
     playbackSpeed: Float = 1f, onCycleSpeed: () -> Unit = {}, track: Track? = null,
     onAddToPlaylist: () -> Unit = {}, onToggleLyrics: () -> Unit = {}, showLyrics: Boolean = false
 ) {
+    val mediaMenu = com.example.juke.ui.components.LocalMediaMenu.current
     var showMenu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onDismiss) { Icon(Icons.Default.KeyboardArrowDown, "Close player") }
         Text("Now playing", style = MaterialTheme.typography.labelLarge)
         if (showLyrics) IconButton(onClick = onToggleLyrics) { Icon(Icons.Default.Close, "Hide lyrics") }
-        else if (showMenuOption) IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Song options") }
+        else if (showMenuOption) IconButton(onClick = {
+            if (track != null && mediaMenu != null) {
+                val extras = listOf(
+                    com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Lyrics, "Lyrics", onToggleLyrics),
+                    com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Speed, "Speed ${playbackSpeed}×", onCycleSpeed),
+                    com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Timer, "Sleep timer", onShowSleepTimer),
+                    com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Refresh, "Refresh lyrics", onRefreshLyrics),
+                    com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Translate, if (isRomanizedLyricsEnabled) "Romanized lyrics: On" else "Romanized lyrics: Off", onToggleRomanizedLyrics)
+                )
+                mediaMenu.show(track, extras = extras)
+            } else showMenu = true
+        }) { Icon(Icons.Default.MoreVert, "Song options") }
         else Spacer(Modifier.size(48.dp))
     }
     if (showMenu) {
@@ -688,7 +700,7 @@ private fun OutputPickerContent(
         )
         OutputRow(
             icon = Icons.Outlined.PhoneAndroid, title = "This phone", detail = null,
-            selected = !isAlexa, enabled = !busy, onClick = onSelectPhone
+            selected = !isAlexa, enabled = true, onClick = onSelectPhone
         )
         if (devices.isEmpty()) {
             Text(
@@ -703,7 +715,7 @@ private fun OutputPickerContent(
                 icon = Icons.Outlined.Speaker, title = device.name,
                 detail = if (device.online) null else "Offline",
                 selected = isAlexa && device.serial == selectedSerial,
-                enabled = !busy && device.online,
+                enabled = device.online,
                 onClick = { onSelectEcho(device.serial) }
             )
         }

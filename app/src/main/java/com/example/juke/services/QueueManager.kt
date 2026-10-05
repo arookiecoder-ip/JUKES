@@ -2,7 +2,7 @@ package com.example.juke.services
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toEntity
 import com.example.juke.models.Track

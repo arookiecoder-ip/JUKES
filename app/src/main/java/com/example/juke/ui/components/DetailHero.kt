@@ -23,9 +23,9 @@ import coil.compose.AsyncImage
 fun DetailHero(image: String?, artist: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val surface = MaterialTheme.colorScheme.background
     Box(Modifier.fillMaxWidth().clip(androidx.compose.ui.graphics.RectangleShape)) {
-        AsyncImage(image, null, Modifier.matchParentSize().then(
+        AsyncImage(image, null,  (if (artist) Modifier.fillMaxWidth().height(380.dp) else Modifier.matchParentSize()).then(
             if (artist) Modifier else Modifier.blur(22.dp).alpha(0.55f)), contentScale = ContentScale.Crop)
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(
+        Box((if (artist) Modifier.fillMaxWidth().height(380.dp) else Modifier.matchParentSize()).background(Brush.verticalGradient(listOf(
             surface.copy(alpha = if (artist) 0.05f else 0.18f),
             surface.copy(alpha = 0.45f), surface))))
         Column(Modifier.fillMaxWidth(), content = content)

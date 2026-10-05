@@ -1,7 +1,7 @@
 package com.example.juke.viewmodels
 
 import android.app.Application
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import android.widget.Toast
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.edit
@@ -128,6 +128,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val output: StateFlow<PlaybackOutput> = _output.asStateFlow()
     private val outputChosen get() = settingsPrefs.contains(KEY_OUTPUT)
 
+    private var queuedOutputSwitch: Pair<Boolean, String?>? = null
     private val _isSwitchingOutput = MutableStateFlow(false)
     val isSwitchingOutput: StateFlow<Boolean> = _isSwitchingOutput.asStateFlow()
 
@@ -428,6 +429,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val downloads = com.example.juke.services.DownloadRepository.get(getApplication())
+    val downloadedCollections = downloads.collections
     val downloadedTracks = downloads.tracks
     val downloadProgress = downloads.progress
     fun download(track: Track) = downloads.download(track)
@@ -484,6 +486,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
         signedIn = false
+        queuedOutputSwitch = null
         com.example.juke.services.RemotePlaybackService.stop(getApplication())
         signInJob?.cancel()
         echo.clear()
@@ -526,7 +529,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * and play/pause state move with it.
      */
     fun switchOutput(serial: String?) {
-        if (_isSwitchingOutput.value) return
+        if (_isSwitchingOutput.value) {
+            queuedOutputSwitch = true to serial
+            return
+        }
         val toPhone = serial == null
         if (toPhone && !isAlexa) return
         if (!toPhone && isAlexa && serial == echo.serial.value) return
@@ -534,8 +540,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
+        _isSwitchingOutput.value = true
         viewModelScope.launch {
-            _isSwitchingOutput.value = true
             try {
                 when {
                     toPhone -> moveEchoToPhone()
@@ -576,6 +582,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _messages.tryEmit(e.message ?: "Couldn't switch playback")
             } finally {
                 _isSwitchingOutput.value = false
+                val next = queuedOutputSwitch
+                queuedOutputSwitch = null
+                if (signedIn && next != null) switchOutput(next.second)
             }
         }
     }
@@ -597,6 +606,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             startTarget = {
                 phoneSetQueue(queue.map { it.copy(uuid = java.util.UUID.randomUUID().toString()) }, index,
                     positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
+                playbackManager.awaitReady()
             },
             restoreSource = { if (wasPlaying) echo.command("play") },
             stopTarget = { playbackManager.pause() },
@@ -606,7 +616,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun movePhoneToEcho() {
         val phone = _uiState.value
-        val wasPlaying = phone.isPlaying
+        val wasPlaying = playbackManager.shouldResumeAfterTrackChange()
         val position = playbackManager.getCurrentPosition()
         val track = phone.currentTrack
         if (track == null) {
@@ -815,6 +825,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             offset = next
         } while (true)
         return tracks
+    }
+
+    fun downloadCollection(item: com.example.juke.network.BrowseItem) {
+        viewModelScope.launch {
+            try {
+                val tracks = collectionTracks(item)
+                check(tracks.isNotEmpty()) { "This collection has no downloadable songs" }
+                downloads.downloadCollection(item, tracks)
+            } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+            catch (e: Exception) { _messages.tryEmit(e.message ?: "Couldn't download collection") }
+        }
     }
 
     fun playCollection(item: com.example.juke.network.BrowseItem, shuffle: Boolean = false) {

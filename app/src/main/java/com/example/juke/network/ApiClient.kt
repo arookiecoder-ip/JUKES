@@ -34,7 +34,12 @@ object ApiClient {
         }
 
         install(Logging) {
-            logger = Logger.DEFAULT
+            logger = object : Logger {
+                override fun log(message: String) {
+                    com.example.juke.utils.SafeLog.d("HTTP", message)
+                }
+            }
+            sanitizeHeader { it.equals("X-Api-Key", true) || it.equals("Authorization", true) || it.equals("Cookie", true) || it.equals("Set-Cookie", true) }
             level = if (BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
         }
 

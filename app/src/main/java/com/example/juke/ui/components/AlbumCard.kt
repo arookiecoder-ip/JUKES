@@ -6,6 +6,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
 import com.example.juke.ui.theme.GlassCard
 import androidx.compose.foundation.basicMarquee
@@ -34,23 +35,24 @@ fun AlbumCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onPlay: (() -> Unit)? = null,
-    artworkSize: androidx.compose.ui.unit.Dp = 148.dp
+    artworkSize: androidx.compose.ui.unit.Dp = 148.dp,
+    fillCell: Boolean = false
 ) {
     val haptic = rememberJukeHaptics()
     val menu = LocalMediaMenu.current
     Column(
         modifier = modifier
-            .width(artworkSize)
+            .then(if (fillCell) Modifier.fillMaxWidth() else Modifier.width(artworkSize))
             .clip(androidx.compose.ui.graphics.RectangleShape)
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(album) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
-        androidx.compose.foundation.layout.Box(Modifier.size(artworkSize)) {
+        androidx.compose.foundation.layout.Box(if (fillCell) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(artworkSize)) {
         AsyncImage(
             model = album.image,
             contentDescription = album.title,
             modifier = Modifier
-                .size(artworkSize)
+                .matchParentSize()
                 .clip(androidx.compose.ui.graphics.RectangleShape),
             contentScale = ContentScale.Crop
         )

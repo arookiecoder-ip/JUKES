@@ -2,7 +2,7 @@ package com.example.juke.services
 
 import android.content.SharedPreferences
 import android.os.SystemClock
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import com.example.juke.models.Track
 import com.example.juke.network.Backend
 import com.example.juke.network.BackendAuthException

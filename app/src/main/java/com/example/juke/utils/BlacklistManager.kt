@@ -1,7 +1,7 @@
 package com.example.juke.utils
 
 import android.content.Context
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import androidx.core.content.edit
 
 /**

@@ -59,11 +59,14 @@ fun LibraryScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val state by libraryViewModel.uiState.collectAsStateWithLifecycle()
+    val downloadedCollections by musicViewModel.downloadedCollections.collectAsStateWithLifecycle()
+    var downloadedCollection by remember { mutableStateOf<com.example.juke.services.DownloadedCollection?>(null) }
     val downloaded by musicViewModel.downloadedTracks.collectAsStateWithLifecycle()
     val online by com.example.juke.network.NetworkFeedback.online.collectAsStateWithLifecycle()
     val downloadedSongs = remember(downloaded, state.searchQuery) {
         downloaded.filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
     }
+    val collectionDownloads = downloadedCollections.filter { it.title.contains(state.searchQuery, true) || it.subtitle.contains(state.searchQuery, true) }
     val context = LocalContext.current
     val mediaMenu = LocalMediaMenu.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
@@ -138,8 +141,25 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize()) {
                 when {
                     filter == LibraryFilter.DOWNLOADS -> {
-                        if (downloadedSongs.isEmpty()) LibraryNotice("No downloaded songs", "Download a song from its options to listen on this device without internet.")
+                        if (downloadedSongs.isEmpty() && collectionDownloads.isEmpty()) LibraryNotice("No downloads", "Download songs, albums or playlists from their options to listen without internet.")
                         else LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = bottomPadding + 96.dp)) {
+                            items(collectionDownloads, key = { "collection:${it.key}" }) { collection ->
+                                val available = collection.available(downloaded)
+                                Row(Modifier.fillMaxWidth().combinedClickable(
+                                    onClick = { downloadedCollection = collection },
+                                    onLongClick = { mediaMenu?.show(collection.browseItem()) }
+                                ).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    LibraryArtwork(collection.browseItem(), Modifier.size(64.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(collection.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                        Text("${collection.kind.replaceFirstChar { it.uppercase() }} · ${available.size}/${collection.tracks.size} downloaded",
+                                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.Default.DownloadDone, "Downloaded collection", tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                             items(downloadedSongs, key = { it.ytVideoId ?: it.uuid }) { song ->
                                 com.example.juke.ui.components.FlatTrackRow(song.thumbnailUri, song.title, song.artist,
                                     if (song.durationSec > 0) "%d:%02d".format(song.durationSec / 60, song.durationSec % 60) else "",
@@ -188,6 +208,26 @@ fun LibraryScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+    downloadedCollection?.let { collection ->
+        val available = collection.available(downloaded)
+        ModalBottomSheet(onDismissRequest = { downloadedCollection = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = androidx.compose.ui.graphics.RectangleShape) {
+            Text(collection.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(enabled = available.isNotEmpty(), onClick = { musicViewModel.playDownloaded(available, 0); downloadedCollection = null }) { Text("Play") }
+                OutlinedButton(enabled = available.isNotEmpty(), onClick = { musicViewModel.playDownloaded(available.shuffled(), 0); downloadedCollection = null }) { Text("Shuffle") }
+                TextButton(onClick = { musicViewModel.downloads.removeCollection(collection); downloadedCollection = null }) { Text("Remove") }
+            }
+            if (available.isEmpty()) Text("Songs are still downloading. Completed songs will appear here.", Modifier.padding(20.dp))
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp), contentPadding = PaddingValues(20.dp)) {
+                items(available, key = { it.ytVideoId ?: it.uuid }) { song ->
+                    com.example.juke.ui.components.FlatTrackRow(song.thumbnailUri, song.title, song.artist,
+                        if (song.durationSec > 0) "%d:%02d".format(song.durationSec / 60, song.durationSec % 60) else "",
+                        onClick = { musicViewModel.playDownloaded(available, available.indexOf(song)); downloadedCollection = null }, track = song, showMore = true)
                 }
             }
         }

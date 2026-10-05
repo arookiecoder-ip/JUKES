@@ -3,7 +3,7 @@ package com.example.juke.services
 import android.content.Context
 import android.media.audiofx.Equalizer
 import android.os.Build
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
