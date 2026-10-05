@@ -140,8 +140,9 @@ object AlexaBackendApi {
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
         playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null
     ) {
-        Backend.post("/api/app/queue/", kotlinx.serialization.json.Json.encodeToJsonElement(
-            QueueUpdate.serializer(), QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex)).jsonObject)
+        requireConfigured()
+        publishPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey,
+            QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex))
     }
 
     fun backendTrack(track: Track): BackendTrack = BackendTrack(
@@ -183,4 +184,18 @@ fun AlexaBackendApi.BackendTrack.toAppTrack(audioUrl: String? = null): Track {
         ytVideoId = videoId.ifBlank { null },
         isStream = true
     )
+}
+
+/** Keep queue writes on the same authenticated server as radio, queue reads and phone audio. */
+internal suspend fun publishPhoneQueue(
+    client: io.ktor.client.HttpClient, audioServer: String, apiKey: String, update: AlexaBackendApi.QueueUpdate
+) {
+    val response = client.post(audioServer.trimEnd('/') + "/api/app/queue/") {
+        header("X-Api-Key", apiKey)
+        contentType(ContentType.Application.Json)
+        setBody(kotlinx.serialization.json.Json.encodeToString(AlexaBackendApi.QueueUpdate.serializer(), update))
+    }
+    if (response.status.value !in 200..299) {
+        throw BackendHttpException(response.status.value, "Phone queue update failed (${response.status.value}). Check the audio server and its API key.")
+    }
 }

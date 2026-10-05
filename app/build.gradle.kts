@@ -167,6 +167,7 @@ dependencies {
     implementation("com.posthog:posthog-android:3.40.2")
 
     testImplementation(libs.junit)
+    testImplementation(libs.ktor.client.mock)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
