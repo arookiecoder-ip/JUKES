@@ -173,7 +173,7 @@ private fun ArtworkCard(
             }
         }
 
-        if (!showLyrics) {
+        run {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxSize().background(
                 androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Transparent, MaterialTheme.colorScheme.background))))
         }

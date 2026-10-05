@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -55,6 +56,7 @@ import androidx.compose.material.icons.outlined.Speaker
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Album
@@ -107,6 +109,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.juke.R
 import com.example.juke.network.BrowseItem
+import com.example.juke.network.Backend
+import com.example.juke.network.objectOrEmpty
+import com.example.juke.network.text
+import com.example.juke.models.artistCredits
 import com.example.juke.models.Track
 import com.example.juke.ui.components.AddToPlaylistDialog
 import com.example.juke.ui.components.CreatePlaylistDialog
@@ -176,11 +182,25 @@ fun PlayerScreen(
     BackHandler(onBack = onDismiss)
 
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    val playerContext = LocalContext.current
+    fun openArtist(artist: com.example.juke.models.ArtistCredit) {
+        if (!artist.id.isNullOrBlank()) onNavigateToArtist(artist.id)
+        else coroutineScope.launch {
+            try {
+                val id = Backend.get("/api/artist/resolve/", mapOf("name" to artist.name))
+                    .objectOrEmpty().text("channel_id", "artist_id", "id")
+                check(id.isNotBlank()) { "Artist not found" }
+                onNavigateToArtist(id)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { android.widget.Toast.makeText(playerContext, e.message ?: "Artist not found", android.widget.Toast.LENGTH_SHORT).show() }
+        }
+    }
     val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
     val currentTrack = uiState.currentTrack
     var showQueue by remember { mutableStateOf(false) }
     val playbackSpeed by musicViewModel.playbackSpeed.collectAsStateWithLifecycle()
     var showLyrics by remember { mutableStateOf(false) }
+    var showArtists by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showOutputSheet by remember { mutableStateOf(false) }
     val output by musicViewModel.output.collectAsStateWithLifecycle()
@@ -350,16 +370,17 @@ fun PlayerScreen(
                             showLyrics = showLyrics
                         )
                         }
+                        if (!showLyrics) PlayerBannerMetadata(currentTrack, compact,
+                            onArtistClick = {
+                                val artists = currentTrack.artistCredits()
+                                if (artists.size > 1) showArtists = true
+                                else artists.firstOrNull()?.let { artist ->
+                                    openArtist(artist)
+                                }
+                            }, modifier = Modifier.align(Alignment.BottomStart))
                     }
                     Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-                        Text(currentTrack.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        Text(currentTrack.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.clickable {
-                                val id = currentTrack.artistId
-                                if (!id.isNullOrBlank()) onNavigateToArtist(id) else onNavigateToArtistByName(currentTrack.artist.substringBefore(","))
-                            })
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                             PlayerAction(icon = rememberVectorPainter(if (currentTrack.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp),
                                 label = if (currentTrack.isFavourite) "Unlike" else "Like", active = currentTrack.isFavourite, iconSize = 24.dp) { musicViewModel.toggleFavorite(currentTrack) }
                             PlayerAction(icon = painterResource(R.drawable.baseline_mix), label = "Mix", iconSize = 24.dp) { musicViewModel.startRadio() }
@@ -377,6 +398,13 @@ fun PlayerScreen(
                 }
             }
         }
+        }
+    }
+
+    if (showArtists) {
+        com.example.juke.ui.components.ArtistPickerSheet(currentTrack.artistCredits(), onDismiss = { showArtists = false }) { artist ->
+            showArtists = false
+            openArtist(artist)
         }
     }
 
@@ -484,11 +512,12 @@ fun PlayerHeader(
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onDismiss) { Icon(Icons.Default.KeyboardArrowDown, "Close player") }
         Text("Now playing", style = MaterialTheme.typography.labelLarge)
-        if (showMenuOption) IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Song options") }
+        if (showLyrics) IconButton(onClick = onToggleLyrics) { Icon(Icons.Default.Close, "Hide lyrics") }
+        else if (showMenuOption) IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Song options") }
         else Spacer(Modifier.size(48.dp))
     }
     if (showMenu) {
-        ModalBottomSheet(onDismissRequest = { showMenu = false }, shape = androidx.compose.ui.graphics.RectangleShape,
+        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { showMenu = false }, shape = androidx.compose.ui.graphics.RectangleShape,
             containerColor = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                 track?.let { com.example.juke.ui.components.MusicMenuHeader(it.title, it.artist, it.thumbnailUri) }
@@ -723,5 +752,17 @@ private fun PlayerAction(
         Icon(icon, label, tint = tint, modifier = Modifier.size(iconSize))
         Spacer(Modifier.height(2.dp))
         Text(label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
+    }
+}
+
+/** The title stays on the artwork, above its fade into the controls. */
+@Composable
+internal fun PlayerBannerMetadata(track: Track, compact: Boolean, onArtistClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Text(track.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onArtistClick).padding(vertical = 4.dp))
     }
 }

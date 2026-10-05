@@ -163,7 +163,6 @@ internal fun HomeContent(
         onRefresh = { onRefresh() },
         modifier = Modifier.fillMaxSize()
     ) {
-        val heroIndex = uiState.shelves.indexOfFirst { it.tracks.size == it.items.size && it.tracks.size > 1 }
         LazyColumn(
             modifier = Modifier.fillMaxSize().testTag("Home feed"),
             contentPadding = PaddingValues(bottom = 16.dp + bottomPadding)
@@ -184,7 +183,7 @@ internal fun HomeContent(
             uiState.shelves.forEachIndexed { index, shelf ->
                 item(key = "shelf_${index}_${shelf.id}") {
                     when {
-                        index == heroIndex -> RecentlyPlayedSection(
+                        shelf.tracks.isNotEmpty() && shelf.items.all { it.kind == "track" } -> SongOnlyShelf(
                             title = shelf.title, tracks = shelf.tracks,
                             onTrackClick = { onPlayTracks(shelf.tracks, it) }
                         )
@@ -235,165 +234,43 @@ private fun HomeHeader(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** Four compact songs per horizontally scrolling column, matching web Home shelves. */
 @Composable
-private fun RecentlyPlayedSection(
-    title: String,
-    tracks: List<Track>,
-    onTrackClick: (Int) -> Unit
-) {
-    val context = LocalContext.current
-    val haptic = rememberJukeHaptics()
-    val pagerState = rememberPagerState(pageCount = { tracks.size })
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val coroutineScope = rememberCoroutineScope()
-    val accessibilityManager = remember(context) {
-        context.getSystemService(AccessibilityManager::class.java)
-    }
-    val autoAdvanceDelayMillis = remember(accessibilityManager) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            accessibilityManager?.getRecommendedTimeoutMillis(
-                6000,
-                AccessibilityManager.FLAG_CONTENT_TEXT or
-                        AccessibilityManager.FLAG_CONTENT_ICONS or
-                        AccessibilityManager.FLAG_CONTENT_CONTROLS
-            ) ?: 6000
-        } else {
-            6000
-        }
-    }
-    val touchExplorationEnabled = accessibilityManager?.isTouchExplorationEnabled == true
-    var autoAdvanceResetKey by remember(tracks.size) { mutableIntStateOf(0) }
-    var isAutoScrolling by remember { mutableStateOf(false) }
-    val visibleIndicatorCount = tracks.size.coerceAtMost(8)
-    val indicatorStart = when {
-        tracks.size <= visibleIndicatorCount -> 0
-        pagerState.currentPage <= 3 -> 0
-        pagerState.currentPage >= tracks.lastIndex - 3 -> tracks.size - visibleIndicatorCount
-        else -> pagerState.currentPage - 3
-    }
-
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.isScrollInProgress }
-            .collectLatest { isScrollInProgress ->
-                if (isScrollInProgress && !isAutoScrolling) {
-                    autoAdvanceResetKey++
-                }
-            }
-    }
-
-    LaunchedEffect(
-        autoAdvanceResetKey,
-        tracks.size,
-        autoAdvanceDelayMillis,
-        touchExplorationEnabled
-    ) {
-        if (tracks.size <= 1 || touchExplorationEnabled) return@LaunchedEffect
-
-        delay(autoAdvanceDelayMillis.toLong())
-        val isResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-        if (!pagerState.isScrollInProgress && isResumed) {
-            isAutoScrolling = true
-            try {
-                pagerState.animateScrollToPage((pagerState.currentPage + 1) % tracks.size)
-            } finally {
-                isAutoScrolling = false
-            }
-        }
-    }
-
+internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (Int) -> Unit) {
+    val menu = LocalMediaMenu.current
     Column {
-        SectionHeader(title = title)
-
-        HorizontalPager(
-            modifier = Modifier.semantics {
-                contentDescription = "$title carousel"
-                stateDescription = "Track ${pagerState.currentPage + 1} of ${tracks.size}"
-            },
-            state = pagerState,
-            contentPadding = PaddingValues(horizontal = 12.dp),
-            pageSpacing = 12.dp
-        ) { page ->
-            HeroTrackCard(
-                track = tracks[page],
-                onClick = { onTrackClick(page) }
-            )
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            androidx.compose.material3.OutlinedButton(onClick = { onTrackClick(0) }, enabled = tracks.isNotEmpty(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) { Text("Play all") }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
-            horizontalArrangement = if (tracks.size > 1) Arrangement.SpaceBetween else Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (tracks.size > 1) {
-                GlassIconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            haptic.click()
-                            pagerState.animateScrollToPage(
-                                if (pagerState.currentPage == 0) tracks.lastIndex else pagerState.currentPage - 1
-                            )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columnWidth = (maxWidth - 48.dp).coerceAtLeast(240.dp)
+            LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                itemsIndexed(tracks.chunked(4)) { columnIndex, songs ->
+                    Column(Modifier.width(columnWidth)) {
+                        songs.forEachIndexed { row, track ->
+                            Row(Modifier.fillMaxWidth().height(72.dp).combinedClickable(
+                                onClick = { onTrackClick(columnIndex * 4 + row) },
+                                onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options"), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                                    AsyncImage(track.thumbnailUri, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    Icon(Icons.Default.PlayArrow, null, Modifier.size(28.dp), tint = Color.White)
+                                }
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(track.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                         }
-                    },
-                    contentDescription = "Previous track"
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                }
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(visibleIndicatorCount) { offset ->
-                    val pageIndex = indicatorStart + offset
-                    val isSelected = pageIndex == pagerState.currentPage
-                    val pillWidth by animateDpAsState(
-                        targetValue = if (isSelected) 22.dp else 6.dp,
-                        animationSpec = tween(durationMillis = 300),
-                        label = "pillWidth"
-                    )
-                    val pillColor by animateColorAsState(
-                        targetValue = if (isSelected)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                        animationSpec = tween(durationMillis = 300),
-                        label = "pillColor"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 3.dp)
-                            .height(6.dp)
-                            .width(pillWidth)
-                            .clip(CircleShape)
-                            .background(pillColor)
-                    )
-                }
-            }
-
-            if (tracks.size > 1) {
-                GlassIconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            haptic.click()
-                            pagerState.animateScrollToPage(
-                                if (pagerState.currentPage == tracks.lastIndex) 0 else pagerState.currentPage + 1
-                            )
-                        }
-                    },
-                    contentDescription = "Next track"
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                    }
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(Modifier.height(2.dp))
     }
 }
 

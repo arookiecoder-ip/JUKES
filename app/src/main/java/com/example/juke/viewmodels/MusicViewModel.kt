@@ -171,8 +171,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
 
-    val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy) { state, busy ->
-        state.copy(isLoading = state.isLoading || busy)
+    private val pendingPlayback = MutableStateFlow<Track?>(null)
+    private var pendingPlaybackJob: Job? = null
+    private var playbackRequestId = 0L
+
+    val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
+        withPendingPlayback(state.copy(isLoading = state.isLoading || busy), pending)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
 
     private fun Track.withLike(liked: Set<String>) =
@@ -494,6 +498,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onSignedOut() {
+        ++playbackRequestId
+        pendingPlaybackJob?.cancel()
+        pendingPlayback.value = null
         signedIn = false
         signInJob?.cancel()
         echo.clear()
@@ -534,6 +541,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val toPhone = serial == null
         if (toPhone && !isAlexa) return
         if (!toPhone && isAlexa && serial == echo.serial.value) return
+        ++playbackRequestId
+        pendingPlaybackJob?.cancel()
+        pendingPlayback.value = null
         viewModelScope.launch {
             _isSwitchingOutput.value = true
             try {
@@ -751,18 +761,39 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Show the requested song immediately, until local preparation or Echo confirmation finishes. */
+    private fun launchPlayback(track: Track, block: suspend () -> Unit) {
+        val requestId = ++playbackRequestId
+        pendingPlaybackJob?.cancel()
+        pendingPlayback.value = track
+        pendingPlaybackJob = viewModelScope.launch {
+            try {
+                if (isAlexa) {
+                    runEcho {
+                        block()
+                        val videoId = requireNotNull(track.ytVideoId)
+                        if (!echo.awaitPlaying(videoId)) _messages.tryEmit("The Echo hasn't confirmed playback yet")
+                    }
+                } else block()
+            } finally {
+                // A cancelled earlier request must not clear the next song's loading state.
+                if (requestId == playbackRequestId) pendingPlayback.value = null
+            }
+        }
+    }
+
     /** Play one song; the queue continues with its radio. */
     fun playTrack(track: Track) {
         if (isAlexa) {
-            launchEcho { echo.playSong(track, radio = false) }
+            launchPlayback(track) { echo.playSong(track, radio = false) }
             return
         }
-        viewModelScope.launch { phoneSetQueue(listOf(track), 0) }
+        launchPlayback(track) { phoneSetQueue(listOf(track), 0) }
     }
 
     fun startRadio(track: Track) {
-        if (isAlexa) { launchEcho { echo.playSong(track, radio = true) }; return }
-        viewModelScope.launch {
+        if (isAlexa) { launchPlayback(track) { echo.playSong(track, radio = true) }; return }
+        launchPlayback(track) {
             phoneSetQueue(listOf(track), 0, throwOnFailure = false)
             if (_uiState.value.currentTrack?.ytVideoId == track.ytVideoId) {
                 queueManager.initializeQueue(listOf(_uiState.value.currentTrack!!), isRadioMode = true)
@@ -791,7 +822,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val tracks = collectionTracks(item).let { if (shuffle) it.shuffled() else it }
                 check(tracks.isNotEmpty()) { "This collection is empty" }
-                if (isAlexa) runEcho { echo.playQueue(tracks, 0) } else phoneSetQueue(tracks, 0)
+                launchPlayback(tracks.first()) { if (isAlexa) echo.playQueue(tracks, 0) else phoneSetQueue(tracks, 0) }
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
             catch (e: Exception) { _messages.tryEmit(e.message ?: "Could not load collection") }
@@ -827,16 +858,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun playTrackFromQueue(track: Track) {
         if (isAlexa) {
             val index = uiState.value.queue.indexOfFirst { it.uuid == track.uuid }
-            if (index >= 0) launchEcho { echo.playQueueIndex(track, index) }
+            if (index >= 0) launchPlayback(track) { echo.playQueueIndex(track, index) }
             return
         }
-        viewModelScope.launch {
+        launchPlayback(track) {
             val currentState = _uiState.value
             val queue = currentState.queue
             val shouldResumePlayback = playbackManager.shouldResumeAfterTrackChange()
 
             val trackIndex = queue.indexOfFirst { it.uuid == track.uuid }
-            if (trackIndex == -1) return@launch
+            if (trackIndex == -1) return@launchPlayback
 
             playbackManager.seekToIndex(trackIndex)
             _uiState.update {
@@ -859,16 +890,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun setQueue(tracks: List<Track>, startIndex: Int = 0) {
         if (startIndex !in tracks.indices) return
         if (isAlexa) {
-            launchEcho { echo.playQueue(tracks, startIndex) }
+            launchPlayback(tracks[startIndex]) { echo.playQueue(tracks, startIndex) }
             return
         }
-        viewModelScope.launch { phoneSetQueue(tracks, startIndex) }
+        launchPlayback(tracks[startIndex]) { phoneSetQueue(tracks, startIndex) }
     }
 
     /** Play a whole account playlist (the server loads every page of it). */
     fun playPlaylist(playlistId: String, tracks: List<Track>, startIndex: Int = 0) {
         if (isAlexa && startIndex == 0) {
-            launchEcho { echo.playPlaylist(playlistId) }
+            if (tracks.isNotEmpty()) launchPlayback(tracks.first()) { echo.playPlaylist(playlistId) }
+            else launchEcho { echo.playPlaylist(playlistId) }
             return
         }
         if (tracks.isNotEmpty()) {
@@ -1444,3 +1476,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         private const val ECHO_PREFIX = "echo:"
     }
 }
+
+internal fun withPendingPlayback(state: MusicUiState, pending: Track?): MusicUiState =
+    if (pending == null) state else state.copy(currentTrack = pending, position = 0L,
+        duration = pending.durationSec * 1000L, isLoading = true)

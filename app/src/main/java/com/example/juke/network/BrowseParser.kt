@@ -94,7 +94,13 @@ fun BrowseItem.toTrack(liked: Set<String> = emptySet(), fallbackImage: String = 
     isStream = true,
     isFavourite = videoId in liked,
     albumId = albumId.ifBlank { null },
-    artistId = artistId.ifBlank { null }
+    artistId = artistId.ifBlank { null },
+    artists = raw.array("artists").mapNotNull { credit ->
+        val artist = credit.objectOrEmpty()
+        artist.text("name").takeIf { it.isNotBlank() }?.let {
+            com.example.juke.models.ArtistCredit(it, artist.text("id", "browseId", "channel_id").ifBlank { null })
+        }
+    }
 )
 
 /** Song metadata in the shape every queue endpoint accepts. */

@@ -142,35 +142,13 @@ fun LyricsOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .padding(top = 56.dp)
             .onSizeChanged { overlayHeightPx = it.height }
     ) {
-        if (!currentTrack.thumbnailUri.isNullOrBlank()) {
-            val blurDp = if (isTablet) 92.dp else 72.dp
-            AsyncImage(
-                model = currentTrack.thumbnailUri,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scale(1.2f)
-                    .blur(blurDp, edgeTreatment = BlurredEdgeTreatment.Unbounded),
-                contentScale = ContentScale.Crop
-            )
-        }
-
-        // Lighter scrim for readability while preserving premium glass look
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.18f),
-                            Color.Black.copy(alpha = 0.28f),
-                            Color.Black.copy(alpha = 0.40f)
-                        )
-                    )
-                )
-        )
+        // Keep the same artwork underneath; fade the readable scrim into the banner edges.
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+            Color.Transparent, Color.Black.copy(alpha = 0.42f),
+            Color.Black.copy(alpha = 0.42f), Color.Transparent))))
 
         if (syncedLyrics != null) {
             val lyricLines = remember(syncedLyrics, localOffsetMs) {
@@ -453,22 +431,7 @@ fun LyricsOverlay(
                     }
                 }
 
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(
-                            Color.White.copy(alpha = 0.08f),
-                            CircleShape
-                        )
-                        .border(1.dp, Color.White.copy(alpha = 0.04f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close Lyrics",
-                        tint = Color.White.copy(alpha = 0.9f)
-                    )
-                }
+
             }
         }
     }

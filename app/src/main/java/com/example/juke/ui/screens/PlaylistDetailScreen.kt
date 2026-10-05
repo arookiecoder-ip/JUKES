@@ -152,6 +152,13 @@ fun PlaylistDetailScreen(
                     }
                 }
 
+                item {
+                    com.example.juke.ui.components.CollectionActions(playlist,
+                        onPlay = { musicViewModel.playCollection(playlist) },
+                        onShuffle = { musicViewModel.playCollection(playlist, shuffle = true) },
+                        onQueue = { musicViewModel.queueCollection(playlist, next = false) })
+                }
+
                 // Tracks Section
                 if (uiState.tracks.isNotEmpty()) {
                     item {

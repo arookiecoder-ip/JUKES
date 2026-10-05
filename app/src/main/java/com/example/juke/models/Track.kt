@@ -24,7 +24,8 @@ data class Track(
     val albumId: String? = null,
     val artistId: String? = null,
     val isStream: Boolean = false,
-    val lyricsOffsetMs: Long = 0L
+    val lyricsOffsetMs: Long = 0L,
+    val artists: List<ArtistCredit> = emptyList()
 )
 
 fun Track.withUpdatedLyrics(
@@ -55,3 +56,12 @@ data class LRCLibResult(
     val syncedLyrics: String?
 )
 
+
+@Serializable
+data class ArtistCredit(val name: String, val id: String? = null)
+
+/** Prefer the account's individual credits; fall back to the displayed artist string. */
+fun Track.artistCredits(): List<ArtistCredit> = artists.filter { it.name.isNotBlank() }.ifEmpty {
+    artist.split(Regex("\\s*(?:,| & | feat\\.? | ft\\.? | featuring )\\s*", RegexOption.IGNORE_CASE))
+        .filter { it.isNotBlank() }.mapIndexed { index, name -> ArtistCredit(name.trim(), if (index == 0) artistId else null) }
+}.distinctBy { it.id ?: it.name.lowercase() }
