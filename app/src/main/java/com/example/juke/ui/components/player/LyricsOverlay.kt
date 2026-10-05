@@ -159,90 +159,10 @@ fun LyricsOverlay(
             val lyricLines = remember(syncedLyrics, localOffsetMs) {
                 parseSyncedLyrics(syncedLyrics, localOffsetMs.toLong())
             }
-            val listState = rememberLazyListState()
-            var currentLineIndex by remember(currentTrack.uuid) { mutableIntStateOf(-1) }
-            var isFirstScroll by remember(currentTrack.uuid) { mutableStateOf(true) }
-
-            LaunchedEffect(currentPosition, lyricLines) {
-                val newIndex = lyricLines.indexOfLast { it.timeMs <= currentPosition }
-                if (newIndex >= 0 && newIndex != currentLineIndex) {
-                    currentLineIndex = newIndex
-                    if (lyricLines.isNotEmpty() && !listState.isScrollInProgress) {
-                        if (isFirstScroll) {
-                            listState.scrollToItem(index = newIndex, scrollOffset = 0)
-                            isFirstScroll = false
-                        } else {
-                            listState.animateScrollToItem(index = newIndex, scrollOffset = 0)
-                        }
-                    }
-                } else if (newIndex < 0 && currentLineIndex != 0) {
-                    currentLineIndex = 0
-                    if (lyricLines.isNotEmpty() && !listState.isScrollInProgress) {
-                        if (isFirstScroll) {
-                            listState.scrollToItem(index = 0)
-                            isFirstScroll = false
-                        } else {
-                            listState.animateScrollToItem(0)
-                        }
-                    }
-                }
-            }
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = headerHeight).padding(horizontal = 24.dp)
-                    .fadingEdges(topFraction = 0.14f, bottomFraction = 0.22f),
-                contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                items(lyricLines.size) { index ->
-                    val line = lyricLines[index]
-                    val isCurrentLine = index == currentLineIndex
-
-                    // Animate color for the active line
-                    val textColor by animateColorAsState(
-                        targetValue = if (isCurrentLine)
-                            Color.White
-                        else
-                            Color.White.copy(alpha = 0.42f),
-                        animationSpec = tween(durationMillis = 300),
-                        label = "lyricColor"
-                    )
-                    val fontScale by animateFloatAsState(
-                        targetValue = if (isCurrentLine) 1.0f else 0.92f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        ),
-                        label = "lyricScale"
-                    )
-
-                    // Use fontSize scaling instead of graphicsLayer scale to prevent overflow
-                    val baseFontSize = 28.sp
-                    val animatedFontSize = baseFontSize * fontScale
-
-                    Text(
-                        text = line.text,
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = animatedFontSize,
-                            lineHeight = animatedFontSize * 1.25f,
-                            letterSpacing = (-0.3).sp
-                        ),
-                        color = textColor,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = {
-                                musicViewModel.seekTo(line.timeMs)
-                            }),
-                        textAlign = TextAlign.Start,
-                        fontWeight = FontWeight.Bold,
-                        overflow = TextOverflow.Clip,
-                        softWrap = true
-                    )
-                }
-            }
+            SyncedLyricsLines(lyricLines, currentPosition,
+                onSeek = musicViewModel::seekTo,
+                modifier = Modifier.fillMaxSize().padding(top = headerHeight).padding(horizontal = 24.dp)
+                    .fadingEdges(topFraction = 0.14f, bottomFraction = 0.22f))
         } else if (lyricsPending) {
             Box(
                 modifier = Modifier.fillMaxSize(),

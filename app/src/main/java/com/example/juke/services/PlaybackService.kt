@@ -1735,7 +1735,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun getDuration(): Long {
-        return controller?.duration ?: 0L
+        return controller?.duration?.coerceAtLeast(0) ?: 0L
     }
 
     /**

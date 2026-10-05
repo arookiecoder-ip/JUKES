@@ -222,9 +222,6 @@ private fun HomeHeader(
             Text("Music Box", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
 
-        Text(alexaStatus, style = MaterialTheme.typography.labelSmall,
-            color = if (alexaStatus.endsWith("Online")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 8.dp).clickable(onClick = onSettingsClick))
         GlassIconButton(
             onClick = onSettingsClick,
             contentDescription = "Profile"
@@ -246,12 +243,12 @@ internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (In
                 modifier = Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("Play all") }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columnWidth = (maxWidth - 48.dp).coerceAtLeast(240.dp)
+            val columnWidth = (if (maxWidth >= 600.dp) (maxWidth - 64.dp) / 2 else maxWidth - 48.dp).coerceAtLeast(240.dp)
             LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 itemsIndexed(tracks.chunked(4)) { columnIndex, songs ->
                     Column(Modifier.width(columnWidth)) {
                         songs.forEachIndexed { row, track ->
-                            Row(Modifier.fillMaxWidth().height(72.dp).combinedClickable(
+                            Row(Modifier.fillMaxWidth().height(64.dp).combinedClickable(
                                 onClick = { onTrackClick(columnIndex * 4 + row) },
                                 onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options"), verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {

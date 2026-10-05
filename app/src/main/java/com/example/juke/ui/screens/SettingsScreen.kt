@@ -62,13 +62,17 @@ fun SettingsScreen(
     val volume by music.boosterLevel.collectAsStateWithLifecycle()
     val bass by music.bassLevel.collectAsStateWithLifecycle()
     val miniLyrics by music.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
+    val settingsPrefs = remember { context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE) }
+    var hapticsEnabled by remember { mutableStateOf(settingsPrefs.getBoolean("haptics_enabled", true)) }
+    val echoDevices by music.echo.devices.collectAsStateWithLifecycle()
+    val amazonConnected by music.echo.amazonConnected.collectAsStateWithLifecycle()
     val powerPrefs = remember { context.getSharedPreferences("power_prefs", Context.MODE_PRIVATE) }
     var powerUnlocked by remember { mutableStateOf(powerPrefs.getBoolean("power_tools_unlocked", false)) }
     var confirmSignOut by remember { mutableStateOf(false) }
     var versionTaps by remember { mutableIntStateOf(0) }
     var lastVersionTapAt by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(Unit) { account.refreshStatus() }
+    LaunchedEffect(Unit) { account.refreshStatus(); music.refreshDevices() }
 
     if (confirmSignOut) com.example.juke.ui.components.GlassAlertDialog(
         onDismissRequest = { confirmSignOut = false },
@@ -90,6 +94,23 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Haptic feedback", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    Switch(checked = hapticsEnabled, onCheckedChange = {
+                        hapticsEnabled = it; settingsPrefs.edit().putBoolean("haptics_enabled", it).apply()
+                    })
+                }
+            } }
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Alexa", fontWeight = FontWeight.SemiBold)
+                    Text(when { amazonConnected == false -> "Connect your Amazon account"; echoDevices.isEmpty() -> "No Echo devices found";
+                        else -> echoDevices.joinToString("\n") { "${it.name} · ${if (it.online) "Online" else "Offline"}" } })
+                    androidx.compose.material3.TextButton(onClick = music::refreshDevices) { Text("Refresh devices") }
+                }
+            } }
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { JamSettings() } }
             item { Box(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { AccountStatusCard(state, account) } }
             item {
                 GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {

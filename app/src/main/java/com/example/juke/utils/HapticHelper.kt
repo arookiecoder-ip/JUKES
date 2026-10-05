@@ -14,6 +14,9 @@ import androidx.compose.ui.platform.LocalView
 
 class JukeHaptics(private val view: View, context: Context) {
 
+    private val prefs = context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
+    private val enabled get() = prefs.getBoolean("haptics_enabled", true)
+
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
         vibratorManager?.defaultVibrator
@@ -38,6 +41,7 @@ class JukeHaptics(private val view: View, context: Context) {
 
     /** Light, crisp tap for list items and minor interactions */
     fun click() {
+        if (!enabled) return
         if (hasPremiumVibration() && tryVibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))) {
             return
         }
@@ -46,6 +50,7 @@ class JukeHaptics(private val view: View, context: Context) {
 
     /** Substantive, deep feel for main play/pause or major state changes */
     fun heavyClick() {
+        if (!enabled) return
         if (hasPremiumVibration() && tryVibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))) {
             return
         }
@@ -54,6 +59,7 @@ class JukeHaptics(private val view: View, context: Context) {
 
     /** Very light, mechanical ratchet feel for scrubbing the progress bar */
     fun tick() {
+        if (!enabled) return
         if (hasPremiumVibration() && tryVibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))) {
             return
         }
@@ -62,6 +68,7 @@ class JukeHaptics(private val view: View, context: Context) {
 
     /** Distinct feeling for turning a feature on/off (Shuffle/Repeat) */
     fun toggle() {
+        if (!enabled) return
         if (hasPremiumVibration()) {
             val timings = longArrayOf(0, 10, 50, 10)
             val amplitudes = intArrayOf(0, 100, 0, 150)
@@ -74,6 +81,7 @@ class JukeHaptics(private val view: View, context: Context) {
 
     /** Double-bump success feeling for adding to queue and favorites */
     fun confirm() {
+        if (!enabled) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             return
@@ -86,6 +94,7 @@ class JukeHaptics(private val view: View, context: Context) {
 
     /** Heavy warning feel for deleting/removing */
     fun reject() {
+        if (!enabled) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             view.performHapticFeedback(HapticFeedbackConstants.REJECT)
             return
@@ -101,6 +110,7 @@ class JukeHaptics(private val view: View, context: Context) {
     }
 
     fun gestureStart() {
+        if (!enabled) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             view.performHapticFeedback(HapticFeedbackConstants.GESTURE_START)
         } else {
@@ -109,6 +119,7 @@ class JukeHaptics(private val view: View, context: Context) {
     }
 
     fun gestureEnd() {
+        if (!enabled) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             view.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
         } else {

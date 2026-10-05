@@ -177,6 +177,7 @@ fun LibraryScreen(
                                         Text("${collection.kind.replaceFirstChar { it.uppercase() }} · ${available.size}/${collection.tracks.size} downloaded",
                                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
+                                    IconButton(onClick = { mediaMenu?.show(collection.browseItem()) }) { Icon(Icons.Default.MoreVert, "Options for ${collection.title}") }
                                     if (collection.tracks.any { it.ytVideoId in progress }) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                                     else Icon(if (available.size == collection.tracks.size) Icons.Default.DownloadDone else Icons.Default.Download,
                                         if (available.size == collection.tracks.size) "Downloaded collection" else "Downloading collection", tint = MaterialTheme.colorScheme.primary)
@@ -203,7 +204,7 @@ fun LibraryScreen(
                         if (state.searchQuery.isNotBlank()) "No matches" else "No ${filter.label.lowercase()} yet",
                         if (state.searchQuery.isNotBlank()) "Try another search or filter." else "Saved items from your YouTube Music account appear here.")
                     grid -> LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(180.dp),
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 96.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
@@ -213,7 +214,9 @@ fun LibraryScreen(
                                 Spacer(Modifier.height(8.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) { LibraryLabels(item) }
-                                    LibraryItemOptions(item, { rename = item }, { delete = item }, { mediaMenu?.show(item) })
+                                    LibraryItemOptions(item, { rename = item }, { delete = item }, { mediaMenu?.show(item,
+                                        if (item.editable) listOf(com.example.juke.ui.components.ExtraSongOption(Icons.Default.Edit, "Rename") { rename = item },
+                                            com.example.juke.ui.components.ExtraSongOption(Icons.Default.Delete, "Delete") { delete = item }) else emptyList()) })
                                 }
                             }
                         }
@@ -230,7 +233,9 @@ fun LibraryScreen(
                                 LibraryArtwork(item, Modifier.size(64.dp))
                                 Spacer(Modifier.width(16.dp))
                                 Column(Modifier.weight(1f)) { LibraryLabels(item) }
-                                LibraryItemOptions(item, { rename = item }, { delete = item }, { mediaMenu?.show(item) })
+                                LibraryItemOptions(item, { rename = item }, { delete = item }, { mediaMenu?.show(item,
+                                        if (item.editable) listOf(com.example.juke.ui.components.ExtraSongOption(Icons.Default.Edit, "Rename") { rename = item },
+                                            com.example.juke.ui.components.ExtraSongOption(Icons.Default.Delete, "Delete") { delete = item }) else emptyList()) })
                             }
                         }
                     }
@@ -304,15 +309,7 @@ private fun LibraryNotice(title: String, message: String, action: String? = null
 
 @Composable
 private fun LibraryItemOptions(item: BrowseItem, onRename: () -> Unit, onDelete: () -> Unit, onMore: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { if (item.editable) expanded = true else onMore() }) { Icon(Icons.Default.MoreVert, "Options for ${item.title}") }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("More options") }, onClick = { expanded = false; onMore() })
-            DropdownMenuItem(text = { Text("Rename") }, onClick = { expanded = false; onRename() })
-            DropdownMenuItem(text = { Text("Delete") }, onClick = { expanded = false; onDelete() })
-        }
-    }
+    IconButton(onClick = onMore) { Icon(Icons.Default.MoreVert, "Options for ${item.title}") }
 }
 
 /** Right swipe advances through the library filters, matching their displayed order. */

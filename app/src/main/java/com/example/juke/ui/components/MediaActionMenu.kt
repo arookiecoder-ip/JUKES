@@ -37,7 +37,7 @@ class MediaMenuController {
     var extraOptions by mutableStateOf<List<ExtraSongOption>>(emptyList())
     var queueActions by mutableStateOf<QueueSongActions?>(null)
     fun show(track: Track, queueActions: QueueSongActions? = null, extras: List<ExtraSongOption> = emptyList()) { item = null; this.track = track; this.queueActions = queueActions; extraOptions = extras }
-    fun show(item: BrowseItem) { extraOptions = emptyList(); track = null; queueActions = null; this.item = item }
+    fun show(item: BrowseItem, extras: List<ExtraSongOption> = emptyList()) { extraOptions = extras; track = null; queueActions = null; this.item = item }
     fun dismiss() { extraOptions = emptyList(); track = null; item = null; queueActions = null }
 }
 val LocalMediaMenu = staticCompositionLocalOf<MediaMenuController?> { null }
@@ -149,8 +149,8 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         }
                     }
                     if (queueActions != null) {
-                        queueActions.remove?.let { action("Remove from queue", it) }
-                    } else if (music.uiState.value.queue.any { it.uuid == track.uuid }) {
+                        queueActions.remove?.takeIf { music.uiState.value.currentTrack?.uuid != track.uuid }?.let { action("Remove from queue", it) }
+                    } else if (music.uiState.value.currentTrack?.uuid != track.uuid && music.uiState.value.queue.any { it.uuid == track.uuid }) {
                         action("Remove from queue") { music.removeFromQueue(track.uuid) }
                     }
                     if (extraOptions.isNotEmpty()) {
@@ -168,6 +168,11 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         }
                     }
                     action("Open ${item.kind}") { onOpen(item) }
+                    action("Share") {
+                        val route = if (item.kind == "artist") "artist?channel=${item.id}" else if (item.kind == "album") "album?browse=${item.id}" else "playlist?list=${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
+                        share("Share ${item.title}", "https://music.youtube.com/$route")
+                    }
+                    extraOptions.forEach { extra -> MusicMenuOption(extra.icon, extra.label) { menu.dismiss(); extra.action() } }
                 }
             }
         }

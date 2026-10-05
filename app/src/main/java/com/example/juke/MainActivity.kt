@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -235,8 +236,9 @@ class MainActivity : ComponentActivity() {
                 }
                 val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
                 val activeDownloads by musicViewModel.downloads.status.collectAsStateWithLifecycle()
-                LaunchedEffect(activeDownloads.active > 0) {
-                    if (activeDownloads.active > 0 && Build.VERSION.SDK_INT >= 33 &&
+                val currentOutput by musicViewModel.output.collectAsStateWithLifecycle()
+                LaunchedEffect(activeDownloads.active > 0, currentOutput) {
+                    if ((activeDownloads.active > 0 || currentOutput == com.example.juke.viewmodels.PlaybackOutput.ALEXA) && Build.VERSION.SDK_INT >= 33 &&
                         ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                         val permissionPrefs = getSharedPreferences("notification_permission", MODE_PRIVATE)
                         if (!permissionPrefs.getBoolean("download_requested", false)) {
@@ -520,10 +522,11 @@ class MainActivity : ComponentActivity() {
                         if (isExpanded && currentRoute != "settings") {
                             GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
                         }
-                        Box(Modifier.weight(1f).padding(contentPadding)) {
+                        Box(Modifier.weight(1f).padding(contentPadding), contentAlignment = Alignment.TopCenter) {
                         NavHost(
                             navController = navController,
                             startDestination = Screen.Home.route,
+                            modifier = Modifier.widthIn(max = 1400.dp).fillMaxSize(),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             composable(Screen.Home.route) {

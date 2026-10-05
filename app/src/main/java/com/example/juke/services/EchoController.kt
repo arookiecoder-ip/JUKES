@@ -98,6 +98,10 @@ class EchoController(
     }
 
     private fun setSerial(serial: String) {
+        volumeJob?.cancel()
+        volumeSeq++
+        volumeGraceUntil = 0L
+        lastVolumeRefresh = 0L
         _serial.value = serial
         prefs.edit().putString(KEY_SERIAL, serial).apply()
     }
