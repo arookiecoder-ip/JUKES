@@ -143,6 +143,7 @@ class QueueManager private constructor(private val context: Context) {
         return fillMutex.withLock {
             if (gen != sessionGen.get()) return@withLock null
             try {
+                _recStatus.value = RecStatus(resolving = 1)
                 val snapshot = Backend.get("/alexa/now_playing/", mapOf("serial" to "phone")).objectOrEmpty()
                 val items = snapshot.array("queue").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
                     .filter { it.videoId.isNotBlank() }
