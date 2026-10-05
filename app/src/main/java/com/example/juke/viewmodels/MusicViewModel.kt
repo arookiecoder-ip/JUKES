@@ -28,6 +28,7 @@ import com.example.juke.network.LyricsApi
 import com.example.juke.network.BrowseParser
 import com.example.juke.network.array
 import com.example.juke.network.toTrack
+import com.example.juke.network.toAppTrack
 import com.example.juke.network.objectOrEmpty
 import com.example.juke.network.text
 import com.example.juke.network.metadata
@@ -63,6 +64,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -185,7 +187,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var phoneQueueSyncJob: Job? = null
     private val phoneQueueMutex = kotlinx.coroutines.sync.Mutex()
     private var sharedPhoneQueueReady = false
-    private var phoneQueueCursorOffset = 0
+    private var serverPlaybackChecked = false
     private var playbackRequestId = 0L
 
     val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
@@ -210,8 +212,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             currentTrack = current,
             queue = state.queue.map { if (it.uuid == current?.uuid) current else it },
             queueIndex = state.index,
-            isPlaying = state.playing,
-            isLoading = state.playing && !state.confirmed,
+            isPlaying = state.sharedOutput.mode != "phone" && state.playing,
+            isLoading = state.sharedOutput.mode != "phone" && (state.processing || (state.playing && !state.confirmed)),
             position = state.livePosition(),
             duration = state.durationMs
         )
@@ -318,12 +320,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyAlexaWindow(window: QueueManager.AlexaQueueWindow) {
+        // While this phone owns output, its edits/order win over delayed remote snapshots.
+        if (com.example.juke.services.PhonePlaybackOwnership.token.isNotBlank()) return
         val state = _uiState.value
         val current = state.currentTrack ?: return
         if (current.uuid != window.currentUuid || state.isQueueOperationInProgress || !sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true) return
         val currentIndex = state.queue.indexOfFirst { it.uuid == current.uuid }
         if (currentIndex < 0) return
-        phoneQueueCursorOffset = window.serverIndex - currentIndex
         val queue = state.queue.take(currentIndex + 1) + window.tracks
         if (queue.map { it.uuid } == state.queue.map { it.uuid }) return
         playbackManager.replaceUpcoming(queue, currentIndex)
@@ -338,43 +341,41 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (window != null && signedIn && !isAlexa && !_isSwitchingOutput.value && sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true) applyAlexaWindow(window)
             }
         }
+        viewModelScope.launch {
+            com.example.juke.services.PhonePlaybackOwnership.remoteOutput.collect { output ->
+                if (output?.mode == "alexa" && signedIn && !_isSwitchingOutput.value) adoptRemoteAlexa(output)
+            }
+        }
         // While the phone plays, report its song and position to the server so the shared queue
         // (and the web remote) follow it, and pick up queue edits made elsewhere.
         viewModelScope.launch {
             while (isActive) {
                 delay(3_000)
+                if (!serverPlaybackChecked || com.example.juke.services.PhonePlaybackOwnership.token.isBlank()) continue
                 if (signedIn && !isAlexa && !_isSwitchingOutput.value && !sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true && com.example.juke.network.NetworkFeedback.online.value) {
                     synchronizePhoneQueue(); continue
                 }
                 if (!signedIn || isAlexa || _isSwitchingOutput.value || !sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true || _uiState.value.isQueueOperationInProgress || !com.example.juke.network.NetworkFeedback.online.value) continue
                 val state = _uiState.value
                 val current = state.currentTrack ?: continue
-                val videoId = current.ytVideoId ?: continue
+                if (current.ytVideoId.isNullOrBlank()) continue
+                val claim = com.example.juke.services.PhonePlaybackOwnership.token
                 try {
-                    val playing = _uiState.value.isPlaying
-                    val position = playbackManager.getCurrentPosition()
-                    val window = withContext(Dispatchers.IO) { phoneQueueMutex.withLock {
-                        if (!sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true ||
-                            _uiState.value.currentTrack?.uuid != current.uuid) return@withLock null
-                        try {
-                            AlexaBackendApi.updateQueue("current", videoId, emptyList(),
-                                playing = playing, positionMs = position, queueIndex = state.queueIndex + phoneQueueCursorOffset)
-                        } catch (e: com.example.juke.network.BackendHttpException) {
-                            if (e.statusCode != 409) throw e
-                            // A remote insert/reorder may shift the cursor without changing the song.
-                            val refreshed = queueManager.refreshAlexaQueue(current)
-                            if (refreshed == null) {
-                                // Restarted/replaced server queue: reinstall the still-playing phone queue.
-                                sharedPhoneQueueReady = false
-                                return@withLock null
-                            }
-                            AlexaBackendApi.updateQueue("current", videoId, emptyList(),
-                                playing = playing, positionMs = position, queueIndex = refreshed.serverIndex)
-                            return@withLock refreshed
-                        }
-                        queueManager.refreshAlexaQueue(current)
-                    } }
-                    if (window != null && signedIn && !isAlexa && !_isSwitchingOutput.value && sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true) applyAlexaWindow(window)
+                    val snapshot = AlexaBackendApi.phoneQueueSnapshot()
+                    if (claim != com.example.juke.services.PhonePlaybackOwnership.token || state != _uiState.value) continue
+                    val output = com.example.juke.services.sharedPlaybackOutput(snapshot)
+                    if (!output.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId,
+                            com.example.juke.services.PhonePlaybackOwnership.token)) {
+                        if (output.mode == "alexa") adoptRemoteAlexa(output, claim)
+                        continue
+                    }
+                    val serverIds = snapshot.array("queue").map { it.objectOrEmpty().text("video_id") }
+                    if (serverIds != state.queue.map { it.ytVideoId }) {
+                        synchronizePhoneQueue()
+                        continue
+                    }
+                    // The foreground service reports position/buffering even after the Activity closes.
+                    continue
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -475,8 +476,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun onSignedIn() {
         signedIn = true
+        serverPlaybackChecked = false
         signInJob?.cancel()
         signInJob = viewModelScope.launch {
+            val initialClaim = com.example.juke.services.PhonePlaybackOwnership.token
+            val initialRequest = playbackRequestId
             launch { runEcho { AccountRepository.refreshLiked() } }
             val hasEcho = try {
                 echo.loadDevices()
@@ -490,11 +494,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 false
             }
             if (!outputChosen) setOutputPreference(if (hasEcho) PlaybackOutput.ALEXA else PlaybackOutput.PHONE)
+            val latest = echo.state.value.sharedOutput
+            if (initialRequest == playbackRequestId && initialClaim == com.example.juke.services.PhonePlaybackOwnership.token && latest.mode == "alexa" && echo.state.value.track != null) {
+                adoptRemoteAlexa(latest)
+            } else if (initialRequest == playbackRequestId && initialClaim == com.example.juke.services.PhonePlaybackOwnership.token && latest.mode == "phone") {
+                com.example.juke.services.PhonePlaybackOwnership.restoreIfCurrent(latest)
+            }
+            serverPlaybackChecked = true
             updatePolling()
         }
     }
 
     fun onSignedOut() {
+        serverPlaybackChecked = false
+        com.example.juke.services.PhonePlaybackOwnership.forget()
         phoneQueueSyncJob?.cancel()
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
@@ -511,6 +524,36 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     /** The app moved to the foreground or background: poll the Echo every 3 s or 10 s. */
     fun setForeground(foreground: Boolean) {
         isForeground = foreground
+        if (foreground && signedIn && serverPlaybackChecked) viewModelScope.launch {
+            try {
+                val claim = com.example.juke.services.PhonePlaybackOwnership.token
+                val requestId = playbackRequestId
+                val latest = AlexaBackendApi.phoneOutputStatus()
+                if (requestId == playbackRequestId && latest.mode == "alexa") adoptRemoteAlexa(latest, claim)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Retain the existing output while offline. */ }
+        }
+        updatePolling()
+    }
+
+    private suspend fun adoptRemoteAlexa(output: com.example.juke.services.SharedPlaybackOutput, expectedClaim: String? = null) {
+        if (_isSwitchingOutput.value) return
+        if (expectedClaim != null && expectedClaim != com.example.juke.services.PhonePlaybackOwnership.token) return
+        phoneQueueSyncJob?.cancel()
+        ++playbackRequestId
+        pendingPlaybackJob?.cancel()
+        pendingPlayback.value = null
+        playbackManager.pause()
+        sharedPhoneQueueReady = false
+        if (com.example.juke.services.PhonePlaybackOwnership.token.isNotBlank()) {
+            try { com.example.juke.services.PhonePlaybackOwnership.releaseTo(output) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Phone is already paused; the server lease will expire. */ }
+        }
+        if (com.example.juke.services.PhonePlaybackOwnership.token.isNotBlank()) return
+        if (output.serial.isNotBlank()) echo.select(output.serial, refreshAfter = false)
+        setOutputPreference(PlaybackOutput.ALEXA)
+        echo.refresh(force = true, stateOnly = true)
         updatePolling()
     }
 
@@ -640,13 +683,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             updatePolling()
             return
         }
-        transferPlayback(
+        com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
+        try { transferPlayback(
             pauseSource = { playbackManager.pause() },
             startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying) },
-            restoreSource = { if (wasPlaying) playbackManager.togglePlayPause() },
+            restoreSource = {
+                com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                if (wasPlaying) playbackManager.togglePlayPause()
+            },
             stopTarget = { echo.command("pause") },
             commit = { setOutputPreference(PlaybackOutput.ALEXA); updatePolling() }
-        )
+        ) } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
 
     private suspend fun moveQueueToEcho(queue: List<Track>, index: Int, track: Track, positionMs: Long, play: Boolean) {
@@ -985,12 +1032,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         // Install queue and cursor atomically on the same keyed backend used by phone reads/audio.
         // This route never dispatches an Echo command.
-        AlexaBackendApi.updateQueue("start", seed, items, playing, positionMs, queueIndex = index)
-        phoneQueueCursorOffset = 0
+        AlexaBackendApi.updateQueue("start", seed, items, playing, positionMs, queueIndex = index,
+            buffering = playbackManager.isBufferingFlow.value)
+        coroutineContext.ensureActive()
+        if (startRadio && tracks.size == 1 && items.size > 1) {
+            val full = tracks + items.drop(1).map { it.toAppTrack(AlexaBackendApi.audioUrl(it.videoId)) }
+            withContext(Dispatchers.IO) { trackDao.insertTracks(full.map { it.toEntity() }) }
+            if (_uiState.value.currentTrack?.uuid == tracks[index].uuid) {
+                playbackManager.replaceUpcoming(full, index)
+                _uiState.update { it.copy(queue = full) }
+            }
+        }
     }
 
     private fun synchronizePhoneQueue(startRadio: Boolean = false) {
-        if (isAlexa || !signedIn || !com.example.juke.network.NetworkFeedback.online.value) return
+        if (isAlexa || !signedIn || !serverPlaybackChecked || com.example.juke.services.PhonePlaybackOwnership.token.isBlank() || !com.example.juke.network.NetworkFeedback.online.value) return
         val state = _uiState.value
         if (!com.example.juke.services.canPublishPhoneQueue(
                 state.queue.size, state.queueIndex, state.queue.getOrNull(state.queueIndex)?.ytVideoId
@@ -1004,7 +1060,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 publishPhoneQueue(state.queue, state.queueIndex, position, playbackManager.shouldResumeAfterTrackChange(), startRadio)
                 sharedPhoneQueueReady = true
                 _queueLoadError.value = null
-                queueManager.initializeQueue(state.queue, preserveHistory = true)
+                queueManager.initializeQueue(_uiState.value.queue, preserveHistory = true)
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) {
                 val expired = com.example.juke.network.confirmSessionExpired {
@@ -1041,7 +1097,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             queueManager.clearQueue()
             phoneQueueSyncJob = com.example.juke.services.DeviceQueueStartup.start(
                 scope = viewModelScope,
-                prepare = { withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) } },
+                prepare = {
+                    if (com.example.juke.network.NetworkFeedback.online.value) {
+                        com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                        serverPlaybackChecked = true
+                    }
+                    withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
+                },
                 play = { playable ->
                     val start = playable[startIndex]
                     playbackManager.setQueue(playable, startIndex,
@@ -1054,7 +1116,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     if (!synchronizeQueue || !com.example.juke.network.NetworkFeedback.online.value) return@sync
                     publishPhoneQueue(playable, startIndex, positionMs, play, startRadio = playable.size == 1)
                     sharedPhoneQueueReady = true
-                    queueManager.initializeQueue(playable)
+                    queueManager.initializeQueue(_uiState.value.queue)
 
                 },
                 onSyncError = { error ->
@@ -1090,7 +1152,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             launchEcho { echo.command(if (playing) "pause" else "play") }
             return
         }
-        playbackManager.togglePlayPause()
+        if (playbackManager.isPlayingFlow.value) {
+            playbackManager.togglePlayPause()
+        } else viewModelScope.launch {
+            runEcho {
+                if (com.example.juke.network.NetworkFeedback.online.value) {
+                    com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                    serverPlaybackChecked = true
+                }
+                playbackManager.togglePlayPause()
+                synchronizePhoneQueue()
+            }
+        }
     }
 
     fun toggleShuffle() {

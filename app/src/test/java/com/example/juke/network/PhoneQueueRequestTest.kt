@@ -13,6 +13,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhoneQueueRequestTest {
+    @Test fun phoneOwnershipAndQueuePublicationCarryTheSameEpoch() = runBlocking {
+        val requests = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            assertEquals("audio-key", request.headers["X-Api-Key"])
+            val body = request.body as OutgoingContent.ByteArrayContent
+            val payload = Json.parseToJsonElement(body.bytes().toString(Charsets.UTF_8)).jsonObject
+            requests += request.url.encodedPath
+            if (request.url.encodedPath.endsWith("/output/")) {
+                assertEquals("claim", payload["action"]!!.jsonPrimitive.content)
+                respond("""{"playback_output":"phone","output_owner":"mobile","output_token":"lease-one","phone_lease_ms":12000}""", HttpStatusCode.OK)
+            } else {
+                assertEquals("mobile", payload["output_owner"]!!.jsonPrimitive.content)
+                assertEquals("lease-one", payload["output_token"]!!.jsonPrimitive.content)
+                assertEquals("true", payload["buffering"]!!.jsonPrimitive.content)
+                respond("{}", HttpStatusCode.OK)
+            }
+        }
+        HttpClient(engine).use { client ->
+            val output = outputRequest(client, "https://audio.example", "audio-key", Json.parseToJsonElement(
+                """{"action":"claim","output_owner":"mobile"}""").jsonObject)
+            publishPhoneQueue(client, "https://audio.example", "audio-key", AlexaBackendApi.QueueUpdate(
+                "current", "abcdefghijk", emptyList(), false, 1234, 0, "mobile",
+                output["output_token"]!!.jsonPrimitive.content, true))
+        }
+        assertEquals(listOf("/api/app/output/", "/api/app/queue/"), requests)
+    }
     @Test fun fullPhoneQueueInstallationAndReadsUseTheSameKeyedServer() = runBlocking {
         val tracks = List(5_000) { AlexaBackendApi.BackendTrack(videoId = if (it % 2 == 0) "abcdefghijk" else "lmnopqrstuv") }
         var installed = false

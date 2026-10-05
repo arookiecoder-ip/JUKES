@@ -72,6 +72,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -732,6 +733,64 @@ class PlaybackService : MediaLibraryService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setLoadControl(loadControl) // <-- Apply the LoadControl here
             .build()
+
+        // Ownership remains enforced by the foreground service when the Activity is closed.
+        serviceScope.launch {
+            var lastReport = 0L
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                delay(1_000)
+                val claim = PhonePlaybackOwnership.token
+                if (claim.isBlank()) continue
+                try {
+                    val status = kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                        com.example.juke.network.AlexaBackendApi.phoneOutputStatus()
+                    }
+                    if (PhonePlaybackOwnership.token != claim) continue
+                    if (status != null && !status.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) {
+                        player.pause()
+                        if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
+                            outputPrefs.edit().putString("playback_output", "ALEXA")
+                                .apply { if (status.serial.isNotBlank()) putString("echo_serial", status.serial) }.apply()
+                        }
+                        PhonePlaybackOwnership.releaseTo(status)
+                        if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
+                            val snapshot = com.example.juke.network.AlexaBackendApi.phoneQueueSnapshot()
+                            RemotePlaybackService.start(applicationContext, decodeEchoSnapshot(snapshot,
+                                android.os.SystemClock.elapsedRealtime()), false)
+                        }
+                        continue
+                    }
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (status != null && now - lastReport >= 3_000) {
+                        val renewed = kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                            com.example.juke.network.AlexaBackendApi.phoneOutputRequest("heartbeat",
+                                PhonePlaybackOwnership.ownerId, claim)
+                        }
+                        if (renewed != null) {
+                            if (PhonePlaybackOwnership.token != claim) continue
+                            PhonePlaybackOwnership.accept(renewed)
+                            lastReport = now
+                            val mediaId = player.currentMediaItem?.mediaId
+                            val current = mediaId?.let { database.trackDao().getTrackByUuid(it) }
+                            if (player.currentMediaItem?.mediaId != mediaId || PhonePlaybackOwnership.token != claim) continue
+                            current?.ytVideoId?.takeIf { it.isNotBlank() }?.let { video ->
+                                kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                                    com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
+                                        player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
+                                        buffering = player.playbackState == Player.STATE_BUFFERING)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { Log.w(TAG, "Playback ownership refresh failed: ${e.javaClass.simpleName}") }
+                if (PhonePlaybackOwnership.token.isNotBlank() &&
+                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) {
+                    // During a partition, never keep streaming beyond our exclusive lease.
+                    player.pause()
+                }
+            }
+        }
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
             StreamCacheManager.getCache(applicationContext)), serviceScope)
