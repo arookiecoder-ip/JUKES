@@ -134,11 +134,13 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                         haptics.gestureStart(); origin = index; draggedKey = key; dragDelta = 0f
                         initialTop = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset?.toFloat() ?: 0f
                         dragCenter = initialTop + rowHeight / 2
-                    }, onDragCancel = { draggedKey = null; order = keys }, onDragEnd = {
-                        haptics.gestureEnd()
-                        val target = order.indexOf(key)
-                        draggedKey = null
-                        if (target >= 0 && target != origin) onMoveTrack(origin, target)
+                    }, onDragCancel = { if (draggedKey == key) { draggedKey = null; order = keys } }, onDragEnd = {
+                        if (draggedKey == key) {
+                            haptics.gestureEnd()
+                            val target = order.indexOf(key)
+                            draggedKey = null
+                            if (target >= 0 && target != origin) onMoveTrack(origin, target)
+                        }
                     }, onDrag = { change, delta ->
                         change.consume(); dragDelta += delta.y
                         dragCenter = initialTop + rowHeight / 2 + dragDelta
