@@ -126,11 +126,14 @@ fun SearchScreen(
     val uiState by searchViewModel.uiState.collectAsStateWithLifecycle()
     val home by homeViewModel.uiState.collectAsStateWithLifecycle()
     var discovery by rememberSaveable { mutableStateOf<String?>(null) }
+    val discoverySession: com.example.juke.viewmodels.DiscoverySessionViewModel = viewModel()
+    fun leaveDiscovery() { discoverySession.clear(); discovery = null }
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = rememberJukeHaptics()
 
-    var previousFocusTrigger by remember { mutableIntStateOf(searchFocusTrigger) }
+    var previousFocusTrigger by rememberSaveable { mutableIntStateOf(searchFocusTrigger) }
+    var previousResetTrigger by rememberSaveable { mutableIntStateOf(searchResetTrigger) }
     var selectedFilter by rememberSaveable { mutableStateOf("All") }
     var active by rememberSaveable { mutableStateOf(false) }
     val filters = listOf("All", "Tracks", "Artists", "Playlists", "Albums")
@@ -145,16 +148,19 @@ fun SearchScreen(
     LaunchedEffect(searchFocusTrigger) {
         if (searchFocusTrigger != previousFocusTrigger && searchFocusTrigger > 0) {
             previousFocusTrigger = searchFocusTrigger
-            if (discovery != null) { discovery = null; active = false } else active = true
+            if (discovery != null) { leaveDiscovery(); active = false } else active = true
         }
     }
 
     LaunchedEffect(searchResetTrigger) {
-        if (searchResetTrigger > 0) { discovery = null; active = false }
+        if (searchResetTrigger != previousResetTrigger) {
+            previousResetTrigger = searchResetTrigger
+            leaveDiscovery(); active = false
+        }
     }
 
     discovery?.let { mode ->
-        SearchDiscoveryScreen(mode, { discovery = null }, musicViewModel, onNavigateToAlbum, onNavigateToPlaylist, bottomPadding)
+        SearchDiscoveryScreen(mode, { leaveDiscovery() }, musicViewModel, onNavigateToAlbum, onNavigateToPlaylist, bottomPadding, discoverySession)
         return
     }
 
@@ -254,7 +260,7 @@ fun SearchScreen(
                                         home.shelves.flatMap { it.tracks }.distinctBy { it.ytVideoId }.take(12), home.isLoading,
                                         onSearch = { keyboardController?.hide(); searchViewModel.search(it) },
                                         onRemove = searchViewModel::removeRecentSearch,
-                                        onDiscover = { active = false; keyboardController?.hide(); discovery = it },
+                                        onDiscover = { active = false; keyboardController?.hide(); discoverySession.clear(); discovery = it },
                                         onRetry = homeViewModel::refresh, music = musicViewModel, bottomPadding = bottomPadding)
                                 } else {
                                     EmptySearchState(

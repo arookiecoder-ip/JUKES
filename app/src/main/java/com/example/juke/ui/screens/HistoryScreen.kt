@@ -34,10 +34,11 @@ fun HistoryScreen(music: MusicViewModel, onBack: () -> Unit, bottomPadding: Dp) 
         finally { loading = false }
     }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 16.dp)) {
+        if (error != null) ConnectionErrorState(error.orEmpty(), { retry++ },
+            Modifier.fillMaxSize().padding(bottom = bottomPadding))
+        else LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 16.dp)) {
             item { Text("History", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.headlineMedium) }
-            if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { message -> item { Column(Modifier.padding(20.dp)) { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = { retry++ }) { Text("Retry") } } } }
+            if (loading && tracks.isEmpty()) item { Box(Modifier.padding(horizontal = 20.dp)) { DiscoverySkeleton(moods = false) } }
             itemsIndexed(tracks, key = { index, track -> "$index:${track.ytVideoId}" }) { index, track ->
                 SwipeToAddNextContainer(onAddNext = { music.addNext(track) }, onAddToQueue = { music.addToQueue(listOf(track)) }) {
                     FlatTrackRow(track.thumbnailUri, track.title, track.artist,

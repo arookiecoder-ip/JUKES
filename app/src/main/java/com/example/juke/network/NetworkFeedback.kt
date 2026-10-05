@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.io.IOException
@@ -20,6 +22,14 @@ object NetworkFeedback {
     private var lastMessage = ""
     private var lastAt = 0L
     private var observing = false
+    private val connectivityState = MutableStateFlow(true)
+    val online = connectivityState.asStateFlow()
+
+    fun refresh(context: Context) {
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork)
+        connectivityState.value = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+    }
 
     @Synchronized
     fun notify(message: String) {
@@ -33,21 +43,26 @@ object NetworkFeedback {
         if (observing) return
         observing = true
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
-        var disconnected = false
+        refresh(context)
+        var disconnected = !connectivityState.value
         fun connected() = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
-            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         connectivity.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { refresh(context) }
             override fun onLost(network: Network) {
+                refresh(context)
                 if (!connected()) {
                     disconnected = true
                     notify("Connection lost. Check your internet connection and retry.")
                 }
             }
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                if (disconnected && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                connectivityState.value = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                if (disconnected && connectivityState.value) {
                     disconnected = false
                     notify("Connection restored. You can retry loading.")
                 }
+                disconnected = !connectivityState.value
             }
         })
     }

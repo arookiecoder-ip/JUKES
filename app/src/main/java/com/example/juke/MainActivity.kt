@@ -450,6 +450,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                val online by com.example.juke.network.NetworkFeedback.online.collectAsStateWithLifecycle()
                 val mediaMenu = remember { com.example.juke.ui.components.MediaMenuController() }
                 CompositionLocalProvider(LocalHazeState provides hazeState, com.example.juke.ui.components.LocalMediaMenu provides mediaMenu) {
                 com.example.juke.ui.components.MediaActionMenuHost(mediaMenu, musicViewModel, libraryViewModel, onOpen = { item ->
@@ -497,10 +498,11 @@ class MainActivity : ComponentActivity() {
                         if (isExpanded && currentRoute != "settings") {
                             GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
                         }
+                        Box(Modifier.weight(1f).padding(contentPadding)) {
                         NavHost(
                             navController = navController,
                             startDestination = Screen.Home.route,
-                            modifier = Modifier.weight(1f).padding(contentPadding)
+                            modifier = Modifier.fillMaxSize()
                         ) {
                             composable(Screen.Home.route) {
                                 HomeScreen(
@@ -680,6 +682,18 @@ class MainActivity : ComponentActivity() {
                                     bottomPadding = bottomPadding
                                 )
                             }
+                        }
+                        if (!online && currentRoute?.startsWith("settings") != true) {
+                            com.example.juke.ui.components.ConnectionErrorState("", {
+                                com.example.juke.network.NetworkFeedback.refresh(context)
+                            }, Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
+                                .padding(bottom = bottomPadding), offline = true)
+                            if (currentRoute !in listOf(Screen.Home.route, Screen.Library.route)) {
+                                com.example.juke.ui.components.DetailBackButton({
+                                    this@MainActivity.onBackPressedDispatcher.onBackPressed()
+                                }, Modifier.align(Alignment.TopStart))
+                            }
+                        }
                         }
                     }
                     }

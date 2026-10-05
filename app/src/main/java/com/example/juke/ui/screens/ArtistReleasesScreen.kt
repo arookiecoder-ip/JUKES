@@ -36,7 +36,9 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
         finally { loading = false }
     }
     Box(Modifier.fillMaxSize()) {
-        LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().statusBarsPadding(),
+        if (error != null) ConnectionErrorState(error.orEmpty(), { request++ },
+            Modifier.fillMaxSize().padding(bottom = bottomPadding))
+        else LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 60.dp, bottom = bottomPadding + 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item(span = { GridItemSpan(2) }) { Text(kind.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.headlineMedium) }
@@ -46,7 +48,6 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
                 else AlbumCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) })
             }
             if (loading) item(span = { GridItemSpan(2) }) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { message -> item(span = { GridItemSpan(2) }) { Column { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = { request++ }) { Text("Retry") } } } }
         }
         DetailBackButton(onBack, Modifier.align(Alignment.TopStart))
     }
