@@ -198,6 +198,9 @@ class MainActivity : ComponentActivity() {
                     com.example.juke.network.NetworkFeedback.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
                 }
                 LaunchedEffect(Unit) {
+                    libraryViewModel.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+                }
+                LaunchedEffect(Unit) {
                     musicViewModel.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
                 }
                 LaunchedEffect(Unit) {

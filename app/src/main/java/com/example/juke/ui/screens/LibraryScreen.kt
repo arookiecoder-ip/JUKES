@@ -68,7 +68,6 @@ fun LibraryScreen(
     var delete by remember { mutableStateOf<BrowseItem?>(null) }
     LaunchedEffect(Unit) {
         libraryViewModel.start()
-        libraryViewModel.messages.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
     }
     val entries = remember(state.playlists, state.albums, state.artists, filter, state.searchQuery) {
         val query = state.searchQuery.trim()
