@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -49,11 +50,12 @@ class UiRefinementRegressionTest {
         compose.setContent { JUKETheme(darkTheme = true) { Surface { HomeContent(HomeUiState(shelves = shelves, isLoading = false), "Alexa · Online") } } }
         compose.onNodeWithText("Music Box").assertIsDisplayed()
         screenshot("home")
-        val collectionSize = compose.onNodeWithTag("home-artwork-p0", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.size
+        compose.onNodeWithTag("home-artwork-p0", useUnmergedTree = true)
+            .assertWidthIsEqualTo(160.dp).assertHeightIsEqualTo(160.dp)
         compose.onNodeWithTag("Home feed").performScrollToNode(hasText("Artist card"))
-        val artistSize = compose.onNodeWithTag("home-artwork-UCfixture", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.size
-        assertEquals(collectionSize.width, artistSize.width, 1f)
-        assertEquals(collectionSize.height, artistSize.height, 1f)
+        compose.onNodeWithTag("home-artwork-UCfixture", useUnmergedTree = true)
+            .assertWidthIsEqualTo(160.dp).assertHeightIsEqualTo(160.dp)
+        screenshot("home-artists")
         compose.onNodeWithText("Music Box").assertDoesNotExist()
     }
 
@@ -61,19 +63,19 @@ class UiRefinementRegressionTest {
         var value by mutableFloatStateOf(0.2f)
         var commits = 0
         compose.setContent { JUKETheme { ExpandableTrackSlider(value, "Seek test", { value = it; commits++ }) } }
-        val thin = compose.onNodeWithTag("Seek test track").fetchSemanticsNode().boundsInRoot.height
+        val thin = compose.onNodeWithTag("Seek test track", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.height
         compose.onNodeWithContentDescription("Seek test").performTouchInput {
             down(Offset(width * 0.2f, centerY)); moveTo(Offset(width * 0.8f, centerY))
         }
         compose.waitForIdle()
-        val thick = compose.onNodeWithTag("Seek test track").fetchSemanticsNode().boundsInRoot.height
+        val thick = compose.onNodeWithTag("Seek test track", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.height
         assertTrue(thick > thin)
         assertEquals(0, commits)
         compose.onNodeWithContentDescription("Seek test").performTouchInput { up() }
         compose.waitForIdle()
         assertEquals(1, commits)
         assertTrue(value > 0.7f)
-        assertEquals(thin, compose.onNodeWithTag("Seek test track").fetchSemanticsNode().boundsInRoot.height, 1f)
+        assertEquals(thin, compose.onNodeWithTag("Seek test track", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.height, 1f)
     }
 
     @Test fun queueOptionsMoveUpcomingSongsWithoutMovingCurrentSong() {
