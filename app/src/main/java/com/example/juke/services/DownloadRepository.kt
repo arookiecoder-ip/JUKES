@@ -84,7 +84,7 @@ class DownloadRepository private constructor(private val context: Context) {
                 val id = withContext(Dispatchers.IO) {
                     directory.mkdirs()
                     target.delete()
-                    manager.enqueue(DownloadManager.Request((AlexaBackendApi.audioUrl(video) + "&wait=1").toUri())
+                    manager.enqueue(DownloadManager.Request(AlexaBackendApi.audioUrl(video).toUri())
                         .addRequestHeader("X-Api-Key", com.example.juke.network.Backend.apiKey)
                         .setTitle(track.title).setDescription(track.artist)
                         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
