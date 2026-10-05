@@ -64,6 +64,7 @@ data class ArtistDetailUiState(
     val topSongsBrowseId: String = "",
     val albums: List<BrowseItem> = emptyList(),
     val singles: List<BrowseItem> = emptyList(),
+    val playlists: List<BrowseItem> = emptyList(),
     val related: List<BrowseItem> = emptyList(),
     val subscriptionBusy: Boolean = false,
     val allSongsLoaded: Boolean = false,
@@ -388,7 +389,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 val data = Backend.get("/api/artist/${artist.id}").objectOrEmpty()
                 val info = data["artist"].objectOrEmpty()
                 val liked = AccountRepository.liked.value
-                fun releases(key: String) = data.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "albums") } }
+                fun releases(key: String) = data.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, if (key == "playlists") "" else "albums") } }
                     .filter { it.id.isNotBlank() }
                 val name = info.text("name").ifBlank { artist.title }
                 _artistDetailState.value = ArtistDetailUiState(
@@ -401,6 +402,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                     topSongsBrowseId = data.text("topSongsBrowseId"),
                     albums = releases("albums"),
                     singles = releases("singles"),
+                    playlists = releases("playlists"),
                     related = data.array("related").mapNotNull { (it as? JsonObject)?.let { row -> BrowseParser.item(row, "related") } }.filter { it.id.isNotBlank() },
                     isSubscribed = null,
                     isLoading = false
@@ -413,7 +415,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 _artistDetailState.update { it.copy(isLoading = false) }
                 _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                _artistDetailState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load artist") }
+                _artistDetailState.update { it.copy(isLoading = false, error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Failed to load artist") }
             }
         }
     }
@@ -431,7 +433,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 _artistDetailState.update { it.copy(allTracks = songs, allSongsLoaded = true) }
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
-            catch (e: Exception) { _artistDetailState.update { it.copy(error = e.message ?: "Could not load artist songs") } }
+            catch (e: Exception) { _artistDetailState.update { it.copy(error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Could not load artist songs") } }
             finally { _artistDetailState.update { it.copy(songsLoading = false) } }
         }
     }
@@ -456,7 +458,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _artistDetailState.update { it.copy(isLoading = false, error = e.message ?: "Artist not found") }
+                _artistDetailState.update { it.copy(isLoading = false, error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Artist not found") }
             }
         }
     }

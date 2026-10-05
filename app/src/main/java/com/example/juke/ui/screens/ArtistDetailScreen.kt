@@ -34,6 +34,7 @@ fun ArtistDetailScreen(
     musicViewModel: MusicViewModel = viewModel(),
     onNavigateBack: () -> Unit,
     onNavigateToAlbum: (BrowseItem) -> Unit = {},
+    onNavigateToPlaylist: (BrowseItem) -> Unit = {},
     onNavigateToArtist: (BrowseItem) -> Unit = { searchViewModel.loadArtistDetails(it) },
     onShowAllSongs: () -> Unit = {},
     bottomPadding: Dp = 0.dp
@@ -81,7 +82,7 @@ fun ArtistDetailScreen(
                     item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }
                     itemsIndexed(state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
                         SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }) {
-                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
+                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "—:—", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
                         }
                     }
                     if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {
@@ -97,13 +98,17 @@ fun ArtistDetailScreen(
                             Text(title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
                             Spacer(Modifier.height(12.dp))
                             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(releases, key = { it.id }) { album -> AlbumCard(album, onClick = { onNavigateToAlbum(album) }) }
+                                items(releases, key = { it.id }) { item ->
+                                    if (item.kind == "playlist") PlaylistCard(item, onClick = { onNavigateToPlaylist(item) }, onPlay = { musicViewModel.playCollection(item) })
+                                    else AlbumCard(item, onClick = { onNavigateToAlbum(item) }, onPlay = { musicViewModel.playCollection(item) })
+                                }
                             }
                         }
                     }
                 }
                 releases("Albums", state.albums)
                 releases("Singles", state.singles)
+                releases("Playlists", state.playlists)
                 if (state.related.isNotEmpty()) item(key = "related") {
                     Column {
                         Text("Related artists", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)

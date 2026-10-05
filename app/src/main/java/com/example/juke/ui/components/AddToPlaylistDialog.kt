@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -48,7 +49,9 @@ fun AddToPlaylistDialog(
     tracks: List<Track>,
     onDismiss: () -> Unit,
     onAddToPlaylist: (BrowseItem) -> Unit,
-    onCreatePlaylist: () -> Unit
+    onCreatePlaylist: () -> Unit,
+    error: String? = null,
+    onRetry: () -> Unit = {}
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -59,7 +62,7 @@ fun AddToPlaylistDialog(
                 .fillMaxWidth(0.92f)
                 .wrapContentHeight()
                 .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(28.dp),
+            shape = androidx.compose.ui.graphics.RectangleShape,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
@@ -118,7 +121,14 @@ fun AddToPlaylistDialog(
                         )
                     }
 
-                    if (playlists == null) {
+                    if (error != null) {
+                        item {
+                            Column(Modifier.fillMaxWidth().padding(24.dp)) {
+                                Text(error, color = MaterialTheme.colorScheme.error)
+                                TextButton(onClick = onRetry) { Text("Retry") }
+                            }
+                        }
+                    } else if (playlists == null) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -176,7 +186,7 @@ private fun PlaylistActionRow(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(androidx.compose.ui.graphics.RectangleShape)
                 .background(iconBgColor),
             contentAlignment = Alignment.Center
         ) {
@@ -212,7 +222,7 @@ private fun PlaylistItemRow(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(androidx.compose.ui.graphics.RectangleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {

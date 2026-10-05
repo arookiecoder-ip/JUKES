@@ -75,10 +75,11 @@ fun FlatTrackRow(
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                duration,
+                duration.ifBlank { "—:—" },
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.padding(end = 8.dp)
+                modifier = Modifier.width(48.dp).padding(end = 8.dp)
             )
         }
         HorizontalDivider(

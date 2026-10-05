@@ -309,7 +309,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't update the like: ${e.message}")
+                _messages.tryEmit("Couldn't update the like: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }
@@ -334,7 +334,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't create the playlist: ${e.message}")
+                _messages.tryEmit("Couldn't create the playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }
@@ -354,7 +354,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't rename the playlist: ${e.message}")
+                _messages.tryEmit("Couldn't rename the playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }
@@ -369,7 +369,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't delete the playlist: ${e.message}")
+                _messages.tryEmit("Couldn't delete the playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }
@@ -383,7 +383,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't add to ${playlist.title}: ${e.message}")
+                _messages.tryEmit("Couldn't add to ${playlist.title}: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }

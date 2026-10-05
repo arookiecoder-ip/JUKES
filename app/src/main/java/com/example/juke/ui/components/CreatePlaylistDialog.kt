@@ -19,10 +19,12 @@ fun CreatePlaylistDialog(
     val haptic = rememberJukeHaptics()
 
     GlassAlertDialog(
+        shape = androidx.compose.ui.graphics.RectangleShape,
         onDismissRequest = onDismiss,
         title = { Text("New Playlist") },
         text = {
             OutlinedTextField(
+                shape = androidx.compose.ui.graphics.RectangleShape,
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Playlist Name") },

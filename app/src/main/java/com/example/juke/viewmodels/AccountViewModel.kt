@@ -180,7 +180,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: BackendAuthException) {
                 sessionEnded()
             } catch (e: Exception) {
-                _state.update { it.copy(error = "Couldn't check your accounts: ${e.message}") }
+                _state.update { it.copy(error = "Couldn't check your accounts: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}") }
             } finally {
                 _state.update { it.copy(checkingStatus = false) }
             }
@@ -370,9 +370,9 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: BackendAuthException) {
                 val stage = _state.value.stage
                 if (stage == AuthStage.SIGNED_IN) sessionEnded()
-                else _state.update { it.copy(error = e.message ?: "Sign-in failed") }
+                else _state.update { it.copy(error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Sign-in failed") }
             } catch (e: Exception) {
-                _state.update { it.copy(error = e.message ?: "Something went wrong") }
+                _state.update { it.copy(error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Something went wrong") }
             } finally {
                 _state.update { it.copy(busy = false) }
             }

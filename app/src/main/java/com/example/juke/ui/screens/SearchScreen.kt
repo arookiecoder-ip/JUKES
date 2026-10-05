@@ -295,6 +295,7 @@ fun SearchScreen(
                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                             style = MaterialTheme.typography.bodyMedium
                                         )
+                                        TextButton(onClick = { searchViewModel.search(uiState.query) }) { Text("Retry") }
                                     }
                                 }
                             }

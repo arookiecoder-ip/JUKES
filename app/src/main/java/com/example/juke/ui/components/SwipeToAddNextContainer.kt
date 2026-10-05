@@ -25,6 +25,8 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,7 +62,7 @@ fun SwipeToAddNextContainer(
     val actionFired = remember { mutableStateOf(false) }
 
     val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { distance -> distance * 0.65f },
+        positionalThreshold = { distance -> distance * 0.35f },
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
@@ -89,6 +91,11 @@ fun SwipeToAddNextContainer(
             }
         }
     )
+
+    LaunchedEffect(dismissState) {
+        snapshotFlow { runCatching { dismissState.requireOffset() }.getOrDefault(0f) }
+            .collect { offset -> if (abs(offset) < 1f) actionFired.value = false }
+    }
 
     val shape = RoundedCornerShape(12.dp)
     val dark = isGlassDark()
@@ -143,7 +150,7 @@ fun SwipeToAddNextContainer(
                         ) {
                             if (toEnd) {
                                 Icon(Icons.Filled.PlayArrow, contentDescription = "Add next", tint = onGlow)
-                                Text("Add to queue next", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
+                                Text("Play next", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
                             } else {
                                 Text("Delete", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = onGlow)

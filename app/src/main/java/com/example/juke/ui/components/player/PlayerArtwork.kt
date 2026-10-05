@@ -167,6 +167,12 @@ private fun ArtworkCard(
                 androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Transparent, MaterialTheme.colorScheme.background))))
         }
 
+        Box(Modifier.align(Alignment.TopCenter).fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f),
+                0.28f to androidx.compose.ui.graphics.Color.Transparent,
+                1f to androidx.compose.ui.graphics.Color.Transparent)))
+
         if (showLyrics) {
             LyricsOverlay(
                 currentTrack = track,

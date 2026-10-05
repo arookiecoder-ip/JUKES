@@ -99,8 +99,8 @@ class PlaylistDetailViewModel(application: Application) : AndroidViewModel(appli
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e("PlaylistDetailViewModel", "Error loading playlist: ${e.message}", e)
-            _uiState.update { it.copy(isLoading = false, isLoadingMore = false, error = e.message ?: "Couldn't load the playlist") }
+            Log.e("PlaylistDetailViewModel", "Error loading playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
+            _uiState.update { it.copy(isLoading = false, isLoadingMore = false, error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't load the playlist") }
         }
     }
 
