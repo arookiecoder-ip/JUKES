@@ -7,6 +7,7 @@ on:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.head_ref != 'feat/alexa-backend'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -78,17 +78,17 @@ class UiRefinementRegressionTest {
         assertEquals(thin, compose.onNodeWithTag("Seek test track", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.height, 1f)
     }
 
-    @Test fun queueOptionsMoveUpcomingSongsWithoutMovingCurrentSong() {
+    @Test fun queueOptionsMoveSongsUsingTheirQueueIndices() {
         var moved: Pair<Int, Int>? = null
         compose.setContent { JUKETheme(darkTheme = true) { Surface(Modifier.fillMaxSize()) {
             QueueBottomSheetContent(current, listOf(current, first, second), 0, MusicUiState(), {},
                 { from, to -> moved = from to to }, {}, {})
         } } }
-        compose.onNodeWithText("Current queue").assertIsDisplayed()
-        compose.onNodeWithText("2 upcoming songs").assertIsDisplayed()
+        compose.onNodeWithText("Queue").assertIsDisplayed()
+        compose.onNodeWithText("3 songs").assertIsDisplayed()
         screenshot("queue")
         compose.onNodeWithContentDescription("Options for Next song").performClick()
-        compose.onNodeWithText("Move up").assertIsNotEnabled()
+        compose.onNodeWithText("Move up").assertIsEnabled()
         compose.onNodeWithText("Move down").performClick()
         assertEquals(1 to 2, moved)
     }

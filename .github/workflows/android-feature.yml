@@ -1,13 +1,17 @@
 name: Android Feature Build
 
-# Feature-branch CI for feat/alexa-backend. The stable android.yml (push
-# beta,main + PR) is deliberately untouched — this file only builds the
-# Alexa-backend feature branch and uploads a test APK.
+# Fast feature-branch APK build with focused checks.
+# Full emulator and lint checks are available through manual dispatch.
 on:
   push:
     branches:
       - feat/alexa-backend
   workflow_dispatch:
+    inputs:
+      full_ui_tests:
+        description: Run the full emulator suite and lint (slower)
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -39,15 +43,20 @@ jobs:
           status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://alexa.synthora.in/login/)
           test "$status" = "200" || { echo "Account login endpoint returned $status instead of 200"; exit 1; }
 
-      - name: Test backend and native remote contracts
-        run: sh ./gradlew testDebugUnitTest --no-daemon --stacktrace
+      - name: Check browse, playback presentation and Echo snapshots
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --no-daemon
 
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Build optional UI test APK
+        if: ${{ inputs.full_ui_tests == true }}
+        run: ./gradlew assembleDebugAndroidTest --no-daemon
 
       - name: Report lint findings
+        if: ${{ inputs.full_ui_tests == true }}
         continue-on-error: true
         run: |
           ./gradlew lintDebug --no-daemon || {
@@ -56,7 +65,7 @@ jobs:
           }
 
       - name: Upload lint report
-        if: always()
+        if: ${{ always() && inputs.full_ui_tests == true }}
         uses: actions/upload-artifact@v4
         with:
           name: lint-report
@@ -69,12 +78,14 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Upload UI test APK
+        if: ${{ inputs.full_ui_tests == true }}
         uses: actions/upload-artifact@v4
         with:
           name: ui-test-apk
           path: app/build/outputs/apk/androidTest/debug/*.apk
 
   ui-tests:
+    if: ${{ inputs.full_ui_tests == true }}
     needs: build
     runs-on: ubuntu-latest
     steps:

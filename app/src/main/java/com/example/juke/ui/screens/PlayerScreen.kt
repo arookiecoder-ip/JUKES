@@ -42,7 +42,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -344,7 +345,7 @@ fun PlayerScreen(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .safeDrawingPadding()
+                    .navigationBarsPadding()
             ) {
                 val compact = maxHeight < 680.dp
                 val artworkHeight = maxHeight * 0.6f
@@ -353,7 +354,7 @@ fun PlayerScreen(
                         PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
                             currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
                             isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
-                        Box(Modifier.align(Alignment.TopCenter).padding(horizontal = 20.dp)) {
+                        Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 20.dp)) {
                         PlayerHeader(
                             onDismiss = onDismiss,
                             onShowSleepTimer = { showSleepTimerDialog = true },
@@ -388,10 +389,10 @@ fun PlayerScreen(
                             PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = if (isAlexa) "Alexa" else "Phone", active = isAlexa, iconSize = 24.dp) { showOutputSheet = true }
                             PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
-                        PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel)
+                        PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel, modifier = Modifier.padding(top = 10.dp))
                         PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = isTablet,
-                            playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
-                        Spacer(Modifier.height(8.dp))
+                            modifier = Modifier.padding(top = 8.dp), playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
+                        Spacer(Modifier.height(16.dp))
                         if (isAlexa) EchoVolumeRow(volume = echoVolume, onVolumeChange = musicViewModel::setEchoVolume)
                         else PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
@@ -411,11 +412,14 @@ fun PlayerScreen(
 
     // Queue Sheet
     if (showQueue) {
-        GlassModalBottomSheet(
+        ModalBottomSheet(
+            shape = androidx.compose.ui.graphics.RectangleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             onDismissRequest = { showQueue = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.86f),
-            showHandle = false
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.75f),
+            dragHandle = null
         ) {
             val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
             QueueBottomSheetContent(

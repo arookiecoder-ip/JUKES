@@ -35,35 +35,29 @@ fun ArtistDetailScreen(
     onNavigateBack: () -> Unit,
     onNavigateToAlbum: (BrowseItem) -> Unit = {},
     onNavigateToArtist: (BrowseItem) -> Unit = { searchViewModel.loadArtistDetails(it) },
+    onShowAllSongs: () -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val state by searchViewModel.artistDetailState.collectAsStateWithLifecycle()
     val artist = state.artist
     var expandedDescription by remember(artist?.id) { mutableStateOf(false) }
-    var allSongs by remember(artist?.id) { mutableStateOf(false) }
-    Scaffold(
-        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-        topBar = { GlassTopAppBar(title = { Text(artist?.title ?: "Artist") }, navigationIcon = {
-            IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-        }) }
-    ) { padding ->
+    Box(Modifier.fillMaxSize()) {
         when {
             state.error != null && (artist == null || state.topTracks.isEmpty()) -> {
-                Column(Modifier.padding(padding).padding(24.dp)) {
+                Column(Modifier.statusBarsPadding().padding(top = 56.dp, start = 24.dp, end = 24.dp)) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error)
                     artist?.let { TextButton(onClick = { searchViewModel.loadArtistDetails(it) }) { Text("Retry") } }
                 }
             }
-            state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.padding(padding), contentPadding = PaddingValues(20.dp))
+            state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
             else -> LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 24.dp + bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item(key = "hero") {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                        AsyncImage(state.imageUrl, artist.title, modifier = Modifier.fillMaxWidth().aspectRatio(1.8f).clip(RoundedCornerShape(20.dp)), contentScale = ContentScale.Crop)
-                        Spacer(Modifier.height(16.dp))
+                    DetailHero(state.imageUrl, artist = true) {
+                    Column(Modifier.fillMaxWidth().padding(top = 220.dp, start = 20.dp, end = 20.dp, bottom = 12.dp)) {
                         Text(artist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                         if (state.subscribers.isNotBlank()) Text(state.subscribers + if (state.subscribers.contains("subscriber", true)) "" else " subscribers", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.description.isNotBlank()) {
@@ -80,22 +74,19 @@ fun ArtistDetailScreen(
                             }
                         }
                     }
+                    }
                 }
                 state.error?.let { error -> item { Text(error, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error) } }
                 if (state.topTracks.isNotEmpty()) {
                     item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }
-                    itemsIndexed(if (allSongs) state.topTracks else state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
+                    itemsIndexed(state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
                         SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }) {
                             FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
                         }
                     }
                     if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {
-                        TextButton(enabled = !state.songsLoading, onClick = {
-                            allSongs = !allSongs
-                            if (allSongs) searchViewModel.loadAllArtistSongs()
-                        }, modifier = Modifier.padding(horizontal = 12.dp)) {
-                            if (state.songsLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            else Text(if (allSongs) "Show less" else "Show all songs")
+                        TextButton(onClick = onShowAllSongs, modifier = Modifier.padding(horizontal = 12.dp)) {
+                            Text("Show all songs")
                         }
                     }
                 }
@@ -124,5 +115,6 @@ fun ArtistDetailScreen(
                 }
             }
         }
+        DetailBackButton(onNavigateBack, Modifier.align(Alignment.TopStart))
     }
 }

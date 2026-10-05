@@ -11,6 +11,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -108,6 +111,7 @@ fun LyricsOverlay(
     onDismiss: () -> Unit
 ) {
     val density = LocalDensity.current
+    val headerHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp
     val haptic = rememberJukeHaptics()
     val syncedLyrics = currentTrack.syncedLyrics?.takeIf { it.isNotBlank() }
     val plainLyrics = currentTrack.plainLyrics?.takeIf { it.isNotBlank() }
@@ -142,13 +146,14 @@ fun LyricsOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 56.dp)
             .onSizeChanged { overlayHeightPx = it.height }
     ) {
-        // Keep the same artwork underneath; fade the readable scrim into the banner edges.
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-            Color.Transparent, Color.Black.copy(alpha = 0.42f),
-            Color.Black.copy(alpha = 0.42f), Color.Transparent))))
+        // Frosted artwork stays visible behind the lyrics and fades into the original banner.
+        Box(Modifier.fillMaxSize().fadingEdges(topFraction = 0.08f, bottomFraction = 0.14f)) {
+            AsyncImage(currentTrack.thumbnailUri, null, Modifier.fillMaxSize().blur(28.dp).graphicsLayer { alpha = 0.82f },
+                contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.40f)))
+        }
 
         if (syncedLyrics != null) {
             val lyricLines = remember(syncedLyrics, localOffsetMs) {
@@ -187,7 +192,7 @@ fun LyricsOverlay(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp)
+                    .padding(top = headerHeight).padding(horizontal = 24.dp)
                     .fadingEdges(topFraction = 0.14f, bottomFraction = 0.22f),
                 contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -262,7 +267,7 @@ fun LyricsOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 32.dp, vertical = 48.dp)
+                    .padding(top = headerHeight).padding(horizontal = 32.dp, vertical = 24.dp)
                     .fadingEdges(topFraction = 0.08f, bottomFraction = 0.08f)
                     .verticalScroll(rememberScrollState()),
                 contentAlignment = Alignment.Center
@@ -402,7 +407,7 @@ fun LyricsOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(10.dp),
+                .padding(top = headerHeight, start = 10.dp, end = 10.dp),
             contentAlignment = Alignment.TopCenter
         ) {
             Row(

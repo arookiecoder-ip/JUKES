@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -32,7 +31,6 @@ import coil.request.ImageRequest
 import com.example.juke.models.Track
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.MusicViewModel
-import kotlin.math.absoluteValue
 
 @Composable
 fun PlayerArtwork(
@@ -69,9 +67,7 @@ fun PlayerArtwork(
         }
     }
 
-    // Use fillMaxHeight so the artwork is bounded by the parent Box's height constraint,
-    // then use aspectRatio(1f) to ensure it stays square. This prevents overflow on small screens.
-    // While lyrics are open the card fills the whole slot so lines have room to breathe.
+    // Every page fills the same artwork slot, with no spacing or scale animation.
     val artworkModifier = modifier.fillMaxSize()
 
     if (queue.isEmpty()) {
@@ -88,13 +84,10 @@ fun PlayerArtwork(
     } else {
         HorizontalPager(
             state = pagerState,
-            contentPadding = PaddingValues(horizontal = 0.dp),
+            contentPadding = PaddingValues(0.dp),
+            pageSpacing = 0.dp,
             modifier = artworkModifier
         ) { page ->
-            // Calculate scale/alpha for smooth parallax transition
-            val pageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-            val scale = 1f - (0.15f * pageOffset.absoluteValue.coerceIn(0f, 1f))
-            val alpha = 1f - (0.5f * pageOffset.absoluteValue.coerceIn(0f, 1f))
             val pageTrack = if (page == queueIndex) {
                 currentTrack
             } else {
@@ -109,11 +102,7 @@ fun PlayerArtwork(
                 musicViewModel = musicViewModel,
                 isTablet = isTablet,
                 onToggleLyrics = onToggleLyrics,
-                modifier = Modifier.graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    this.alpha = alpha
-                }
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
