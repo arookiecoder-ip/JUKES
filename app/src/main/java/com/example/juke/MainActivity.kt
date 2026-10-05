@@ -551,6 +551,15 @@ class MainActivity : ComponentActivity() {
                                 LibraryScreen(
                                     musicViewModel = musicViewModel,
                                     libraryViewModel = libraryViewModel,
+                                    onOpenCollection = { item ->
+                                        if (item.kind == "album") {
+                                            activityViewModelProvider[AlbumDetailViewModel::class.java].loadAlbumDetails(item)
+                                            navController.navigate("album/${item.id}")
+                                        } else {
+                                            activityViewModelProvider[PlaylistDetailViewModel::class.java].loadPlaylistDetails(item)
+                                            navController.navigate("playlist/${item.id}")
+                                        }
+                                    },
                                     onOpenSettings = { navController.navigate("settings") },
                                     onOpenArtist = { artist ->
                                         searchViewModel.loadArtistDetails(artist)
