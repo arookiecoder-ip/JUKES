@@ -45,7 +45,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     error: String? = null, onRetry: () -> Unit = {}, onSortUpcoming: () -> Unit = {}, onClearPlayed: () -> Unit = {}, onSaveAsPlaylist: () -> Unit = {}) {
     val haptics = com.example.juke.utils.rememberJukeHaptics()
     val menu = LocalMediaMenu.current
-    val rows = queue.ifEmpty { listOf(currentTrack) }
+    val rows = remember(queue, currentTrack) { queue.ifEmpty { listOf(currentTrack) } }
     val currentIndex = if (queue.isEmpty()) 0 else queueIndex.takeIf { it in queue.indices }
         ?: queue.indexOfFirst { it.uuid == currentTrack.uuid || (it.ytVideoId != null && it.ytVideoId == currentTrack.ytVideoId) }
     val upcoming = (rows.size - currentIndex - 1).coerceAtLeast(0)
@@ -54,14 +54,16 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     var toolsOpen by remember { mutableStateOf(false) }
     // Anchor once when opened. Polling must not move the list while the user is scrolling it.
     LaunchedEffect(Unit) { if (currentIndex > 0) list.scrollToItem((currentIndex - 1).coerceAtLeast(0)) }
-    val occurrences = mutableMapOf<String, Int>()
-    val keys = rows.map { track ->
-        val id = track.uuid
-        val occurrence = occurrences.getOrDefault(id, 0)
-        occurrences[id] = occurrence + 1
-        "$id:$occurrence"
+    val keys = remember(rows) {
+        val occurrences = mutableMapOf<String, Int>()
+        rows.map { track ->
+            val occurrence = occurrences.getOrDefault(track.uuid, 0)
+            occurrences[track.uuid] = occurrence + 1
+            "${track.uuid}:$occurrence"
+        }
     }
-    val byKey = keys.zip(rows).toMap()
+    val byKey = remember(keys, rows) { keys.zip(rows).toMap() }
+    val keyIndices = remember(keys) { keys.withIndex().associate { it.value to it.index } }
     var order by remember(keys) { mutableStateOf(keys) }
     var draggedKey by remember { mutableStateOf<String?>(null) }
     var origin by remember { mutableIntStateOf(-1) }
@@ -117,7 +119,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
         LazyColumn(Modifier.weight(1f).testTag("Queue rows"), state = list, contentPadding = PaddingValues(bottom = 12.dp)) {
             itemsIndexed(order, key = { _, key -> key }) { position, key ->
                 val track = byKey.getValue(key)
-                val index = keys.indexOf(key)
+                val index = keyIndices.getValue(key)
                 val active = index == currentIndex
                 val editable = queue.isNotEmpty() && !uiState.isQueueOperationInProgress
                 val dragging = draggedKey == key
@@ -145,7 +147,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 }
                 SwipeToDismissBox(dismiss, enableDismissFromStartToEnd = false,
                     enableDismissFromEndToStart = editable && !active && !dragging,
-                    modifier = Modifier.animateItem().testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset }.shadow(if (dragging) 8.dp else 0.dp),
+                    modifier = (if (dragging) Modifier else Modifier.animateItem()).testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset }.shadow(if (dragging) 8.dp else 0.dp),
                     backgroundContent = {
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
                             Icon(Icons.Default.Delete, "Remove from queue", tint = MaterialTheme.colorScheme.onErrorContainer)
