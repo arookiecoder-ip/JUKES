@@ -157,7 +157,8 @@ fun LibraryScreen(
                                         Text("${collection.kind.replaceFirstChar { it.uppercase() }} · ${available.size}/${collection.tracks.size} downloaded",
                                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    Icon(Icons.Default.DownloadDone, "Downloaded collection", tint = MaterialTheme.colorScheme.primary)
+                                    Icon(if (available.size == collection.tracks.size) Icons.Default.DownloadDone else Icons.Default.Download,
+                                        if (available.size == collection.tracks.size) "Downloaded collection" else "Downloading collection", tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                             items(downloadedSongs, key = { it.ytVideoId ?: it.uuid }) { song ->
