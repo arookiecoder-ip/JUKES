@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SharedQueueTest {
+    @Test fun startupAndClearedQueuesDoNotPublish() {
+        assertFalse(canPublishPhoneQueue(0, -1, null))
+        assertFalse(canPublishPhoneQueue(0, 0, "song"))
+        assertFalse(canPublishPhoneQueue(3, -1, "song"))
+        assertFalse(canPublishPhoneQueue(3, 3, "song"))
+        assertFalse(canPublishPhoneQueue(3, 1, null))
+        assertFalse(canPublishPhoneQueue(3, 1, " "))
+        assertTrue(canPublishPhoneQueue(3, 0, "song"))
+        assertTrue(canPublishPhoneQueue(3, 2, "song"))
+    }
     @Test fun longShuffledQueueRetainsItsEntireTail() {
         val order = (0 until 5_000).map { "video$it" }.shuffled(kotlin.random.Random(42))
         val current = order[120]

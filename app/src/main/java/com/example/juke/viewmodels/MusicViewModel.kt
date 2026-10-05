@@ -307,6 +307,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (isAlexa) echo.refresh(force = true, stateOnly = true)
                 else {
                     if (!sharedPhoneQueueReady) { synchronizePhoneQueue(); phoneQueueSyncJob?.join() }
+                    if (!sharedPhoneQueueReady) return@launch
                     val current = _uiState.value.currentTrack ?: return@launch
                     phoneQueueMutex.withLock { queueManager.refreshAlexaQueue(current) }?.let { applyAlexaWindow(it) }
                 }
@@ -969,10 +970,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun synchronizePhoneQueue(startRadio: Boolean = false) {
         if (isAlexa || !signedIn || !com.example.juke.network.NetworkFeedback.online.value) return
+        val state = _uiState.value
+        if (!com.example.juke.services.canPublishPhoneQueue(
+                state.queue.size, state.queueIndex, state.queue.getOrNull(state.queueIndex)?.ytVideoId
+            )) return
         sharedPhoneQueueReady = false
         queueManager.clearQueue()
         phoneQueueSyncJob?.cancel()
-        val state = _uiState.value
         val position = playbackManager.getCurrentPosition()
         phoneQueueSyncJob = viewModelScope.launch {
             try {
@@ -981,8 +985,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _queueLoadError.value = null
                 queueManager.initializeQueue(state.queue, preserveHistory = true)
             } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) {
+                _queueLoadError.value = "Your session expired. Sign in again to sync the queue."
+                _signedOut.tryEmit(Unit)
+            }
             catch (e: Exception) {
-                val message = "The shared queue couldn't sync. Try again."
+                val detail = com.example.juke.network.networkErrorMessage(e)
+                    ?: (e as? com.example.juke.network.BackendHttpException)?.let { "Server error (HTTP ${it.statusCode}). Try again." }
+                    ?: "Try again."
+                val message = "The shared queue couldn't sync. $detail"
+                // Keep diagnostics useful without logging server bodies, URLs or credentials.
+                Log.w(TAG, "Shared queue sync failed: ${e.javaClass.simpleName}; $detail")
                 if (_queueLoadError.value == null) _messages.tryEmit(message)
                 _queueLoadError.value = message
             }
