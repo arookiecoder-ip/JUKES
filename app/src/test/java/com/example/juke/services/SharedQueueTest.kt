@@ -19,4 +19,10 @@ class SharedQueueTest {
     @Test fun staleSnapshotCannotClearCurrentQueue() {
         assertEquals(-1, sharedQueueIndex(listOf("old"), "new", "old", 0, 0))
     }
+    @org.junit.Test fun movingRowsPreservesTheCurrentOccurrence() {
+        org.junit.Assert.assertEquals(4, queueIndexAfterMove(1, 1, 4))
+        org.junit.Assert.assertEquals(2, queueIndexAfterMove(3, 1, 4))
+        org.junit.Assert.assertEquals(4, queueIndexAfterMove(3, 5, 1))
+        org.junit.Assert.assertEquals(0, queueIndexAfterMove(0, 2, 4))
+    }
 }

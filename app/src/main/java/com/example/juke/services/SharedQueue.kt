@@ -7,3 +7,10 @@ fun sharedQueueIndex(videoIds: List<String>, currentVideo: String, snapshotVideo
     videoIds.getOrNull(localIndex) == currentVideo -> localIndex
     else -> videoIds.indexOf(currentVideo)
 }
+
+fun queueIndexAfterMove(current: Int, from: Int, to: Int): Int = when {
+    current == from -> to
+    from < current && to >= current -> current - 1
+    from > current && to <= current -> current + 1
+    else -> current
+}

@@ -303,11 +303,21 @@ class EchoController(
         refreshSoon()
     }
 
-    suspend fun queueReorder(from: Int, to: Int) {
-        send("/alexa/queue_reorder/", buildJsonObject {
-            put("serial", requireSerial()); put("from_index", from); put("to_index", to)
-        })
-        refreshSoon()
+    suspend fun queueReorder(from: Int, to: Int) = pollLock.withLock {
+        val serial = requireSerial()
+        val previous = _state.value
+        if (from !in previous.queue.indices || to !in previous.queue.indices || from == to) return@withLock
+        val moved = previous.queue.toMutableList().apply { add(to, removeAt(from)) }
+        _state.update { it.copy(queue = moved, index = queueIndexAfterMove(previous.index, from, to)) }
+        try {
+            send("/alexa/queue_reorder/", buildJsonObject {
+                put("serial", serial); put("from_index", from); put("to_index", to)
+            })
+            refreshSoon()
+        } catch (e: Exception) {
+            _state.update { if (it.queue == moved) it.copy(queue = previous.queue, index = previous.index) else it }
+            throw e
+        }
     }
 
     suspend fun shuffle() {
