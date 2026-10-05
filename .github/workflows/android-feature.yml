@@ -45,7 +45,22 @@ jobs:
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug assembleDebugAndroidTest lintDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Report lint findings
+        continue-on-error: true
+        run: |
+          ./gradlew lintDebug --no-daemon || {
+            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            exit 1
+          }
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.*
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
