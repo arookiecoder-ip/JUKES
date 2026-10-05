@@ -689,17 +689,7 @@ class PlaybackService : MediaLibraryService() {
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
 
-        // Build a CacheDataSource.Factory for HTTP streams only.
-        // IMPORTANT: Local file URIs (stream files already on disk) must NOT be routed
-        // through ExoPlayer's cache layer — doing so causes stale cache hits after the
-        // stream file is rewritten on a 403 refresh, which manifests as playback pausing
-        // or reading corrupted/old data. FLAG_IGNORE_CACHE_FOR_UNRECOGNIZED_CONTENT_TYPE
-        // combined with FLAG_IGNORE_CACHE_ON_ERROR ensures we fall-through cleanly.
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(com.example.juke.network.DEVICE_AUDIO_READ_TIMEOUT_MS)
-            .setAllowCrossProtocolRedirects(true)
-        httpDataSourceFactory.setTransferListener(object : androidx.media3.datasource.TransferListener {
+        val transferListener = object : androidx.media3.datasource.TransferListener {
             private val starts = java.util.concurrent.ConcurrentHashMap<androidx.media3.datasource.DataSource, Long>()
             override fun onTransferInitializing(source: androidx.media3.datasource.DataSource, spec: androidx.media3.datasource.DataSpec, network: Boolean) {
                 starts[source] = android.os.SystemClock.elapsedRealtime()
@@ -715,23 +705,9 @@ class PlaybackService : MediaLibraryService() {
             override fun onTransferEnd(source: androidx.media3.datasource.DataSource, spec: androidx.media3.datasource.DataSpec, network: Boolean) {
                 starts.remove(source)
             }
-        })
-        // Keep credentials out of media URIs (including Media3/system error logs).
-        val authenticatedAudio = androidx.media3.datasource.ResolvingDataSource.Factory(httpDataSourceFactory) { spec ->
-            val backend = android.net.Uri.parse(com.example.juke.network.Backend.audioBaseUrl)
-            if (spec.uri.host == backend.host && spec.uri.scheme == backend.scheme && spec.uri.port == backend.port &&
-                spec.uri.path?.startsWith("/audio/") == true) {
-                spec.withAdditionalHeaders(mapOf("X-Api-Key" to com.example.juke.network.Backend.apiKey))
-            } else spec
         }
-        val upstreamDataSourceFactory =
-            DefaultDataSource.Factory(applicationContext, authenticatedAudio)
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(StreamCacheManager.getCache(applicationContext))
-            .setUpstreamDataSourceFactory(upstreamDataSourceFactory)
-            // Cache errors are non-fatal — fall through to the network.
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(playbackDataSources(
+            applicationContext, StreamCacheManager.getCache(applicationContext), transferListener = transferListener))
 
         // Balanced LoadControl: 30s min buffer / 120s max buffer.
         // The previous 600s max was causing ExoPlayer to stall — it attempted to buffer
