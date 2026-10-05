@@ -46,6 +46,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.example.juke.network.Backend
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -371,6 +382,7 @@ fun AccountCheckScreen(state: AccountUiState, account: AccountViewModel) {
 @Composable
 fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
     var showAmazonDialog by remember { mutableStateOf(false) }
+    var showCookies by remember { mutableStateOf(false) }
     val status = state.status
     val checking = status == null || state.checkingStatus
 
@@ -397,18 +409,18 @@ fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
             )
             AccountRow(
                 icon = Icons.Outlined.Cookie,
-                title = "YouTube cookies",
-                detail = when {
-                    status == null -> "Checking…"
-                    status.youtubeCookies -> "Valid"
-                    status.youtubeCookiesPresent -> "Expired. Reconnect YouTube Music to renew them"
-                    else -> "Not found. Reconnect YouTube Music to add them"
-                },
+                title = "Download cookies",
+                detail = state.cookieMessage ?: if (status?.youtubeCookies == true) "Audio download passed" else "Test audio access or upload replacement cookies",
                 ok = status?.youtubeCookies,
-                checking = checking && status == null,
-                action = if (status != null && !status.youtubeCookies && status.youtubeLibrary) "Renew" else null,
-                onAction = { account.connectYouTube(retry = true) }
+                checking = state.cookieBusy || state.checkingStatus,
+                action = null,
+                onAction = {}
             )
+            Text("Audio server: ${Backend.audioBaseUrl}", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                TextButton(onClick = account::testDownloadCookies, enabled = !state.cookieBusy && !state.checkingStatus) { Text("Test audio download") }
+                TextButton(onClick = { showCookies = true }, enabled = !state.cookieBusy) { Text("Replace cookies") }
+            }
             if (status != null) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -422,6 +434,9 @@ fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
         }
     }
 
+    if (showCookies) {
+        DownloadCookiesDialog(state, account, onDismiss = { showCookies = false })
+    }
     if (showAmazonDialog) {
         AmazonSignInDialog(
             busy = state.busy,
@@ -432,6 +447,64 @@ fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
             }
         )
     }
+}
+
+@Composable
+private fun DownloadCookiesDialog(state: AccountUiState, account: AccountViewModel, onDismiss: () -> Unit) {
+    // Export text remains in memory only and is discarded on close or successful save.
+    var export by remember { mutableStateOf("") }
+    var fileError by remember { mutableStateOf<String?>(null) }
+    var reading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val initialSaved = remember { state.cookieSaved }
+    val busy = state.cookieBusy || reading
+    LaunchedEffect(state.cookieSaved) {
+        if (state.cookieSaved != initialSaved) { export = ""; onDismiss() }
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            reading = true
+            try {
+                val contents = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val output = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(4096)
+                        while (output.size() <= 128 * 1024) {
+                            val count = stream.read(buffer, 0, minOf(buffer.size, 128 * 1024 + 1 - output.size()))
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                        }
+                        val bytes = output.toByteArray()
+                        require(bytes.size <= 128 * 1024) { "Cookie export must be smaller than 128 KB." }
+                        bytes.toString(Charsets.UTF_8)
+                    } ?: error("Could not open the cookie file.")
+                }
+                export = contents; fileError = null
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { fileError = e.message ?: "Could not read cookie file." }
+            finally { reading = false }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Replace download cookies") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Server: ${Backend.audioBaseUrl}")
+                Text("Upload or paste a Netscape cookies.txt export. The server tests an audio download before saving. A failed test keeps the existing cookies. Library sign-in is separate.")
+                OutlinedTextField(export, { export = it; fileError = null }, label = { Text("Cookie export") },
+                    modifier = Modifier.fillMaxWidth().testTag("download-cookie-export"), minLines = 3, maxLines = 6,
+                    enabled = !busy, visualTransformation = PasswordVisualTransformation())
+                TextButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, enabled = !busy) { Text("Choose cookies.txt") }
+                (fileError ?: state.cookieMessage)?.let { Text(it) }
+                if (busy) CircularProgressIndicator(Modifier.size(24.dp))
+            }
+        },
+        confirmButton = { TextButton(onClick = { account.replaceDownloadCookies(export) },
+            enabled = !busy && !state.checkingStatus && export.isNotBlank()) { Text("Test and save") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } }
+    )
 }
 
 @Composable
