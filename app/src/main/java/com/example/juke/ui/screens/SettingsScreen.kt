@@ -64,10 +64,17 @@ fun SettingsScreen(
     val miniLyrics by music.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val powerPrefs = remember { context.getSharedPreferences("power_prefs", Context.MODE_PRIVATE) }
     var powerUnlocked by remember { mutableStateOf(powerPrefs.getBoolean("power_tools_unlocked", false)) }
+    var confirmSignOut by remember { mutableStateOf(false) }
     var versionTaps by remember { mutableIntStateOf(0) }
     var lastVersionTapAt by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(Unit) { account.refreshStatus() }
+
+    if (confirmSignOut) com.example.juke.ui.components.GlassAlertDialog(
+        onDismissRequest = { confirmSignOut = false },
+        title = { Text("Sign out?") }, text = { Text("You’ll need to sign in again to access your account.") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { confirmSignOut = false; account.signOut() }) { Text("Sign out") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } })
 
     Column(Modifier.fillMaxSize()) {
         GlassTopAppBar(
@@ -114,7 +121,7 @@ fun SettingsScreen(
                 GlassButton(
                     onClick = {
                         haptic.confirm()
-                        account.signOut()
+                        confirmSignOut = true
                     },
                     modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)
                 ) { Text("Sign out") }

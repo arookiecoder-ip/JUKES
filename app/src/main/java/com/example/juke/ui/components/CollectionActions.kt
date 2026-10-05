@@ -17,7 +17,7 @@ import com.example.juke.network.BrowseItem
 @Composable
 fun CollectionActions(item: BrowseItem, onPlay: () -> Unit, onShuffle: () -> Unit, onQueue: () -> Unit) {
     val menu = LocalMediaMenu.current
-    val context = LocalContext.current
+    val share = rememberShareAction()
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly) {
         IconButton(onClick = onShuffle) { Icon(Icons.Default.Shuffle, "Shuffle collection", Modifier.size(28.dp)) }
@@ -29,9 +29,7 @@ fun CollectionActions(item: BrowseItem, onPlay: () -> Unit, onShuffle: () -> Uni
         IconButton(onClick = {
             val url = if (item.kind == "album") "https://music.youtube.com/browse/${item.id}"
                 else "https://music.youtube.com/playlist?list=${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
-            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"; putExtra(Intent.EXTRA_TEXT, url)
-            }, "Share ${item.title}"))
+            share("Share ${item.title}", url)
         }) { Icon(Icons.Default.Share, "Share collection", Modifier.size(28.dp)) }
         IconButton(onClick = { menu?.show(item) }) { Icon(Icons.Default.MoreVert, "Collection options", Modifier.size(28.dp)) }
     }

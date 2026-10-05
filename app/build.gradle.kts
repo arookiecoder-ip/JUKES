@@ -17,8 +17,8 @@ android {
         applicationId = "com.example.juke"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "2.3.11-beta"
+        versionCode = 26
+        versionName = "2.3.12-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -63,7 +63,14 @@ android {
     }
 
     signingConfigs {
-        getByName("debug")
+        getByName("debug") {
+            System.getenv("MUSIC_BOX_SIGNING_STORE")?.takeIf { it.isNotBlank() }?.let { path ->
+                storeFile = file(path)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {

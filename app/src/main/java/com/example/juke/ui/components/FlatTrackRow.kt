@@ -35,7 +35,8 @@ fun FlatTrackRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     track: com.example.juke.models.Track? = null,
-    durationLoading: Boolean = false
+    durationLoading: Boolean = false,
+    number: Int? = null
 ) {
     val menu = LocalMediaMenu.current
     Column(modifier = modifier.fillMaxWidth()) {
@@ -48,6 +49,9 @@ fun FlatTrackRow(
                 .padding(horizontal = 4.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (number != null) Text(number.toString(), Modifier.width(32.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else {
             AsyncImage(
                 model = imageUrl ?: "",
                 contentDescription = null,
@@ -57,6 +61,7 @@ fun FlatTrackRow(
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
                 contentScale = ContentScale.Crop
             )
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -87,7 +92,7 @@ fun FlatTrackRow(
             }
         }
         HorizontalDivider(
-            modifier = Modifier.padding(start = 60.dp),
+            modifier = Modifier.padding(start = if (number != null) 48.dp else 60.dp),
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )

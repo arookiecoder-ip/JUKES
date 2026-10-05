@@ -47,6 +47,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
     val queueActions = menu.queueActions
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val share = rememberShareAction()
     var saveTrack by remember { mutableStateOf<Track?>(null) }
     var playlists by remember { mutableStateOf<List<BrowseItem>?>(null) }
     var playlistError by remember { mutableStateOf<String?>(null) }
@@ -92,6 +93,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         "Play Radio" -> Icons.Filled.Radio
                         "Go to artist" -> Icons.Filled.Person
                         "Go to album" -> Icons.Filled.Album
+                        "Share" -> Icons.Filled.Share
                         "Save to Playlist" -> Icons.Filled.PlaylistAdd
                         "Remove from queue" -> Icons.Filled.Delete
                         "Shuffle play" -> Icons.Filled.Shuffle
@@ -118,6 +120,9 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                             check(id.isNotBlank()) { "Album unavailable for this song" }
                             onOpen(BrowseParser.item(JsonObject(mapOf("browseId" to kotlinx.serialization.json.JsonPrimitive(id))), "albums"))
                         }
+                    }
+                    action("Share") {
+                        track.ytVideoId?.takeIf { it.isNotBlank() }?.let { share("Share ${track.title}", "https://music.youtube.com/watch?v=$it") }
                     }
                     action("Save to Playlist") {
                         saveTrack = track; playlists = null; playlistError = null

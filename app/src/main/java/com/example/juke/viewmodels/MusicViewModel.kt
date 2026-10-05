@@ -173,6 +173,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val pendingPlayback = MutableStateFlow<Track?>(null)
     private var pendingPlaybackJob: Job? = null
+    private var phoneQueueSyncJob: Job? = null
     private var playbackRequestId = 0L
 
     val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
@@ -498,6 +499,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onSignedOut() {
+        phoneQueueSyncJob?.cancel()
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
@@ -541,6 +543,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val toPhone = serial == null
         if (toPhone && !isAlexa) return
         if (!toPhone && isAlexa && serial == echo.serial.value) return
+        phoneQueueSyncJob?.cancel()
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
@@ -933,28 +936,31 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = false) {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
-            val playable = withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
-            val start = playable[startIndex]
-            withContext(Dispatchers.IO) {
-                // The shared queue holds at most 200 songs; keep a window around the start.
-                val from = (startIndex - 20).coerceAtLeast(0)
-                AlexaBackendApi.updateQueue("start", requireNotNull(start.ytVideoId),
-                    playable.subList(from, (from + 200).coerceAtMost(playable.size))
-                        .map { AlexaBackendApi.backendTrack(it) })
-            }
-            playbackManager.setQueue(playable, startIndex,
-                startPositionMs = if (positionMs > 0) positionMs else androidx.media3.common.C.TIME_UNSET,
-                playWhenReady = play)
-            _uiState.update {
-                it.copy(
-                    queue = playable,
-                    queueIndex = startIndex,
-                    currentTrack = start,
-                    isPlaying = play,
-                    duration = start.durationSec * 1000L
-                )
-            }
-            queueManager.initializeQueue(playable.drop(startIndex))
+            phoneQueueSyncJob?.cancel()
+            phoneQueueSyncJob = com.example.juke.services.DeviceQueueStartup.start(
+                scope = viewModelScope,
+                prepare = { withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) } },
+                play = { playable ->
+                    val start = playable[startIndex]
+                    playbackManager.setQueue(playable, startIndex,
+                        startPositionMs = if (positionMs > 0) positionMs else androidx.media3.common.C.TIME_UNSET,
+                        playWhenReady = play)
+                    _uiState.update { it.copy(queue = playable, queueIndex = startIndex, currentTrack = start,
+                        isPlaying = play, duration = start.durationSec * 1000L) }
+                },
+                synchronize = { playable ->
+                    withContext(Dispatchers.IO) {
+                        val from = (startIndex - 20).coerceAtLeast(0)
+                        AlexaBackendApi.updateQueue("start", requireNotNull(playable[startIndex].ytVideoId),
+                            playable.subList(from, (from + 200).coerceAtMost(playable.size)).map { AlexaBackendApi.backendTrack(it) })
+                    }
+                },
+                onSyncError = { error ->
+                    Log.w(TAG, "Device playback started but server queue sync failed", error)
+                    _messages.tryEmit("Playing on this device. The server queue couldn't sync.")
+                }
+            )
+            queueManager.initializeQueue(_uiState.value.queue.drop(startIndex))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -970,8 +976,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun resolveForPhone(tracks: List<Track>, startIndex: Int): List<Track> =
         tracks.mapIndexed { i, track ->
             val videoId = requireNotNull(track.ytVideoId) { "${track.title} can't be played" }
-            val url = track.localUri?.takeIf { it.startsWith("http") }
-                ?: if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.proxyUrl(videoId)
+            val url = if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.proxyUrl(videoId)
             track.copy(localUri = url, isStream = true)
         }.also { resolved -> trackDao.insertTracks(resolved.map { it.toEntity() }) }
 

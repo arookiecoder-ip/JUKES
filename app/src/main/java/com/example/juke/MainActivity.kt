@@ -568,12 +568,16 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onOpenSettings = { navController.navigate("settings") },
+                                    onOpenHistory = { navController.navigate("history") },
                                     onOpenArtist = { artist ->
                                         searchViewModel.loadArtistDetails(artist)
                                         navController.navigate("artist/${artist.id}")
                                     },
                                     bottomPadding = bottomPadding
                                 )
+                            }
+                            composable("history") {
+                                com.example.juke.ui.screens.HistoryScreen(musicViewModel, { navController.popBackStack() }, bottomPadding)
                             }
                             composable("settings") {
                                 SettingsScreen(
