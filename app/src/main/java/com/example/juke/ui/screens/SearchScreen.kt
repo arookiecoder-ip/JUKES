@@ -292,6 +292,7 @@ fun SearchScreen(
                                         )
                                         Text(
                                             uiState.error!!,
+                                            modifier = Modifier.weight(1f),
                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                             style = MaterialTheme.typography.bodyMedium
                                         )
