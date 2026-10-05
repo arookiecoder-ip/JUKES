@@ -1,5 +1,6 @@
 package com.example.juke.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -94,6 +95,7 @@ fun SearchHeader(
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .fillMaxWidth()
             .glassFloat(GlassShapes.Pill, GlassLevel.Regular)
+            .clickable { if (!open) onOpenChange(true) else { focus.requestFocus(); keyboard?.show() } }
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

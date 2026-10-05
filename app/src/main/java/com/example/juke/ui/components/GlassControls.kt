@@ -150,7 +150,7 @@ fun GlassAlertDialog(
 fun GlassModalBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    sheetState: SheetState = rememberModalBottomSheetState(),
+    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     showHandle: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
