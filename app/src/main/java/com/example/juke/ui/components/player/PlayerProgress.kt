@@ -38,7 +38,7 @@ fun PlayerProgress(
     musicViewModel: MusicViewModel,
     modifier: Modifier = Modifier
 ) {
-    val duration = if (uiState.duration > 0) uiState.duration else musicViewModel.playbackManager.getDuration()
+    val duration = if (uiState.duration > 0) uiState.duration else musicViewModel.playbackManager.getDuration().coerceAtLeast(0)
 
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSeekSlider(
@@ -54,12 +54,12 @@ fun PlayerProgress(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                formatTime(currentPosition),
+                com.example.juke.utils.playbackTime(currentPosition),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                formatTime(duration),
+                com.example.juke.utils.playbackTime(duration),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -89,11 +89,4 @@ internal fun PlaybackSeekSlider(
         },
         modifier = modifier
     )
-}
-
-private fun formatTime(milliseconds: Long): String {
-    val totalSeconds = milliseconds / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
 }

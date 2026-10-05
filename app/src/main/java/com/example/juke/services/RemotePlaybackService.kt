@@ -42,7 +42,7 @@ class RemotePlaybackService : MediaSessionService() {
         val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
         echo = EchoController(scope, prefs,
             onError = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() }, onSignedOut = { stopSelf() })
-        remote = EchoPlayer()
+        remote = EchoPlayer().apply { snapshot = initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
@@ -68,8 +68,13 @@ class RemotePlaybackService : MediaSessionService() {
                     return result
                 }
             }).build()
+        addSession(requireNotNull(session))
         scope.launch {
-            echo.state.collect { remote.snapshot = it; remote.refresh(); updateLike() }
+            var first = true
+            echo.state.collect {
+                if (!first || initialSnapshot?.track == null) { remote.snapshot = it; remote.refresh(); updateLike() }
+                first = false
+            }
         }
         scope.launch { AccountRepository.liked.collect { updateLike() } }
         echo.startPolling(foreground = false)
@@ -83,6 +88,8 @@ class RemotePlaybackService : MediaSessionService() {
         }
         val serial = prefs.getString("echo_serial", "").orEmpty()
         if (serial.isNotBlank() && serial != echo.serial.value) echo.select(serial)
+        initialSnapshot?.let { remote.snapshot = it; remote.refresh() }
+        echo.startPolling(foreground = intent?.getBooleanExtra("foreground", false) == true)
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -96,7 +103,7 @@ class RemotePlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
     override fun onDestroy() {
         echo.clear()
-        session?.release(); remote.release(); scope.cancel()
+        session?.let { removeSession(it); it.release() }; remote.release(); scope.cancel()
         super.onDestroy()
     }
 
@@ -155,6 +162,11 @@ class RemotePlaybackService : MediaSessionService() {
     companion object {
         private const val LIKE = "REMOTE_LIKE"
         fun stop(context: Context) { context.stopService(Intent(context, RemotePlaybackService::class.java)) }
-        fun start(context: Context) { context.startService(Intent(context, RemotePlaybackService::class.java)) }
+        @Volatile internal var initialSnapshot: EchoState? = null
+        fun start(context: Context, snapshot: EchoState = EchoState(), foreground: Boolean = false) {
+            initialSnapshot = snapshot
+            try { context.startService(Intent(context, RemotePlaybackService::class.java).putExtra("foreground", foreground)) }
+            catch (_: IllegalStateException) { /* The next foreground entry reconnects if Android stopped an idle service. */ }
+        }
     }
 }

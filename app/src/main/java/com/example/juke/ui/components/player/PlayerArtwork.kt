@@ -62,7 +62,7 @@ fun PlayerArtwork(
     LaunchedEffect(queueIndex, currentTrack.ytVideoId) {
         if (!dragged && queueIndex in queue.indices && pagerState.currentPage != queueIndex) {
             userSwipe = false
-            pagerState.scrollToPage(queueIndex)
+            pagerState.animateScrollToPage(queueIndex)
         }
     }
     LaunchedEffect(pagerState.isScrollInProgress, pagerState.settledPage) {

@@ -480,7 +480,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun updatePolling() {
         if (signedIn && isAlexa && echo.serial.value.isNotBlank()) {
             echo.startPolling(isForeground)
-            if (isForeground) com.example.juke.services.RemotePlaybackService.start(getApplication())
+            com.example.juke.services.RemotePlaybackService.start(getApplication(), echo.state.value, isForeground)
         } else {
             echo.stopPolling()
             com.example.juke.services.RemotePlaybackService.stop(getApplication())
@@ -765,6 +765,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Play one song; the queue continues with its radio. */
+    fun playYoutubeLink(link: com.example.juke.network.YoutubeLink) {
+        viewModelScope.launch {
+            try {
+                if (link.videoId != null) {
+                    val metadata = Backend.get("/api/track/${link.videoId}/metadata").objectOrEmpty()
+                    playTrack(BrowseParser.item(JsonObject(metadata + mapOf("video_id" to JsonPrimitive(link.videoId)))).toTrack(AccountRepository.liked.value))
+                } else if (link.playlistId != null) {
+                    playCollection(BrowseParser.item(buildJsonObject { put("playlistId", link.playlistId); put("title", "YouTube playlist") }))
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+            catch (e: Exception) { _messages.tryEmit(com.example.juke.network.networkErrorMessage(e) ?: "Couldn't play this YouTube link") }
+        }
+    }
+
     fun playTrack(track: Track) {
         if (isAlexa) {
             launchPlayback(track) { echo.playSong(track, radio = false) }

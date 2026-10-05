@@ -50,17 +50,17 @@ fun VerticalEqualizerSlider(
     thumbColor: Color = MaterialTheme.colorScheme.primary,
     trackColor: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
 ) {
-    val haptic = LocalHapticFeedback.current
+    val haptic = com.example.juke.utils.rememberJukeHaptics()
 
     Box(
         modifier = modifier
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.gestureStart()
                     },
                     onDragEnd = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        haptic.tick()
                     }
                 ) { change, _ ->
                     change.consume()
@@ -77,7 +77,7 @@ fun VerticalEqualizerSlider(
                     val newValue = (range.start + (fraction * rangeSpan)).coerceIn(range)
 
                     if (newValue != value) {
-                        // haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) // Too frequent?
+                        // haptic.tick() // Too frequent?
                     }
                     onValueChange(newValue)
                 }
@@ -128,7 +128,7 @@ fun CircularBooster(
     modifier: Modifier = Modifier,
     maxBoost: Float = 100f
 ) {
-    val haptic = LocalHapticFeedback.current
+    val haptic = com.example.juke.utils.rememberJukeHaptics()
 
     // Map value (0..maxBoost) to angle (135..405 degrees)
     // 0 -> 135 deg (Bottom Left)
@@ -141,10 +141,10 @@ fun CircularBooster(
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.gestureStart()
                     },
                     onDragEnd = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        haptic.tick()
                     }
                 ) { change, dragAmount ->
                     change.consume()
@@ -155,7 +155,7 @@ fun CircularBooster(
                     val dragVal = (dragAmount.x - dragAmount.y) * sensitivity
                     val newValue = (value + dragVal).coerceIn(0f, maxBoost)
                     if (newValue != value) {
-                        // haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        // haptic.tick()
                     }
                     onValueChange(newValue)
                 }

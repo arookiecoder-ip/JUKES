@@ -136,6 +136,7 @@ fun SearchScreen(
     var previousResetTrigger by rememberSaveable { mutableIntStateOf(searchResetTrigger) }
     var selectedFilter by rememberSaveable { mutableStateOf("All") }
     var active by rememberSaveable { mutableStateOf(false) }
+    var lastPlayedLink by rememberSaveable { mutableStateOf("") }
     val filters = listOf("All", "Tracks", "Artists", "Playlists", "Albums")
 
     // Warm the YT suggestions connection once when search screen is opened.
@@ -173,7 +174,15 @@ fun SearchScreen(
             SearchHeader(
                 title = "Search",
                 query = uiState.query,
-                onQueryChange = { searchViewModel.updateQuery(it) },
+                onQueryChange = { query ->
+                    searchViewModel.updateQuery(query)
+                    val link = com.example.juke.network.youtubeLink(query)
+                    if (link != null && query != lastPlayedLink) {
+                        lastPlayedLink = query; keyboardController?.hide(); active = false
+                        musicViewModel.playYoutubeLink(link)
+                        searchViewModel.resetToDiscovery()
+                    } else if (link == null) lastPlayedLink = ""
+                },
                 open = active,
                 onOpenChange = { active = it },
                 placeholder = "Songs, artists, albums",

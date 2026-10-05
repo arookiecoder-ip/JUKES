@@ -96,7 +96,7 @@ jobs:
           test "$status" = "200" || { echo "Account login endpoint returned $status instead of 200"; exit 1; }
 
       - name: Check browse, playback presentation and Echo snapshots
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.network.DeviceAudioTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.network.SearchRankingTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.network.DeviceAudioTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.network.SearchRankingTest' --tests 'com.example.juke.network.YoutubeLinkTest' --tests 'com.example.juke.utils.PlaybackTimeTest' --no-daemon
 
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |
@@ -140,6 +140,14 @@ jobs:
     if: ${{ inputs.full_ui_tests == true || inputs.playback_tests == true }}
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: pixel_6
+            tablet: false
+          - profile: pixel_c
+            tablet: true
     steps:
       - name: Enable KVM
         run: sudo chmod 666 /dev/kvm
@@ -162,12 +170,12 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          profile: pixel_6
+          profile: ${{ matrix.profile }}
           disable-animations: true
           script: |
             adb install apk/app-debug.apk
             adb install test-apk/app-debug-androidTest.apk
-            adb shell am instrument -w -e class ${{ inputs.playback_tests && 'com.example.juke.PlaybackStreamRegressionTest,com.example.juke.FeatureInteractionRegressionTest' || 'com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest' }} com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            adb shell am instrument -w -e class ${{ matrix.tablet && 'com.example.juke.TabletPlaybackRegressionTest' || inputs.playback_tests && 'com.example.juke.PlaybackStreamRegressionTest,com.example.juke.FeatureInteractionRegressionTest,com.example.juke.TabletPlaybackRegressionTest' || 'com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest' }} com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
             [ "${{ inputs.full_ui_tests }}" != "true" ] || adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
             cat ui-results.txt
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' ui-results.txt
@@ -177,7 +185,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-ui-results
+          name: native-ui-results-${{ matrix.profile }}
           path: |
             ui-results.txt
             screenshots

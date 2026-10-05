@@ -240,7 +240,7 @@ fun PlayerScreen(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
     configuration.screenHeightDp.dp
-    val isTablet = screenWidth >= 600.dp
+    val isTablet = minOf(configuration.screenWidthDp, configuration.screenHeightDp) >= 600
 
     val lifecycleOwner = LocalLifecycleOwner.current
     // Poll the position only while playing; paused, one read is enough (no 300 ms wakeups).
@@ -352,9 +352,8 @@ fun PlayerScreen(
                     .navigationBarsPadding()
             ) {
                 val compact = maxHeight < 680.dp
-                val artworkHeight = maxHeight * 0.6f
-                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.fillMaxWidth().height(artworkHeight)) {
+                com.example.juke.ui.components.player.ResponsivePlayerLayout(artwork = {
+                    Box(Modifier.fillMaxSize()) {
                         PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
                             currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
                             isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
@@ -385,7 +384,8 @@ fun PlayerScreen(
                                 }
                             }, modifier = Modifier.align(Alignment.BottomStart))
                     }
-                    Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+                }, controls = {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                             PlayerAction(icon = rememberVectorPainter(if (currentTrack.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp),
                                 label = if (currentTrack.isFavourite) "Unlike" else "Like", active = currentTrack.isFavourite, iconSize = 24.dp) { musicViewModel.toggleFavorite(currentTrack) }
@@ -397,11 +397,11 @@ fun PlayerScreen(
                         PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = isTablet,
                             modifier = Modifier.padding(top = 8.dp), playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
                         Spacer(Modifier.height(16.dp))
-                        if (isAlexa) EchoVolumeRow(volume = echoVolume, onVolumeChange = musicViewModel::setEchoVolume)
+                        if (isAlexa) EchoVolumeRow(volume = echoVolume, enabled = musicViewModel.echo.serial.value.isNotBlank(), onVolumeChange = musicViewModel::setEchoVolume)
                         else PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
                     }
-                }
+                })
             }
         }
         }
@@ -662,14 +662,14 @@ fun SleepTimerDialog(
 
 /** Echo volume slider; drags are sent to the Echo a moment after you pause (the controller debounces). */
 @Composable
-private fun EchoVolumeRow(volume: Int?, onVolumeChange: (Int) -> Unit) {
+private fun EchoVolumeRow(volume: Int?, enabled: Boolean = true, onVolumeChange: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
         com.example.juke.ui.components.player.ExpandableTrackSlider(
-            value = (volume ?: 0) / 100f,
+            value = (volume ?: 50) / 100f,
             label = "Volume",
-            enabled = volume != null,
+            enabled = enabled,
             onValueChange = { onVolumeChange((it * 100).toInt()) },
             onValueChangeFinished = { onVolumeChange((it * 100).toInt()) },
             modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
