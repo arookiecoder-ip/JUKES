@@ -41,4 +41,12 @@ class SharedPlaybackOutputTest {
         assertTrue(snapshot.processing)
         assertTrue(snapshot.playing)
     }
+    @Test fun preparedAudioCannotRestartPhoneAfterPauseAcknowledgement() {
+        assertFalse(canStartPhonePlayback("old", "", true, 0, 100))
+        assertFalse(canStartPhonePlayback("old", "new", false, 1000, 100))
+        assertFalse(canStartPhonePlayback("old", "old", false, 100, 100))
+        assertTrue(canStartPhonePlayback("new", "new", false, 1000, 100))
+        assertTrue(canStartPhonePlayback("", "", false, 0, 100)) // Explicit offline playback.
+        assertFalse(canStartPhonePlayback("", "new", false, 1000, 100)) // Older offline preparation.
+    }
 }
