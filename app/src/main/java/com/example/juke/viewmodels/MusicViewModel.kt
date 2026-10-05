@@ -986,8 +986,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 queueManager.initializeQueue(state.queue, preserveHistory = true)
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) {
-                _queueLoadError.value = "Your session expired. Sign in again to sync the queue."
-                _signedOut.tryEmit(Unit)
+                val expired = com.example.juke.network.confirmSessionExpired {
+                    Backend.get("/alexa/status/")
+                }
+                _queueLoadError.value = if (expired) "Your session expired. Sign in again to sync the queue."
+                    else "The server rejected queue sync. Your login has been kept. Try again."
+                if (expired) _signedOut.tryEmit(Unit)
             }
             catch (e: Exception) {
                 val detail = com.example.juke.network.networkErrorMessage(e)

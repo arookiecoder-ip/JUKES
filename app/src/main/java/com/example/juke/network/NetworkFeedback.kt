@@ -78,3 +78,16 @@ fun networkErrorMessage(error: Throwable): String? {
         else -> null
     }
 }
+
+/** A feature endpoint rejecting access does not prove that the account session expired. */
+internal suspend fun confirmSessionExpired(checkSession: suspend () -> Unit): Boolean = try {
+    checkSession()
+    false
+} catch (error: CancellationException) {
+    throw error
+} catch (error: BackendAuthException) {
+    true
+} catch (error: Exception) {
+    // Keep the session during outages or unrelated server failures.
+    false
+}
