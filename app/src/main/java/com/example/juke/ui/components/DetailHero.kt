@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -23,9 +24,9 @@ import coil.compose.AsyncImage
 fun DetailHero(image: String?, artist: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val surface = MaterialTheme.colorScheme.background
     Box(Modifier.fillMaxWidth().clip(androidx.compose.ui.graphics.RectangleShape)) {
-        AsyncImage(image, null,  (if (artist) Modifier.fillMaxWidth().height(380.dp) else Modifier.matchParentSize()).then(
-            if (artist) Modifier else Modifier.blur(22.dp).alpha(0.55f)), contentScale = ContentScale.Crop)
-        Box((if (artist) Modifier.fillMaxWidth().height(380.dp) else Modifier.matchParentSize()).background(Brush.verticalGradient(listOf(
+        AsyncImage(image, null,  (if (artist) Modifier.fillMaxWidth().height(240.dp) else Modifier.matchParentSize()).then(
+            if (artist) Modifier.testTag("Artist banner") else Modifier.blur(22.dp).alpha(0.55f)), contentScale = if (artist) ContentScale.FillWidth else ContentScale.Crop, alignment = Alignment.TopCenter)
+        Box((if (artist) Modifier.fillMaxWidth().height(240.dp) else Modifier.matchParentSize()).background(Brush.verticalGradient(listOf(
             surface.copy(alpha = if (artist) 0.05f else 0.18f),
             surface.copy(alpha = 0.45f), surface))))
         Column(Modifier.fillMaxWidth(), content = content)

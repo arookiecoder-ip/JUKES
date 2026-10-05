@@ -1489,8 +1489,7 @@ class PlaybackManager private constructor(private val context: Context) {
             _isShuffleEnabled.value = false
         }
 
-        // Clear all disk cache when a brand new queue/song is played
-        PlaybackService.StreamCacheManager.clearAllCache()
+        // Audio URLs are stable per video. Keep cached bytes for immediate handoffs and seeks.
 
         val mediaItems = tracks.mapNotNull { track -> createValidatedMediaItem(track) }
 
@@ -1671,6 +1670,21 @@ class PlaybackManager private constructor(private val context: Context) {
         Log.d(TAG, "Skip to previous")
     }
 
+    /** Replace a shuffled/sorted tail in one Media3 operation, retaining the playing item and buffer. */
+    @OptIn(UnstableApi::class)
+    fun replaceUpcoming(tracks: List<Track>, currentIndex: Int) {
+        controller?.let { ctrl ->
+            val currentId = ctrl.currentMediaItem?.mediaId ?: return
+            if (tracks.getOrNull(currentIndex)?.uuid != currentId) return
+            if (ctrl.currentMediaItemIndex > currentIndex) ctrl.removeMediaItems(0, ctrl.currentMediaItemIndex - currentIndex)
+            val first = ctrl.currentMediaItemIndex + 1
+            ctrl.replaceMediaItems(first, ctrl.mediaItemCount, tracks.drop(currentIndex + 1).mapNotNull(::createValidatedMediaItem))
+            scope.launch { saveQueueStructure() }
+        }
+    }
+
+    fun setShuffleEnabled(enabled: Boolean) { _isShuffleEnabled.value = enabled }
+
     fun toggleShuffle() {
         val isNowEnabled = !_isShuffleEnabled.value
         _isShuffleEnabled.value = isNowEnabled
@@ -1680,42 +1694,14 @@ class PlaybackManager private constructor(private val context: Context) {
             return
         }
 
-        var reordered = false
         controller?.let { ctrl ->
-            val totalItems = ctrl.mediaItemCount
-            val firstShuffleIndex = ctrl.currentMediaItemIndex + 1
-
-            if (firstShuffleIndex in 1 until totalItems) {
-                val shuffledIds = (firstShuffleIndex until totalItems)
-                    .map { ctrl.getMediaItemAt(it).mediaId }
-                    .shuffled()
-
-                shuffledIds.forEachIndexed { offset, mediaId ->
-                    val targetIndex = firstShuffleIndex + offset
-                    var sourceIndex = targetIndex
-
-                    while (
-                        sourceIndex < ctrl.mediaItemCount &&
-                        ctrl.getMediaItemAt(sourceIndex).mediaId != mediaId
-                    ) {
-                        sourceIndex++
-                    }
-
-                    if (sourceIndex < ctrl.mediaItemCount && sourceIndex != targetIndex) {
-                        ctrl.moveMediaItem(sourceIndex, targetIndex)
-                        reordered = true
-                    }
-                }
+            val first = ctrl.currentMediaItemIndex + 1
+            if (first < ctrl.mediaItemCount) {
+                val tail = (first until ctrl.mediaItemCount).map(ctrl::getMediaItemAt).shuffled()
+                ctrl.replaceMediaItems(first, ctrl.mediaItemCount, tail)
+                scope.launch { saveQueueStructure() }
             }
         }
-
-        if (reordered) {
-            scope.launch {
-                saveQueueStructure()
-            }
-        }
-
-        Log.d(TAG, if (reordered) "Shuffle enabled" else "Shuffle enabled (nothing to reorder)")
     }
 
     fun toggleRepeatMode() {

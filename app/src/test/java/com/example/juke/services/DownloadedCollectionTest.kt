@@ -13,8 +13,15 @@ class DownloadedCollectionTest {
         val a = song("aaaaaaaaaaa"); val b = song("bbbbbbbbbbb"); val c = song("ccccccccccc")
         val collection = DownloadedCollection("PL123", "playlist", "Mix", "image", "Artist", listOf(a, b, c, a))
         val available = collection.available(listOf(c.copy(localUri = "file:///c"), a.copy(localUri = "file:///a")))
-        assertEquals(listOf(a.ytVideoId, c.ytVideoId), available.map { it.ytVideoId })
+        assertEquals(listOf(a.ytVideoId, c.ytVideoId, a.ytVideoId), available.map { it.ytVideoId })
         assertTrue(available.all { it.localUri != null })
+    }
+    @Test fun deletedAndRedownloadedCollectionMemberNeverBecomesStandalone() {
+        val a = song("aaaaaaaaaaa"); val b = song("bbbbbbbbbbb"); val standalone = song("ccccccccccc")
+        val collection = DownloadedCollection("PL123", "playlist", "Mix", "image", "Artist", listOf(a, b))
+        assertEquals(listOf(standalone), standaloneDownloads(listOf(b, standalone), listOf(collection)))
+        assertEquals(listOf(standalone), standaloneDownloads(listOf(b, standalone, a), listOf(collection)))
+        assertEquals(listOf(a.uuid, b.uuid), collection.available(listOf(b, a.copy(uuid = "new-download"))).map { it.uuid })
     }
     @Test fun collectionSurvivesRestoreWithAccountIdentityAndMetadata() {
         val album = DownloadedCollection("MPRE123", "album", "Album", "image", "Artist", listOf(song("aaaaaaaaaaa")))

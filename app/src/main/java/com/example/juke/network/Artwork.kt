@@ -17,10 +17,14 @@ fun artworkCandidates(source: String, videoId: String?, large: Boolean): List<St
         videoId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
             ?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }.orEmpty()
     }
-    if (!large) return listOf(original)
     val upgraded = largeArtworkUrl(original)
     val alternatives = if (upgraded.contains("/maxresdefault."))
-        listOf(upgraded.replace("/maxresdefault.", "/hq720."), upgraded.replace("/maxresdefault.", "/sddefault."))
-        else emptyList()
-    return (listOf(upgraded) + alternatives + original).distinct()
+        listOf(upgraded.replace("/maxresdefault.", "/hq720.")) else emptyList()
+    val videoArtwork = videoId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }?.let {
+        listOf("https://i.ytimg.com/vi/$it/maxresdefault.jpg", "https://i.ytimg.com/vi/$it/hq720.jpg")
+    }.orEmpty()
+    // Never fall back to SD/mq/default images. The renderer also checks decoded dimensions.
+    return (listOf(upgraded) + alternatives + videoArtwork).filter { it.isNotBlank() }.distinct().ifEmpty { listOf("") }
 }
+
+fun isHdArtwork(width: Int, height: Int): Boolean = minOf(width, height) >= 720

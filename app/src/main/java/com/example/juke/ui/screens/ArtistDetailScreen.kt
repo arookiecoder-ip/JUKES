@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
@@ -60,7 +62,7 @@ fun ArtistDetailScreen(
             ) {
                 item(key = "hero") {
                     DetailHero(state.imageUrl, artist = true) {
-                    Column(Modifier.fillMaxWidth().padding(top = 220.dp, start = 20.dp, end = 20.dp, bottom = 12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 12.dp)) {
                         Text(artist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                         if (state.subscribers.isNotBlank()) Text(state.subscribers + if (state.subscribers.contains("subscriber", true)) "" else " subscribers", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.description.isNotBlank()) {
@@ -69,8 +71,8 @@ fun ArtistDetailScreen(
                             if (state.description.length > 150) TextButton(onClick = { expandedDescription = !expandedDescription }) { Text(if (expandedDescription) "Less" else "More") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.setQueue(state.topTracks.shuffled(), 0) }) { Text("Shuffle") }
-                            OutlinedButton(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.first()) }) { Text("Radio") }
+                            Button(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.setQueue(state.topTracks.shuffled(), 0) }) { Icon(Icons.Default.Shuffle, "Shuffle artist songs") }
+                            OutlinedButton(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.first()) }) { Icon(Icons.Default.Radio, "Artist radio") }
                             TextButton(enabled = state.isSubscribed != null && !state.subscriptionBusy, onClick = searchViewModel::toggleSubscription) {
                                 if (state.subscriptionBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                 else Text(if (state.isSubscribed == true) "Subscribed" else "Subscribe")

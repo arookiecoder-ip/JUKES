@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -42,6 +44,8 @@
         </activity>
 
         <service android:name=".services.RemotePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+
+        <service android:name=".services.DownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
 
         <!-- Playback Service -->
         <service android:name=".services.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">

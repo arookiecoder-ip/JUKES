@@ -7,7 +7,8 @@ import com.example.juke.database.MusicDatabase
 import com.example.juke.database.toEntity
 import com.example.juke.models.Track
 import com.example.juke.network.AlexaBackendApi
-import com.example.juke.network.toAppTrack
+import com.example.juke.network.*
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,11 +45,6 @@ class QueueManager private constructor(private val context: Context) {
     private val TAG = "QueueManager"
     private val trackDao = MusicDatabase.getDatabase(context).trackDao()
 
-    private val settingsPrefs = context.getSharedPreferences(
-        "music_settings_prefs",
-        Context.MODE_PRIVATE
-    )
-
     // Queue state
     private val _currentQueue = MutableStateFlow<List<Track>>(emptyList())
     val currentQueue: StateFlow<List<Track>> = _currentQueue.asStateFlow()
@@ -56,7 +52,6 @@ class QueueManager private constructor(private val context: Context) {
     data class AlexaQueueWindow(val currentUuid: String, val tracks: List<Track>)
     private val _alexaQueueWindow = MutableStateFlow<AlexaQueueWindow?>(null)
     val alexaQueueWindow = _alexaQueueWindow.asStateFlow()
-    private val alexaRadioSeeds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /** What the queue refresh is doing: songs being fetched now and songs waiting in reserve. */
     data class RecStatus(val resolving: Int = 0, val reserve: Int = 0)
@@ -66,9 +61,6 @@ class QueueManager private constructor(private val context: Context) {
     private val fillMutex = Mutex()
     private val sessionGen = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    /** How many songs to keep ready ahead of the playing one (Audio Settings). */
-    private fun lookahead(): Int = settingsPrefs.getInt("recommendation_count", 5).coerceIn(1, 49)
 
     /**
      * Initialize the queue with a list of tracks (a new song or collection was picked).
@@ -127,7 +119,6 @@ class QueueManager private constructor(private val context: Context) {
         sessionScope.cancel()
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         _alexaQueueWindow.value = null
-        alexaRadioSeeds.clear()
         _recStatus.value = RecStatus()
     }
 
@@ -144,49 +135,37 @@ class QueueManager private constructor(private val context: Context) {
         }
     }
 
-    /** Refresh a bounded window in the server's current order, including removals. */
+    /** Read the entire web queue. Rendering is lazy; queue membership is never a lookahead window. */
     suspend fun refreshAlexaQueue(current: Track): AlexaQueueWindow? {
-        val videoId = current.ytVideoId?.takeIf { it.isNotBlank() } ?: return null
-        if (!AlexaBackendApi.isConfigured() || !com.example.juke.network.NetworkFeedback.online.value) return null
+        val videoId = current.ytVideoId ?: return null
+        if (!NetworkFeedback.online.value) return null
         val gen = sessionGen.get()
         return fillMutex.withLock {
             if (gen != sessionGen.get()) return@withLock null
-            val target = lookahead()
-            _recStatus.value = RecStatus(resolving = target)
             try {
-                // next_track is consulted at request time, rather than trusting the old phone queue.
-                val next = AlexaBackendApi.nextTrack(videoId)
-                var items = if (next == null) emptyList() else AlexaBackendApi.queueTracks(videoId, target)
-                if (items.size < target && videoId !in alexaRadioSeeds) {
-                    try {
-                        val radio = AlexaBackendApi.getRadio(videoId)
-                        coroutineContext.ensureActive()
-                        if (gen != sessionGen.get()) return@withLock null
-                        if (radio.isNotEmpty()) AlexaBackendApi.updateQueue("extend", videoId, radio.take(200))
-                        if (gen != sessionGen.get()) return@withLock null
-                        alexaRadioSeeds.add(videoId)
-                        items = AlexaBackendApi.queueTracks(videoId, target)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        // Radio availability must not prevent existing queue edits from syncing.
-                        Log.w(TAG, "Radio extension failed: ${e.message}")
-                    }
-                }
-                val existing = _currentQueue.value + (_alexaQueueWindow.value?.tracks ?: emptyList())
-                val reusable = existing.distinctBy { it.uuid }.filter { it.uuid != current.uuid }
+                val snapshot = Backend.get("/alexa/now_playing/", mapOf("serial" to "phone")).objectOrEmpty()
+                val items = snapshot.array("queue").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                    .filter { it.videoId.isNotBlank() }
+                val reportedIndex = snapshot.number("queue_index").toInt()
+                val localIndex = _currentQueue.value.indexOfFirst { it.uuid == current.uuid }
+                val index = sharedQueueIndex(items.map { it.videoId }, videoId,
+                    snapshot.text("video_id"), reportedIndex, localIndex)
+                // A replaced or stale server queue must not erase a locally playing collection.
+                if (index < 0) return@withLock null
+                val reusable = (_currentQueue.value + (_alexaQueueWindow.value?.tracks ?: emptyList()))
+                    .distinctBy { it.uuid }.filter { it.uuid != current.uuid }
                     .groupBy { it.ytVideoId }.mapValues { it.value.toMutableList() }
-                val tracks = items.map { item ->
+                val downloads = DownloadRepository.get(context)
+                val tracks = items.drop(index + 1).map { item ->
                     coroutineContext.ensureActive()
-                    val cached = reusable[item.videoId]?.removeFirstOrNull()
-                    cached?.takeIf { !it.localUri.isNullOrBlank() }
-                        ?: item.toAppTrack(AlexaBackendApi.getStreamUrl(item.videoId)).also {
-                            coroutineContext.ensureActive()
-                            if (gen == sessionGen.get()) trackDao.insertTrack(it.toEntity())
-                        }
+                    val old = reusable[item.videoId]?.removeFirstOrNull()
+                    val track = old ?: item.toTrack().copy(localUri = AlexaBackendApi.audioUrl(item.videoId), isStream = true)
+                    downloads.localTrack(track) ?: track
                 }
                 coroutineContext.ensureActive()
                 if (gen != sessionGen.get()) return@withLock null
+                trackDao.insertTracks(tracks.map { it.toEntity() })
+                _currentQueue.value = _currentQueue.value.take(localIndex.coerceAtLeast(0)) + current + tracks
                 AlexaQueueWindow(current.uuid, tracks).also { _alexaQueueWindow.value = it }
             } finally {
                 if (gen == sessionGen.get()) _recStatus.value = RecStatus()

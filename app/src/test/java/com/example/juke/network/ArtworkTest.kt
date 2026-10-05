@@ -10,12 +10,19 @@ class ArtworkTest {
     }
     @Test fun youtubeMissingMaxResolutionHasOrderedFallbacks() {
         val choices = artworkCandidates("https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg", "aaaaaaaaaaa", true)
-        assertEquals(listOf("maxresdefault.jpg", "hq720.jpg", "sddefault.jpg", "mqdefault.jpg"), choices.map { it.substringAfterLast('/') })
+        assertEquals(listOf("maxresdefault.jpg", "hq720.jpg"), choices.map { it.substringAfterLast('/') })
     }
     @Test fun unknownSignedImagesAndMiniSizesArePreserved() {
         val image = "https://example.com/art=s120?signature=abc"
         assertEquals(image, largeArtworkUrl(image))
         assertEquals(listOf(image), artworkCandidates(image, null, false))
+    }
+    @Test fun lowResolutionAndHttp200PlaceholdersStayHidden() {
+        assertFalse(isHdArtwork(120, 90))
+        assertFalse(isHdArtwork(640, 480))
+        assertTrue(isHdArtwork(1280, 720))
+        assertTrue(isHdArtwork(1200, 1200))
+        assertFalse(isHdArtwork(720, -1))
     }
     @Test fun missingThumbnailUsesSongIdentity() {
         assertTrue(artworkCandidates("", "aaaaaaaaaaa", true).first().contains("/aaaaaaaaaaa/maxresdefault.jpg"))

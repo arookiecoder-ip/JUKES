@@ -12,8 +12,14 @@ data class DownloadedCollection(val id: String, val kind: String, val title: Str
     val key get() = "$kind:$id"
     fun available(downloaded: List<Track>): List<Track> {
         val byVideo = downloaded.associateBy { it.ytVideoId }
-        return tracks.mapNotNull { byVideo[it.ytVideoId] }.distinctBy { it.ytVideoId }
+        return tracks.mapNotNull { original -> byVideo[original.ytVideoId]?.let { original.copy(localUri = it.localUri, isStream = false) } }
     }
     fun browseItem() = BrowseItem(id, kind, title, subtitle, image, "", if (kind == "playlist") id else "",
-        0L, "", "", false, JsonObject(emptyMap()))
+        0L, "", "", false, JsonObject(mapOf("offline" to kotlinx.serialization.json.JsonPrimitive(true))))
+}
+
+/** A member remains a member when its file is removed and downloaded again. */
+fun standaloneDownloads(downloaded: List<Track>, collections: List<DownloadedCollection>): List<Track> {
+    val members = collections.flatMap { it.tracks }.mapNotNull { it.ytVideoId }.toSet()
+    return downloaded.filter { it.ytVideoId !in members }
 }
