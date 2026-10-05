@@ -12,6 +12,8 @@ import com.example.juke.network.Backend
 import com.example.juke.network.BackendAuthException
 import com.example.juke.network.BrowseItem
 import com.example.juke.network.BrowseParser
+import com.example.juke.network.number
+import com.example.juke.network.flag
 import com.example.juke.network.array
 import com.example.juke.network.imageUrl
 import com.example.juke.network.objectOrEmpty
@@ -68,7 +70,11 @@ data class ArtistDetailUiState(
     val related: List<BrowseItem> = emptyList(),
     val subscriptionBusy: Boolean = false,
     val allSongsLoaded: Boolean = false,
+    val songsNextOffset: Long = 0,
+    val albumsHasMore: Boolean = false,
+    val singlesHasMore: Boolean = false,
     val songsLoading: Boolean = false,
+    val durationsLoading: Boolean = false,
     val isSubscribed: Boolean? = null,
     val isLoading: Boolean = false,
     val error: String? = null
@@ -107,6 +113,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     private var searchJob: Job? = null
     private var artistJob: Job? = null
     private var songsJob: Job? = null
+    private var durationJob: Job? = null
     private val suggestionRequestNonce = AtomicLong(0L)
     private val warmupRequestNonce = AtomicLong(0L)
     private val suggestionPrefixCache =
@@ -382,6 +389,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     /** Open an artist page. [artist] carries the channel id and what is already known. */
     fun loadArtistDetails(artist: BrowseItem) {
         songsJob?.cancel()
+        durationJob?.cancel()
         artistJob?.cancel()
         _artistDetailState.value = ArtistDetailUiState(artist = artist, imageUrl = artist.image, isLoading = true)
         artistJob = viewModelScope.launch {
@@ -403,10 +411,14 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                     albums = releases("albums"),
                     singles = releases("singles"),
                     playlists = releases("playlists"),
+                    albumsHasMore = info["albums"].objectOrEmpty().text("params").isNotBlank(),
+                    singlesHasMore = info["singles"].objectOrEmpty().text("params").isNotBlank(),
                     related = data.array("related").mapNotNull { (it as? JsonObject)?.let { row -> BrowseParser.item(row, "related") } }.filter { it.id.isNotBlank() },
                     isSubscribed = null,
                     isLoading = false
                 )
+                loadAllArtistSongs()
+                if (_artistDetailState.value.topSongsBrowseId.isBlank()) enrichPreviewDurations(artist.id)
                 val subscribed = subscribedArtists()?.contains(artist.id)
                 _artistDetailState.update { it.copy(isSubscribed = subscribed) }
             } catch (e: CancellationException) {
@@ -427,14 +439,61 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _artistDetailState.update { it.copy(songsLoading = true, error = null) }
         songsJob = viewModelScope.launch {
             try {
-                val data = Backend.get("/api/artist/${artist.id}/songs", mapOf("browse_id" to state.topSongsBrowseId)).objectOrEmpty()
-                val songs = data.array("songs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }.filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value) }
-                check(songs.isNotEmpty()) { "No artist songs available" }
-                _artistDetailState.update { it.copy(allTracks = songs, allSongsLoaded = true) }
+                val data = Backend.get("/api/library/playlists/${state.topSongsBrowseId}",
+                    mapOf("offset" to state.songsNextOffset.toString(), "limit" to "30")).objectOrEmpty()
+                val songs = data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                    .filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value) }
+                if (_artistDetailState.value.artist?.id != artist.id) return@launch
+                _artistDetailState.update { current ->
+                    val loaded = (current.allTracks + songs).distinctBy { it.ytVideoId }
+                    val durations = loaded.filter { it.durationSec > 0 }.associateBy { it.ytVideoId }
+                    current.copy(allTracks = loaded,
+                        topTracks = current.topTracks.map { track -> durations[track.ytVideoId]?.let { track.copy(durationSec = it.durationSec) } ?: track },
+                        songsNextOffset = data.number("next_offset").takeIf { it > state.songsNextOffset } ?: state.songsNextOffset + songs.size,
+                        allSongsLoaded = !data.flag("has_more") || songs.isEmpty())
+                }
+
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
             catch (e: Exception) { _artistDetailState.update { it.copy(error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Could not load artist songs") } }
-            finally { _artistDetailState.update { it.copy(songsLoading = false) } }
+            finally {
+                if (_artistDetailState.value.artist?.id == artist.id) {
+                    _artistDetailState.update { it.copy(songsLoading = false) }
+                    if (state.songsNextOffset == 0L) enrichPreviewDurations(artist.id)
+                }
+            }
+        }
+    }
+
+    private fun enrichPreviewDurations(artistId: String) {
+        val missing = _artistDetailState.value.topTracks.take(5).filter { it.durationSec <= 0 }
+        if (missing.isEmpty()) return
+        durationJob?.cancel()
+        _artistDetailState.update { it.copy(durationsLoading = true) }
+        durationJob = viewModelScope.launch {
+            try {
+                for (track in missing) {
+                    if (_artistDetailState.value.artist?.id != artistId) break
+                    val seconds = try {
+                        val metadata = Backend.get("/api/track/${track.ytVideoId}/metadata").objectOrEmpty()
+                        (metadata.number("duration_ms") / 1000).toInt()
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: BackendAuthException) { _signedOut.tryEmit(Unit); break }
+                    catch (_: Exception) {
+                        try {
+                            val result = Backend.get("/alexa/search/", mapOf("q" to track.ytVideoId.orEmpty())).objectOrEmpty()
+                            (result.array("songs") + result.array("all")).mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                                .firstOrNull { it.videoId == track.ytVideoId && it.durationMs > 0 }?.durationMs?.div(1000)?.toInt() ?: 0
+                        } catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { 0 }
+                    }
+                    if (seconds > 0 && _artistDetailState.value.artist?.id == artistId) _artistDetailState.update { current ->
+                        current.copy(topTracks = current.topTracks.map { if (it.ytVideoId == track.ytVideoId) it.copy(durationSec = seconds) else it })
+                    }
+                }
+            } finally {
+                if (_artistDetailState.value.artist?.id == artistId) _artistDetailState.update { it.copy(durationsLoading = false) }
+            }
         }
     }
 
@@ -499,6 +558,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearArtistDetail() {
         songsJob?.cancel()
+        durationJob?.cancel()
         artistJob?.cancel()
         _artistDetailState.value = ArtistDetailUiState()
     }

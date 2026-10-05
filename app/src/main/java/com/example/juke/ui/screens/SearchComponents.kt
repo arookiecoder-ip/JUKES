@@ -181,7 +181,8 @@ internal fun SearchResultsList(
             item { SectionHeader("Songs") }
             items(uiState.tracks.distinctBy { it.uuid }, key = { it.uuid }) { track ->
                 SwipeToAddNextContainer(
-                    onAddNext = { musicViewModel.addNext(track) }
+                    onAddNext = { musicViewModel.addNext(track) },
+                    onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }
                 ) {
                     LocalTrackItem(
                         track = track,

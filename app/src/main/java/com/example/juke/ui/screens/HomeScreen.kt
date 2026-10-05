@@ -216,7 +216,7 @@ private fun HomeHeader(
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.example.juke.R.drawable.music_box_wordmark),
+                painter = androidx.compose.ui.res.painterResource(com.example.juke.R.drawable.music_box_pwa),
                 contentDescription = null, modifier = Modifier.size(32.dp)
             )
             Text("Music Box", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)

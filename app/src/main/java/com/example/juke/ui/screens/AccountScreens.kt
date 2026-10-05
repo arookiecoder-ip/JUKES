@@ -120,7 +120,7 @@ fun SignInScreen(state: AccountUiState, account: AccountViewModel) {
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(R.mipmap.ic_launcher_foreground),
+                    painter = painterResource(R.drawable.music_box_pwa),
                     contentDescription = null,
                     modifier = Modifier.size(88.dp).clip(CircleShape)
                 )

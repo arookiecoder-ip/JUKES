@@ -56,7 +56,7 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
                 item { Text("Tracks", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge) }
                 itemsIndexed(state.tracks) { index, track ->
                     if (index >= state.tracks.size - 5) LaunchedEffect(state.tracks.size) { playlistDetailViewModel.loadMore() }
-                    SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }) {
+                    SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
                         FlatTrackRow(track.thumbnailUri, track.title, track.artist, "%d:%02d".format(track.durationSec / 60, track.durationSec % 60),
                             onClick = { musicViewModel.playPlaylist(playlistDetailViewModel.playlistId, state.tracks, index) },
                             modifier = Modifier.padding(horizontal = 20.dp), track = track)

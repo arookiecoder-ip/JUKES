@@ -3,6 +3,9 @@ package com.example.juke.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -80,9 +83,9 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item { AccountStatusCard(state, account) }
+            item { Box(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { AccountStatusCard(state, account) } }
             item {
-                GlassCard(Modifier.fillMaxWidth()) {
+                GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -99,7 +102,7 @@ fun SettingsScreen(
                 }
             }
             item {
-                GlassCard(Modifier.fillMaxWidth()) {
+                GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Mini-player lyrics", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                         Switch(checked = miniLyrics, onCheckedChange = music::toggleMiniPlayerLyrics)
@@ -113,14 +116,14 @@ fun SettingsScreen(
                         haptic.confirm()
                         account.signOut()
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)
                 ) { Text("Sign out") }
             }
 
 
             if (powerUnlocked) {
                 item {
-                    GlassCard(Modifier.fillMaxWidth().clickable { haptic.click(); onNavigateToPowerTools() }) {
+                    GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape).clickable { haptic.click(); onNavigateToPowerTools() }) {
                         Row(
                             Modifier.fillMaxWidth().padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -141,7 +144,7 @@ fun SettingsScreen(
 
             item {
                 Column(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape).padding(vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {

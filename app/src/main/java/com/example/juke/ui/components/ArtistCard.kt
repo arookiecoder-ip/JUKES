@@ -39,7 +39,7 @@ fun ArtistCard(
     val menu = LocalMediaMenu.current
     Column(
         modifier = modifier
-            .width(120.dp)
+            .width(148.dp)
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(artist) }, onLongClickLabel = "Artist options")
             .padding(bottom = 4.dp),
@@ -49,7 +49,7 @@ fun ArtistCard(
             model = artist.image,
             contentDescription = artist.title,
             modifier = Modifier
-                .size(120.dp)
+                .size(148.dp)
                 .clip(CircleShape),
             contentScale = ContentScale.Crop
         )

@@ -115,6 +115,7 @@ import kotlinx.coroutines.launch
 fun SearchScreen(
     musicViewModel: MusicViewModel,
     searchViewModel: SearchViewModel = viewModel(),
+    homeViewModel: com.example.juke.viewmodels.HomeViewModel = viewModel(),
     searchResetTrigger: Int = 0,
     searchFocusTrigger: Int = 0,
     onNavigateToArtist: (BrowseItem) -> Unit = {},
@@ -123,6 +124,8 @@ fun SearchScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val uiState by searchViewModel.uiState.collectAsStateWithLifecycle()
+    val home by homeViewModel.uiState.collectAsStateWithLifecycle()
+    var discovery by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = rememberJukeHaptics()
@@ -135,6 +138,7 @@ fun SearchScreen(
     // Warm the YT suggestions connection once when search screen is opened.
     LaunchedEffect(Unit) {
         searchViewModel.warmSuggestionsConnection()
+        homeViewModel.loadHomeData()
     }
 
     // Re-tapping the Search tab while on Search: open the bar; the header selects the query and shows the keyboard.
@@ -143,6 +147,11 @@ fun SearchScreen(
             previousFocusTrigger = searchFocusTrigger
             active = true
         }
+    }
+
+    discovery?.let { mode ->
+        SearchDiscoveryScreen(mode, { discovery = null }, musicViewModel, onNavigateToAlbum, onNavigateToPlaylist, bottomPadding)
+        return
     }
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { paddingValues ->
@@ -218,15 +227,7 @@ fun SearchScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(filters) { filter ->
-                                    GlassFilterChip(
-                                        selected = selectedFilter == filter,
-                                        onClick = { selectedFilter = filter },
-                                        label = {
-                                            Text(
-                                                filter,
-                                                style = MaterialTheme.typography.labelLarge
-                                            )
-                                        })
+                                    com.example.juke.ui.components.SquareFilterChip(selectedFilter == filter, { selectedFilter = filter }, filter)
                                 }
                             }
                         }
@@ -244,22 +245,13 @@ fun SearchScreen(
                                     keyboardController = keyboardController
                                 )
                             } else {
-                                if (uiState.query.isBlank() && uiState.recentSearches.isNotEmpty()) {
-                                    RecentSearches(
-                                        searches = uiState.recentSearches,
-                                        onSearchClick = {
-                                            haptic.click()
-                                            keyboardController?.hide()
-                                            searchViewModel.search(it)
-                                        },
-                                        onRemoveClick = { searchViewModel.removeRecentSearch(it) },
-                                        onClearAll = {
-                                            uiState.recentSearches.forEach {
-                                                searchViewModel.removeRecentSearch(it)
-                                            }
-                                        },
-                                        bottomPadding = bottomPadding
-                                    )
+                                if (uiState.query.isBlank()) {
+                                    SearchLandingContent(uiState.recentSearches,
+                                        home.shelves.flatMap { it.tracks }.distinctBy { it.ytVideoId }.take(12), home.isLoading,
+                                        onSearch = { keyboardController?.hide(); searchViewModel.search(it) },
+                                        onRemove = searchViewModel::removeRecentSearch,
+                                        onDiscover = { active = false; keyboardController?.hide(); discovery = it },
+                                        onRetry = homeViewModel::refresh, music = musicViewModel, bottomPadding = bottomPadding)
                                 } else {
                                     EmptySearchState(
                                         isQueryEmpty = uiState.query.isBlank(),

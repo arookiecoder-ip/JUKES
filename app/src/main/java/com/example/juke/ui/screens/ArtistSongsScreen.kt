@@ -20,7 +20,7 @@ fun ArtistSongsScreen(artistId: String, searchViewModel: SearchViewModel, musicV
     val state by searchViewModel.artistDetailState.collectAsStateWithLifecycle()
     LaunchedEffect(artistId, state.artist?.id, state.isLoading) {
         if (state.artist?.id != artistId) searchViewModel.loadArtistDetailsById(artistId)
-        else if (!state.isLoading) searchViewModel.loadAllArtistSongs()
+        else if (!state.isLoading && state.allTracks.isEmpty()) searchViewModel.loadAllArtistSongs()
     }
     val songs = state.allTracks.ifEmpty { state.topTracks }
     Box(Modifier.fillMaxSize()) {
@@ -37,7 +37,10 @@ fun ArtistSongsScreen(artistId: String, searchViewModel: SearchViewModel, musicV
                 }
             }
             itemsIndexed(songs, key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
-                SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }) {
+                if (index >= songs.size - 5 && !state.allSongsLoaded && state.error == null) {
+                    LaunchedEffect(songs.size, state.songsLoading) { if (!state.songsLoading) searchViewModel.loadAllArtistSongs() }
+                }
+                SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
                     FlatTrackRow(track.thumbnailUri, track.title, track.artist,
                         if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "",
                         onClick = { musicViewModel.setQueue(songs, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)

@@ -34,7 +34,8 @@ fun FlatTrackRow(
     duration: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    track: com.example.juke.models.Track? = null
+    track: com.example.juke.models.Track? = null,
+    durationLoading: Boolean = false
 ) {
     val menu = LocalMediaMenu.current
     Column(modifier = modifier.fillMaxWidth()) {
@@ -74,6 +75,8 @@ fun FlatTrackRow(
                 )
             }
             Spacer(Modifier.width(8.dp))
+            if (durationLoading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.dp)
+            else {
             Text(
                 duration.ifBlank { "—:—" },
                 textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -81,6 +84,7 @@ fun FlatTrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.width(48.dp).padding(end = 8.dp)
             )
+            }
         }
         HorizontalDivider(
             modifier = Modifier.padding(start = 60.dp),
