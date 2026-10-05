@@ -18,9 +18,7 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
         transferListener?.let(httpDataSourceFactory::setTransferListener)
         // Keep credentials out of media URIs (including Media3/system error logs).
         val authenticatedAudio = androidx.media3.datasource.ResolvingDataSource.Factory(httpDataSourceFactory) { spec ->
-            val backend = android.net.Uri.parse(audioBaseUrl)
-            if (spec.uri.host == backend.host && spec.uri.scheme == backend.scheme && spec.uri.port == backend.port &&
-                spec.uri.path?.startsWith("/audio/") == true) {
+            if (com.example.juke.network.isBackendAudioRequest(audioBaseUrl, spec.uri.toString())) {
                 spec.withAdditionalHeaders(mapOf("X-Api-Key" to apiKey))
             } else spec
         }
