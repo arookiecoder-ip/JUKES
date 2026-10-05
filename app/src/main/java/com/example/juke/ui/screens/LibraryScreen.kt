@@ -55,6 +55,7 @@ fun LibraryScreen(
     onOpenArtist: (BrowseItem) -> Unit = {},
     onOpenCollection: (BrowseItem) -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val state by libraryViewModel.uiState.collectAsStateWithLifecycle()
@@ -90,6 +91,7 @@ fun LibraryScreen(
                 open = searchOpen || state.searchQuery.isNotEmpty(),
                 onOpenChange = { searchOpen = it }, placeholder = "Search your library"
             ) {
+                IconButton(onClick = onOpenHistory) { Icon(Icons.Default.History, "Listening history") }
                 IconButton(onClick = { grid = !grid }) {
                     Icon(if (grid) Icons.Default.ViewList else Icons.Default.GridView,
                         contentDescription = if (grid) "Switch to list view" else "Switch to grid view")

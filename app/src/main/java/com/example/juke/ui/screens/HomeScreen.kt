@@ -44,7 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -227,9 +227,9 @@ private fun HomeHeader(
             modifier = Modifier.padding(end = 8.dp).clickable(onClick = onSettingsClick))
         GlassIconButton(
             onClick = onSettingsClick,
-            contentDescription = "Settings"
+            contentDescription = "Profile"
         ) {
-            Icon(Icons.Filled.Settings, contentDescription = null)
+            Icon(Icons.Filled.AccountCircle, contentDescription = null)
         }
     }
 }
@@ -243,7 +243,7 @@ internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (In
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             androidx.compose.material3.OutlinedButton(onClick = { onTrackClick(0) }, enabled = tracks.isNotEmpty(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) { Text("Play all") }
+                modifier = Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("Play all") }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val columnWidth = (maxWidth - 48.dp).coerceAtLeast(240.dp)

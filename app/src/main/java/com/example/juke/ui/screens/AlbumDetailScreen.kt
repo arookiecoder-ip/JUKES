@@ -59,7 +59,7 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
                 itemsIndexed(state.tracks) { index, track ->
                     SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
                         FlatTrackRow(track.thumbnailUri, track.title, track.artist, "%d:%02d".format(track.durationSec / 60, track.durationSec % 60),
-                            onClick = { musicViewModel.setQueue(state.tracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
+                            onClick = { musicViewModel.setQueue(state.tracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track, number = index + 1)
                     }
                 }
             }
