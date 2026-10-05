@@ -713,7 +713,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                        if (!online && currentRoute != Screen.Library.route && currentRoute?.startsWith("settings") != true) {
+                        if (!online && !com.example.juke.utils.allowsOfflineBrowsing(currentRoute)) {
                             com.example.juke.ui.components.ConnectionErrorState("", {
                                 com.example.juke.network.NetworkFeedback.refresh(context)
                             }, Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
