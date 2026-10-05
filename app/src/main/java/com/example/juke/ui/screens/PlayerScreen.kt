@@ -91,6 +91,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -519,7 +520,7 @@ fun PlayerHeader(
     if (showMenu) {
         ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { showMenu = false }, shape = androidx.compose.ui.graphics.RectangleShape,
             containerColor = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Column(Modifier.fillMaxWidth().testTag("Player options").verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 track?.let { com.example.juke.ui.components.MusicMenuHeader(it.title, it.artist, it.thumbnailUri) }
                 fun run(action: () -> Unit) { showMenu = false; action() }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics") { run(onToggleLyrics) }
