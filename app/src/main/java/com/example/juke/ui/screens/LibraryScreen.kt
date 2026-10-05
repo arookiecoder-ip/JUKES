@@ -44,7 +44,7 @@ import com.example.juke.viewmodels.LibraryViewModel
 import com.example.juke.viewmodels.MusicViewModel
 
 private enum class LibraryFilter(val label: String, val kind: String?) {
-    ALL("All", null), PLAYLISTS("Playlists", "playlist"), ALBUMS("Albums", "album"), ARTISTS("Artists", "artist")
+    ALL("All", null), PLAYLISTS("Playlists", "playlist"), ALBUMS("Albums", "album"), ARTISTS("Artists", "artist"), DOWNLOADS("Downloads", "download")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +59,11 @@ fun LibraryScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val state by libraryViewModel.uiState.collectAsStateWithLifecycle()
+    val downloaded by musicViewModel.downloadedTracks.collectAsStateWithLifecycle()
+    val online by com.example.juke.network.NetworkFeedback.online.collectAsStateWithLifecycle()
+    val downloadedSongs = remember(downloaded, state.searchQuery) {
+        downloaded.filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
+    }
     val context = LocalContext.current
     val mediaMenu = LocalMediaMenu.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
@@ -125,13 +130,26 @@ fun LibraryScreen(
                             borderWidth = 1.dp, selectedBorderWidth = 1.dp))
                 }
             }
-            if (state.error != null && entries.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (filter != LibraryFilter.DOWNLOADS && online && state.error != null && entries.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.error.orEmpty(), Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = libraryViewModel::refresh) { Text("Retry") }
             }
-            PullToRefreshBox(isRefreshing = state.isLoading && entries.isNotEmpty(), onRefresh = libraryViewModel::refresh,
+            PullToRefreshBox(isRefreshing = filter != LibraryFilter.DOWNLOADS && online && state.isLoading && entries.isNotEmpty(), onRefresh = libraryViewModel::refresh,
                 modifier = Modifier.fillMaxSize()) {
                 when {
+                    filter == LibraryFilter.DOWNLOADS -> {
+                        if (downloadedSongs.isEmpty()) LibraryNotice("No downloaded songs", "Download a song from its options to listen on this device without internet.")
+                        else LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = bottomPadding + 96.dp)) {
+                            items(downloadedSongs, key = { it.ytVideoId ?: it.uuid }) { song ->
+                                com.example.juke.ui.components.FlatTrackRow(song.thumbnailUri, song.title, song.artist,
+                                    if (song.durationSec > 0) "%d:%02d".format(song.durationSec / 60, song.durationSec % 60) else "",
+                                    onClick = { musicViewModel.playDownloaded(downloadedSongs, downloadedSongs.indexOf(song)) }, track = song, showMore = true)
+                            }
+                        }
+                    }
+                    !online -> com.example.juke.ui.components.ConnectionErrorState("", {
+                        com.example.juke.network.NetworkFeedback.refresh(context)
+                    }, Modifier.fillMaxSize(), offline = true)
                     state.isLoading && entries.isEmpty() -> TrackListSkeleton(modifier = Modifier.fillMaxSize())
                     state.needsYouTube -> LibraryNotice("Connect YouTube Music", "Your library comes from your connected account.", "Open Settings", onOpenSettings)
                     state.error != null && entries.isEmpty() -> LibraryNotice("Couldn't load your library", state.error.orEmpty(), "Try again", libraryViewModel::refresh)

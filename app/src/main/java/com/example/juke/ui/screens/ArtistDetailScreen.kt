@@ -99,7 +99,7 @@ fun ArtistDetailScreen(
                         Column {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                                if (hasMore) IconButton(onClick = { onShowAllReleases(kind) }) {
+                                IconButton(onClick = { onShowAllReleases(kind) }) {
                                     Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowForward, "Show all $title")
                                 }
                             }

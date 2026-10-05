@@ -42,6 +42,8 @@ val LocalMediaMenu = staticCompositionLocalOf<MediaMenuController?> { null }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, library: LibraryViewModel, onOpen: (BrowseItem) -> Unit) {
+    val downloaded by music.downloadedTracks.collectAsState()
+    val downloadProgress by music.downloadProgress.collectAsState()
     val track = menu.track
     val item = menu.item
     val queueActions = menu.queueActions
@@ -94,6 +96,8 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         "Go to artist" -> Icons.Filled.Person
                         "Go to album" -> Icons.Filled.Album
                         "Share" -> Icons.Filled.Share
+                        "Download", "Downloading…" -> Icons.Filled.Download
+                        "Remove download" -> Icons.Filled.DownloadDone
                         "Save to Playlist" -> Icons.Filled.PlaylistAdd
                         "Remove from queue" -> Icons.Filled.Delete
                         "Shuffle play" -> Icons.Filled.Shuffle
@@ -120,6 +124,11 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                             check(id.isNotBlank()) { "Album unavailable for this song" }
                             onOpen(BrowseParser.item(JsonObject(mapOf("browseId" to kotlinx.serialization.json.JsonPrimitive(id))), "albums"))
                         }
+                    }
+                    val saved = downloaded.any { it.ytVideoId == track.ytVideoId }
+                    val downloading = track.ytVideoId in downloadProgress
+                    action(if (saved) "Remove download" else if (downloading) "Downloading…" else "Download") {
+                        if (saved) music.removeDownload(track) else if (!downloading) music.download(track)
                     }
                     action("Share") {
                         track.ytVideoId?.takeIf { it.isNotBlank() }?.let { share("Share ${track.title}", "https://music.youtube.com/watch?v=$it") }

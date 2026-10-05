@@ -371,7 +371,10 @@ private fun MusicCard(track: Track, onClick: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+        com.example.juke.ui.components.DownloadedBadge(track.ytVideoId, Modifier.padding(end = 4.dp))
         Text(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

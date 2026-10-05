@@ -70,6 +70,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -186,6 +188,9 @@ class PlaybackService : MediaLibraryService() {
     private val tracksPlayCountedThisSession = mutableSetOf<String>()
     private var currentPlayingTrackId: String? = null
     private var lastReportedListen: String? = null
+    private var streamRecoveryJob: Job? = null
+    private var recoveryShouldResume = false
+    private val recoveryAttempts = mutableMapOf<String, Int>()
     private val progressHandler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
         override fun run() {
@@ -411,6 +416,57 @@ class PlaybackService : MediaLibraryService() {
             .build()
     }
 
+    /** Recover in the service so notification controls and background playback work too. */
+    private fun recoverCurrentStream(manual: Boolean = false) {
+        if (outputPrefs.getString("playback_output", "PHONE") == "ALEXA") return
+        if (streamRecoveryJob?.isActive == true) {
+            if (manual) recoveryShouldResume = true
+            return
+        }
+        val original = player.currentMediaItem ?: return
+        val trackId = original.mediaId
+        val attempt = if (manual) 1 else (recoveryAttempts[trackId] ?: 0) + 1
+        if (attempt > 2) {
+            com.example.juke.network.NetworkFeedback.notify("Playback interrupted. Tap Play to try again.")
+            return
+        }
+        recoveryAttempts[trackId] = attempt
+        val position = player.currentPosition.coerceAtLeast(0)
+        recoveryShouldResume = manual || player.playWhenReady
+        streamRecoveryJob = serviceScope.launch {
+            try {
+                val track = withContext(Dispatchers.IO) { database.trackDao().getTrackByUuid(trackId)?.toTrack() }
+                    ?: return@launch
+                val local = DownloadRepository.get(applicationContext).localTrack(track)
+                val refreshed = if (local != null) local else {
+                    val video = track.ytVideoId ?: return@launch
+                    if (!manual) delay(attempt * 1_000L)
+                    val url = withContext(Dispatchers.IO) { AlexaBackendApi.getStreamUrl(video) }
+                    track.copy(localUri = url, isStream = true)
+                }
+                if (player.currentMediaItem?.mediaId != trackId ||
+                    outputPrefs.getString("playback_output", "PHONE") == "ALEXA") return@launch
+                withContext(Dispatchers.IO) {
+                    database.trackDao().insertTrack(refreshed.toEntity())
+                    StreamCacheManager.removeTrackCache(original.localConfiguration?.uri?.toString())
+                }
+                if (player.currentMediaItem?.mediaId != trackId) return@launch
+                val index = player.currentMediaItemIndex
+                player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).build())
+                player.seekTo(index, position)
+                player.prepare()
+                player.playWhenReady = recoveryShouldResume && !inCall()
+                if (recoveryShouldResume && inCall()) mainHandler.postDelayed(resumeAfterCall, 500)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (player.currentMediaItem?.mediaId == trackId) {
+                    com.example.juke.network.NetworkFeedback.notify(
+                        com.example.juke.network.networkErrorMessage(e) ?: "Playback interrupted. Tap Play to try again.")
+                }
+            } finally { if (streamRecoveryJob === coroutineContext[Job]) streamRecoveryJob = null }
+        }
+    }
+
     private val audioAttributes = AudioAttributes.Builder()
         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
         .setUsage(C.USAGE_MEDIA)
@@ -451,6 +507,15 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             Log.e(TAG, "Player error: ${error.message}", error)
+            recoverCurrentStream()
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+                recoveryShouldResume = false
+                streamRecoveryJob?.cancel()
+                streamRecoveryJob = null
+            }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -461,6 +526,9 @@ class PlaybackService : MediaLibraryService() {
                 return
             }
 
+            streamRecoveryJob?.cancel()
+            streamRecoveryJob = null
+            recoveryAttempts.clear()
             mediaItem?.let {
                 val trackId = it.mediaId
                 // Stable Volume memory: store where the AGC settled for the track that just ended and
@@ -753,10 +821,8 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        Log.d(TAG, "App removed from recents, stopping service and playback")
-        player.pause()
-        player.stop()
-        stopSelf()
+        // Dismissing the app doesn't interrupt an active device session.
+        if (!player.playWhenReady && !player.isPlaying) stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
@@ -767,35 +833,8 @@ class PlaybackService : MediaLibraryService() {
             getSystemService(NotificationManager::class.java).cancel(1)
             return
         }
-        // On Android 12+ (API 31), starting a foreground service from the background is
-        // restricted and throws ForegroundServiceStartNotAllowedException.
-        //
-        // Media3's default onUpdateNotification() → MediaNotificationManager.startForeground()
-        // calls BOTH ContextCompat.startForegroundService() AND Service.startForeground() —
-        // even when startInForegroundRequired=false. Both are fatal when in the background.
-        //
-        // Strategy: return early (skip super) when app is in background.
-        // The existing notification remains visible; it will be refreshed when the user
-        // brings the app back to the foreground and normal playback resumes.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && startInForegroundRequired) {
-            try {
-                val currentState =
-                    androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState
-                val isAppInForeground =
-                    currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-
-                if (!isAppInForeground) {
-                    Log.w(
-                        TAG,
-                        "App is in background — skipping onUpdateNotification to prevent ForegroundServiceStartNotAllowedException"
-                    )
-                    return
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to check app lifecycle state: ${e.message}")
-            }
-        }
-
+        // Media3 owns foreground promotion, including starts from media controls.
+        // Keep the session foreground while playback continues with the app hidden.
         try {
             super.onUpdateNotification(session, startInForegroundRequired)
         } catch (e: Exception) {
@@ -828,6 +867,7 @@ class PlaybackService : MediaLibraryService() {
         // Release the stream cache
         StreamCacheManager.release()
 
+        streamRecoveryJob?.cancel()
         super.onDestroy()
         Log.d(TAG, "PlaybackService destroyed")
     }
@@ -969,6 +1009,10 @@ class PlaybackService : MediaLibraryService() {
             @Player.Command playerCommand: Int
         ): Int {
             rememberManualTrackChangeRequest(playerCommand)
+            if (playerCommand == Player.COMMAND_PLAY_PAUSE && !player.isPlaying &&
+                (player.playerError != null || player.playbackState == Player.STATE_IDLE)) {
+                recoverCurrentStream(manual = true)
+            }
             return super.onPlayerCommandRequest(session, controller, playerCommand)
         }
 
@@ -1212,8 +1256,6 @@ class PlaybackManager private constructor(private val context: Context) {
 
     // Queue manager for recommendations
     private val queueManager: QueueManager by lazy { QueueManager.getInstance(context) }
-    private val streamRecoveryAttempts = mutableMapOf<String, Int>()
-    private val maxStreamRecoveryAttempts = 2
 
     /**
      * Helper function to create validated MediaItem with artwork checking
@@ -1305,15 +1347,13 @@ class PlaybackManager private constructor(private val context: Context) {
                             if (error == null) return
                             _isBuffering.value = false
                             Log.e(TAG, "Player error: ${error.message}", error)
-                            val trackId = controller?.currentMediaItem?.mediaId ?: return
-                            recoverStream(trackId)
+                            // PlaybackService owns recovery, including notification/background play.
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                             mediaItem?.let { item ->
                                 val trackId = item.mediaId
                                 _currentTrackId.value = trackId
-                                streamRecoveryAttempts.remove(trackId)
 
                                 // Update the queue index immediately
                                 val currentIndex = controller?.currentMediaItemIndex ?: 0
@@ -1581,10 +1621,12 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun togglePlayPause() {
         controller?.let {
-            if (it.isPlaying) {
+            if (it.isPlaying || (it.playWhenReady && it.playbackState == Player.STATE_BUFFERING)) {
                 it.pause()
                 Log.d(TAG, "Paused")
             } else {
+                if (it.playbackState == Player.STATE_ENDED) it.seekTo(0)
+                if (it.playbackState == Player.STATE_IDLE && it.playerError == null) it.prepare()
                 it.play()
                 Log.d(TAG, "Playing")
             }
@@ -1699,50 +1741,6 @@ class PlaybackManager private constructor(private val context: Context) {
         val target = positionMs.coerceAtLeast(0)
         ctrl.seekTo(target)
         Log.d(TAG, "Seeked to $target ms")
-    }
-
-    /**
-     * A stream failed: ask the server for a fresh proxy URL for the song (it re-downloads the
-     * audio), at most [maxStreamRecoveryAttempts] times per song, then move on to the next song.
-     */
-    private fun recoverStream(trackId: String) {
-        scope.launch {
-            val track = database.trackDao().getTrackByUuid(trackId)?.toTrack()
-                ?: queueManager.currentQueue.value.find { it.uuid == trackId }
-            val videoId = track?.ytVideoId
-            val attempts = (streamRecoveryAttempts[trackId] ?: 0) + 1
-            if (track == null || videoId.isNullOrBlank() || attempts > maxStreamRecoveryAttempts) {
-                Log.w(TAG, "Skipping a song that won't play: $trackId")
-                withContext(Dispatchers.Main) { skipAfterFailure() }
-                return@launch
-            }
-            streamRecoveryAttempts[trackId] = attempts
-            try {
-                val refreshed = track.copy(localUri = AlexaBackendApi.getStreamUrl(videoId))
-                database.trackDao().insertTrack(refreshed.toEntity())
-                withContext(Dispatchers.Main) {
-                    replaceTrackInQueue(track.uuid, refreshed)
-                    controller?.prepare()
-                    controller?.play()
-                }
-                Log.w(TAG, "Recovered stream for ${track.title} (attempt $attempts)")
-            } catch (e: Exception) {
-                Log.e(TAG, "Stream recovery failed for ${track.title}: ${e.message}")
-                withContext(Dispatchers.Main) { skipAfterFailure() }
-            }
-        }
-    }
-
-    private fun skipAfterFailure() {
-        controller?.let { ctrl ->
-            if (ctrl.hasNextMediaItem()) {
-                ctrl.seekToNext()
-                ctrl.prepare()
-                ctrl.play()
-            } else {
-                ctrl.stop()
-            }
-        }
     }
 
     fun seekToIndex(index: Int) {
@@ -2092,9 +2090,10 @@ class PlaybackManager private constructor(private val context: Context) {
                             database.trackDao().getTrackByUuid(id) ?: return@mapNotNull null
                         var track = entity.toTrack()
 
-                        // Proxy URLs carry the build's key and don't expire; rebuild a missing one.
-                        if (track.localUri.isNullOrBlank() && !track.ytVideoId.isNullOrBlank()) {
-                            track = track.copy(localUri = AlexaBackendApi.proxyUrl(track.ytVideoId!!))
+                        // Rebuild remote URIs on upgrades; old Echo proxy URLs can interrupt phone audio.
+                        if (!track.ytVideoId.isNullOrBlank()) {
+                            track = DownloadRepository.get(context).localTrack(track) ?: track.copy(
+                                localUri = AlexaBackendApi.audioUrl(track.ytVideoId!!), isStream = true)
                         }
 
                         track

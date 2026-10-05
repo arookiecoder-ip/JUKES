@@ -684,7 +684,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                        if (!online && currentRoute?.startsWith("settings") != true) {
+                        if (!online && currentRoute != Screen.Library.route && currentRoute?.startsWith("settings") != true) {
                             com.example.juke.ui.components.ConnectionErrorState("", {
                                 com.example.juke.network.NetworkFeedback.refresh(context)
                             }, Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)

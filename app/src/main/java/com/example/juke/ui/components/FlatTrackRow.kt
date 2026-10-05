@@ -24,6 +24,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 
 /** Flat, dense track row shared by the album / artist / playlist detail screens (matches Library). */
@@ -42,6 +47,10 @@ fun FlatTrackRow(
     number: Int? = null
 ) {
     val menu = LocalMediaMenu.current
+    val context = LocalContext.current
+    val downloads = remember { com.example.juke.services.DownloadRepository.get(context) }
+    val downloaded by downloads.tracks.collectAsStateWithLifecycle()
+    val isDownloaded = track?.ytVideoId?.let { video -> downloaded.any { it.ytVideoId == video } } == true
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -82,6 +91,9 @@ fun FlatTrackRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            if (isDownloaded) androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Default.DownloadDone, "Downloaded",
+                Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
             Text(
                 duration,

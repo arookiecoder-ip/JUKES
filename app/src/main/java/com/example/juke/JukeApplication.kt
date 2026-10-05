@@ -14,6 +14,7 @@ class JukeApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         com.example.juke.network.Backend.init(this)
         com.example.juke.network.NetworkFeedback.observe(this)
+        com.example.juke.services.DownloadRepository.get(this)
     }
 
     override fun newImageLoader(): ImageLoader {

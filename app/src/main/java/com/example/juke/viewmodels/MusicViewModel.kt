@@ -331,7 +331,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (isActive) {
                 delay(5_000)
-                if (!signedIn || isAlexa || _isSwitchingOutput.value) continue
+                if (!signedIn || isAlexa || _isSwitchingOutput.value || !com.example.juke.network.NetworkFeedback.online.value) continue
                 val current = _uiState.value.currentTrack ?: continue
                 val videoId = current.ytVideoId ?: continue
                 try {
@@ -427,14 +427,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val downloads = com.example.juke.services.DownloadRepository.get(getApplication())
+    val downloadedTracks = downloads.tracks
+    val downloadProgress = downloads.progress
+    fun download(track: Track) = downloads.download(track)
+    fun removeDownload(track: Track) = downloads.remove(track)
+
+    fun playDownloaded(tracks: List<Track>, index: Int) {
+        if (index !in tracks.indices) return
+        if (isAlexa) {
+            // Offline copies always play on this device. Pause the source when reachable.
+            if (com.example.juke.network.NetworkFeedback.online.value) launchEcho { echo.command("pause") }
+            setOutputPreference(PlaybackOutput.PHONE)
+            updatePolling()
+        }
+        setQueue(tracks, index)
+    }
+
     fun startDeferredStartupWork() {
         if (hasStartedDeferredStartupWork) return
         hasStartedDeferredStartupWork = true
-        // Downloads from earlier versions are no longer part of the app; free their storage.
-        viewModelScope.launch(Dispatchers.IO) {
-            val legacyMusic = java.io.File(getApplication<Application>().filesDir, "music")
-            if (legacyMusic.exists()) legacyMusic.deleteRecursively()
-        }
+        // DownloadManager persists account song downloads across app upgrades.
     }
 
     // ---------- Account session ----------
@@ -933,7 +946,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { it.copy(queue = playable, queueIndex = startIndex, currentTrack = start,
                         isPlaying = play, duration = start.durationSec * 1000L) }
                 },
-                synchronize = { playable ->
+                synchronize = sync@{ playable ->
+                    if (!com.example.juke.network.NetworkFeedback.online.value) return@sync
                     withContext(Dispatchers.IO) {
                         val from = (startIndex - 20).coerceAtLeast(0)
                         AlexaBackendApi.updateQueue("start", requireNotNull(playable[startIndex].ytVideoId),
@@ -961,8 +975,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun resolveForPhone(tracks: List<Track>, startIndex: Int): List<Track> =
         tracks.mapIndexed { i, track ->
             val videoId = requireNotNull(track.ytVideoId) { "${track.title} can't be played" }
-            val url = if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.proxyUrl(videoId)
-            track.copy(localUri = url, isStream = true)
+            downloads.localTrack(track) ?: run {
+                val url = if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.audioUrl(videoId)
+                track.copy(localUri = url, isStream = true)
+            }
         }.also { resolved -> trackDao.insertTracks(resolved.map { it.toEntity() }) }
 
     fun togglePlayPause() {
