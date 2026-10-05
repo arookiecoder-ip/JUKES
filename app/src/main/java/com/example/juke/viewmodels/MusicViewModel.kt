@@ -978,9 +978,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 publishPhoneQueue(state.queue, state.queueIndex, position, playbackManager.shouldResumeAfterTrackChange(), startRadio)
                 sharedPhoneQueueReady = true
+                _queueLoadError.value = null
                 queueManager.initializeQueue(state.queue, preserveHistory = true)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { _messages.tryEmit("Playing on this device. The shared queue couldn't sync.") }
+            catch (e: Exception) {
+                val message = "The shared queue couldn't sync. Try again."
+                if (_queueLoadError.value == null) _messages.tryEmit(message)
+                _queueLoadError.value = message
+            }
         }
     }
 
