@@ -532,7 +532,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             echo.refresh(force = true)
                         } else {
                             transferPlayback(
-                                pauseSource = { if (from.playing) echo.command("pause") },
+                                pauseSource = { if (from.playing) echo.command("pause", refreshAfter = false) },
                                 startTarget = {
                                     echo.select(serial!!, refreshAfter = false)
                                     moveQueueToEcho(from.queue, from.index, from.track, from.livePosition(), from.playing)
@@ -560,6 +560,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _messages.tryEmit(e.message ?: "Couldn't switch playback")
             } finally {
                 _isSwitchingOutput.value = false
+                if (!isAlexa && !sharedPhoneQueueReady) synchronizePhoneQueue()
                 val next = outputSwitchRequests.finish()
                 if (signedIn && next != null) switchOutput(next.serial)
             }

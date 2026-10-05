@@ -119,7 +119,9 @@ class PlaybackStreamRegressionTest {
                     instrumentation.runOnMainSync { manager.setQueue(tracks, 100, playWhenReady = false) }
                     awaitQueue(controller, 2_000, tracks[100].uuid)
                     instrumentation.runOnMainSync { manager.toggleShuffle() }
-                    awaitQueue(controller, 2_000, tracks[100].uuid)
+                    awaitQueue(controller, 2_000, tracks[100].uuid) { player ->
+                        (101 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId } != tracks.drop(101).map { it.uuid }
+                    }
                     instrumentation.runOnMainSync {
                         val ids = (0 until controller.mediaItemCount).map { controller.getMediaItemAt(it).mediaId }
                         assertEquals(tracks.map { it.uuid }.toSet(), ids.toSet())
@@ -141,11 +143,11 @@ class PlaybackStreamRegressionTest {
             }
         } finally { audio.delete() }
     }
-    private fun awaitQueue(controller: MediaController, count: Int, currentId: String) {
+    private fun awaitQueue(controller: MediaController, count: Int, currentId: String, matches: (MediaController) -> Boolean = { true }) {
         val deadline = SystemClock.elapsedRealtime() + 10_000
         while (SystemClock.elapsedRealtime() < deadline) {
             var ready = false
-            instrumentation.runOnMainSync { ready = controller.mediaItemCount == count && controller.currentMediaItem?.mediaId == currentId }
+            instrumentation.runOnMainSync { ready = controller.mediaItemCount == count && controller.currentMediaItem?.mediaId == currentId && matches(controller) }
             if (ready) return
             SystemClock.sleep(50)
         }
