@@ -145,11 +145,10 @@ fun SearchScreen(
         }
     }
 
-    Scaffold(containerColor = Color.Transparent) { paddingValues ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(bottom = paddingValues.calculateBottomPadding())
         ) {
             SearchHeader(

@@ -60,6 +60,7 @@ data class ArtistDetailUiState(
     val subscribers: String = "",
     val description: String = "",
     val topTracks: List<Track> = emptyList(),
+    val allTracks: List<Track> = emptyList(),
     val topSongsBrowseId: String = "",
     val albums: List<BrowseItem> = emptyList(),
     val singles: List<BrowseItem> = emptyList(),
@@ -427,7 +428,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 val data = Backend.get("/api/artist/${artist.id}/songs", mapOf("browse_id" to state.topSongsBrowseId)).objectOrEmpty()
                 val songs = data.array("songs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }.filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value) }
                 check(songs.isNotEmpty()) { "No artist songs available" }
-                _artistDetailState.update { it.copy(topTracks = songs, allSongsLoaded = true) }
+                _artistDetailState.update { it.copy(allTracks = songs, allSongsLoaded = true) }
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
             catch (e: Exception) { _artistDetailState.update { it.copy(error = e.message ?: "Could not load artist songs") } }

@@ -88,6 +88,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.CompositionLocalProvider
 import com.example.juke.ui.screens.AlbumDetailScreen
@@ -451,6 +452,7 @@ class MainActivity : ComponentActivity() {
                     }
                 })
                 Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground,
@@ -586,11 +588,21 @@ class MainActivity : ComponentActivity() {
                                         searchViewModel.clearArtistDetail()
                                         navController.popBackStack()
                                     },
+                                    onShowAllSongs = { navController.navigate("artist-songs/$artistId") },
                                     onNavigateToAlbum = { album ->
                                         activityViewModelProvider[AlbumDetailViewModel::class.java]
                                             .loadAlbumDetails(album)
                                         navController.navigate("album/${album.id}")
                                     },
+                                    bottomPadding = bottomPadding
+                                )
+                            }
+                            composable("artist-songs/{artistId}") { entry ->
+                                ArtistSongsScreen(
+                                    artistId = entry.arguments?.getString("artistId").orEmpty(),
+                                    searchViewModel = searchViewModel,
+                                    musicViewModel = musicViewModel,
+                                    onNavigateBack = { navController.popBackStack() },
                                     bottomPadding = bottomPadding
                                 )
                             }

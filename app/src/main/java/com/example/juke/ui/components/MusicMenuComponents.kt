@@ -20,7 +20,7 @@ import coil.compose.AsyncImage
 
 @Composable
 fun MusicMenuHeader(title: String, subtitle: String, artwork: String?) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             if (!artwork.isNullOrBlank()) AsyncImage(artwork, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else Icon(Icons.Filled.MusicNote, null, Modifier.size(32.dp))
@@ -35,18 +35,18 @@ fun MusicMenuHeader(title: String, subtitle: String, artwork: String?) {
 
 @Composable
 fun MusicQuickAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
-    Column(modifier.clickable(onClick = onClick).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(44.dp).clip(CircleShape).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-            Icon(icon, null, Modifier.size(26.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+    Column(modifier.clickable(onClick = onClick).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(52.dp).clip(CircleShape).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(28.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
 
 @Composable
 fun MusicMenuOption(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium)
