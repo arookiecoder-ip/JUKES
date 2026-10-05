@@ -92,7 +92,7 @@ jobs:
           test "$status" = "200" || { echo "Account login endpoint returned $status instead of 200"; exit 1; }
 
       - name: Check browse, playback presentation and Echo snapshots
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.network.DeviceAudioTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --no-daemon
 
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |

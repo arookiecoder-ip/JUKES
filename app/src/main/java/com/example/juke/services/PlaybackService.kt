@@ -697,7 +697,7 @@ class PlaybackService : MediaLibraryService() {
         // combined with FLAG_IGNORE_CACHE_ON_ERROR ensures we fall-through cleanly.
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
+            .setReadTimeoutMs(com.example.juke.network.DEVICE_AUDIO_READ_TIMEOUT_MS)
             .setAllowCrossProtocolRedirects(true)
         httpDataSourceFactory.setTransferListener(object : androidx.media3.datasource.TransferListener {
             private val starts = java.util.concurrent.ConcurrentHashMap<androidx.media3.datasource.DataSource, Long>()
