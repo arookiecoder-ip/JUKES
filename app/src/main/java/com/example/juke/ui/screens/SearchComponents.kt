@@ -160,7 +160,11 @@ internal fun SearchResultsList(
                     } }
                     Column(Modifier.padding(horizontal = 20.dp).combinedClickable(onClick = open, onLongClick = { menu?.show(hero) }, onLongClickLabel = "More options")) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(hero.image, hero.title, modifier = Modifier.size(120.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+                            Box(Modifier.size(120.dp).clip(if (hero.kind == "artist") CircleShape else androidx.compose.ui.graphics.RectangleShape)) {
+                                AsyncImage(hero.image, hero.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                if (hero.kind in listOf("album", "playlist")) com.example.juke.ui.components.CollectionPlayButton(
+                                    "Play ${hero.title}", { musicViewModel.playCollection(hero) }, Modifier.align(Alignment.BottomEnd).padding(8.dp))
+                            }
                             Column(Modifier.padding(start = 16.dp).weight(1f)) {
                                 Text(hero.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(hero.subtitle.ifBlank { hero.kind.replaceFirstChar { it.uppercase() } }, style = MaterialTheme.typography.bodyMedium)
