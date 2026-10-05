@@ -24,7 +24,9 @@ data class EchoState(
     val anchoredAt: Long = 0,
     val durationMs: Long = 0,
     val volume: Int? = null,
-    val confirmed: Boolean = false
+    val confirmed: Boolean = false,
+    val processing: Boolean = false,
+    val sharedOutput: SharedPlaybackOutput = SharedPlaybackOutput()
 ) {
     /** Live position: the server anchor plus the time since, while playing (like the web progress bar). */
     fun livePosition(now: Long = SystemClock.elapsedRealtime()): Long {
@@ -65,6 +67,8 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
         anchoredAt = now,
         durationMs = np.number("duration_ms").takeIf { it > 0 } ?: (track?.durationSec?.times(1000L) ?: 0),
         volume = if (preserveVolume) previousVolume else volume ?: previousVolume,
-        confirmed = np.flag("playback_confirmed")
+        confirmed = np.flag("playback_confirmed"),
+        processing = np.flag("playback_processing"),
+        sharedOutput = sharedPlaybackOutput(np)
     )
 }

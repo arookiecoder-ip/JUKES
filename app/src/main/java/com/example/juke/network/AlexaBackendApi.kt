@@ -71,7 +71,10 @@ object AlexaBackendApi {
         val tracks: List<BackendTrack>,
         val playing: Boolean? = null,
         @SerialName("position_ms") val positionMs: Long? = null,
-        @SerialName("queue_index") val queueIndex: Int? = null
+        @SerialName("queue_index") val queueIndex: Int? = null,
+        @SerialName("output_owner") val outputOwner: String? = null,
+        @SerialName("output_token") val outputToken: String? = null,
+        val buffering: Boolean = false
     )
 
     fun thumbnailUrl(raw: JsonElement?): String? {
@@ -138,16 +141,32 @@ object AlexaBackendApi {
 
     suspend fun updateQueue(
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
-        playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null
+        playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null, buffering: Boolean = false
     ) {
         requireConfigured()
         publishPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey,
-            QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex))
+            QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex,
+                com.example.juke.services.PhonePlaybackOwnership.ownerId,
+                com.example.juke.services.PhonePlaybackOwnership.token, buffering))
     }
 
     suspend fun phoneQueueSnapshot(): kotlinx.serialization.json.JsonObject {
         requireConfigured()
         return readPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey)
+    }
+
+    suspend fun phoneOutputStatus(): com.example.juke.services.SharedPlaybackOutput {
+        requireConfigured()
+        return com.example.juke.services.sharedPlaybackOutput(outputRequest(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey))
+    }
+
+    suspend fun phoneOutputRequest(action: String, owner: String, token: String = "", serial: String = ""): com.example.juke.services.SharedPlaybackOutput {
+        requireConfigured()
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("action", JsonPrimitive(action)); put("output_owner", JsonPrimitive(owner))
+            put("output_token", JsonPrimitive(token)); put("serial", JsonPrimitive(serial))
+        }
+        return com.example.juke.services.sharedPlaybackOutput(outputRequest(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey, body))
     }
 
     fun backendTrack(track: Track): BackendTrack = BackendTrack(
@@ -215,5 +234,15 @@ internal suspend fun readPhoneQueue(
     if (response.status.value !in 200..299) {
         throw BackendHttpException(response.status.value, "Phone queue read failed (${response.status.value}).")
     }
+    return kotlinx.serialization.json.Json.parseToJsonElement(response.bodyAsText()).jsonObject
+}
+
+internal suspend fun outputRequest(client: io.ktor.client.HttpClient, server: String, apiKey: String,
+    body: kotlinx.serialization.json.JsonObject? = null): kotlinx.serialization.json.JsonObject {
+    val url = server.trimEnd('/') + "/api/app/output/"
+    val response = if (body == null) client.get(url) { header("X-Api-Key", apiKey) }
+        else client.post(url) { header("X-Api-Key", apiKey); contentType(ContentType.Application.Json); setBody(body.toString()) }
+    if (response.status.value !in 200..299) throw BackendHttpException(response.status.value,
+        if (response.status.value == 409) "Playback output changed. Refresh and retry." else "Couldn't synchronize playback output (${response.status.value}).")
     return kotlinx.serialization.json.Json.parseToJsonElement(response.bodyAsText()).jsonObject
 }
