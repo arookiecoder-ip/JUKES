@@ -22,4 +22,14 @@ class DeviceAudioTest {
             fail("Invalid video id should be rejected")
         } catch (_: IllegalArgumentException) { }
     }
+    @Test fun authenticationFollowsConfiguredOriginAndPathPrefix() {
+        val base = "https://audio.example.com/music/"
+        assertTrue(isBackendAudioRequest(base, deviceAudioUrl(base, "abcdefghijk")))
+        assertTrue(isBackendAudioRequest(base, "https://AUDIO.example.com:443/music/audio/?video_id=abcdefghijk&wait=1"))
+        assertFalse(isBackendAudioRequest(base, "https://other.example.com/music/audio/?video_id=abcdefghijk"))
+        assertFalse(isBackendAudioRequest(base, "http://audio.example.com/music/audio/"))
+        assertFalse(isBackendAudioRequest(base, "https://audio.example.com:444/music/audio/"))
+        assertFalse(isBackendAudioRequest(base, "https://audio.example.com/audio/"))
+        assertFalse(isBackendAudioRequest(base, "https://audio.example.com/music/audio/unrelated"))
+    }
 }

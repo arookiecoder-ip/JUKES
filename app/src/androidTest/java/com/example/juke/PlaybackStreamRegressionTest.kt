@@ -1,6 +1,15 @@
 package com.example.juke
 
 import android.os.SystemClock
+import android.content.ComponentName
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import androidx.test.core.app.ActivityScenario
+import com.example.juke.models.Track
+import com.example.juke.services.PlaybackManager
+import com.example.juke.services.PlaybackService
+import com.google.common.util.concurrent.ListenableFuture
+import java.util.concurrent.TimeUnit
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -51,10 +60,46 @@ class PlaybackStreamRegressionTest {
 
     @Test fun configuredServerPlaysOnlineWithEmptyDeviceCache() {
         assertTrue("Audio API key is missing from this build", Backend.apiKey.isNotBlank())
+        val base = android.net.Uri.parse(Backend.audioBaseUrl)
+        val uri = android.net.Uri.parse(deviceAudioUrl(Backend.audioBaseUrl, "Yq4tcnH4bxg"))
+        val legacyMatch = uri.host == base.host && uri.scheme == base.scheme && uri.port == base.port &&
+            uri.path?.startsWith("/audio/") == true
+        println("Configured audio authentication: legacyMatch=$legacyMatch currentMatch=${com.example.juke.network.isBackendAudioRequest(Backend.audioBaseUrl, uri.toString())}")
         // Same public sample used by the server's cookie test. This player does not report
         // listening history or issue Echo/queue commands, and cannot use Library downloads.
         playAndAdvance(Backend.audioBaseUrl, Backend.apiKey,
             deviceAudioUrl(Backend.audioBaseUrl, "Yq4tcnH4bxg"), 210_000)
+    }
+
+    @Test fun configuredServerPlaysThroughAppServiceAndController() {
+        val prefs = context.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)
+        val originalOutput = prefs.getString("playback_output", null)
+        prefs.edit().putString("playback_output", "PHONE").commit()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                lateinit var connection: ListenableFuture<MediaController>
+                instrumentation.runOnMainSync {
+                    connection = MediaController.Builder(context,
+                        SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync()
+                }
+                val controller = connection.get(20, TimeUnit.SECONDS)
+                val manager = PlaybackManager.getInstance(context)
+                try {
+                    instrumentation.runOnMainSync {
+                        manager.setQueue(listOf(Track(uuid = "online-regression-${UUID.randomUUID()}",
+                            title = "Online playback regression", artist = "", durationSec = 240,
+                            localUri = deviceAudioUrl(Backend.audioBaseUrl, "Yq4tcnH4bxg"), isStream = true)))
+                    }
+                    assertAdvances(controller, 210_000) { PlaybackService.StreamCacheManager.getCache(context).cacheSpace }
+                } finally {
+                    instrumentation.runOnMainSync { controller.stop(); controller.clearMediaItems(); controller.release(); manager.release() }
+                }
+            }
+        } finally {
+            prefs.edit().apply {
+                if (originalOutput == null) remove("playback_output") else putString("playback_output", originalOutput)
+            }.commit()
+        }
     }
 
     private fun playAndAdvance(base: String, key: String, uri: String, timeoutMs: Long) {
@@ -68,31 +113,43 @@ class PlaybackStreamRegressionTest {
                     setMediaItem(MediaItem.fromUri(uri)); prepare(); play()
                 }
             }
-            val deadline = SystemClock.elapsedRealtime() + timeoutMs
-            var state = Player.STATE_IDLE
-            var requested = false
-            var position = 0L
-            while (SystemClock.elapsedRealtime() < deadline) {
-                var error: PlaybackException? = null
-                var playing = false
-                instrumentation.runOnMainSync {
-                    error = player!!.playerError; playing = player!!.isPlaying
-                    position = player!!.currentPosition; state = player!!.playbackState
-                    requested = player!!.playWhenReady
-                }
-                error?.let { failure ->
-                    val cause = generateSequence<Throwable>(failure) { it.cause }
-                        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()
-                    fail("Online player error ${failure.errorCodeName}; HTTP status=${cause?.responseCode ?: "none"}")
-                }
-                if (playing && position >= 300) return
-                SystemClock.sleep(50)
+            try {
+                assertAdvances(player!!, timeoutMs) { cache.cacheSpace }
+            } catch (failure: AssertionError) {
+                val backend = android.net.Uri.parse(base)
+                val request = android.net.Uri.parse(uri)
+                val legacyMatch = request.host == backend.host && request.scheme == backend.scheme &&
+                    request.port == backend.port && request.path?.startsWith("/audio/") == true
+                throw AssertionError("${failure.message}; legacyAuthMatch=$legacyMatch authMatch=${com.example.juke.network.isBackendAudioRequest(base, uri)}", failure)
             }
-            fail("Online player stalled: state=$state playWhenReady=$requested position=$position cacheBytes=${cache.cacheSpace}")
         } finally {
             instrumentation.runOnMainSync { player?.release() }
             cache.release(); directory.deleteRecursively()
         }
+    }
+
+    private fun assertAdvances(player: Player, timeoutMs: Long, cacheBytes: () -> Long) {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        var state = Player.STATE_IDLE
+        var requested = false
+        var position = 0L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            var error: PlaybackException? = null
+            var playing = false
+            instrumentation.runOnMainSync {
+                error = player.playerError; playing = player.isPlaying
+                position = player.currentPosition; state = player.playbackState
+                requested = player.playWhenReady
+            }
+            error?.let { failure ->
+                val cause = generateSequence<Throwable>(failure) { it.cause }
+                    .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()
+                fail("Online player error ${failure.errorCodeName}; HTTP status=${cause?.responseCode ?: "none"}")
+            }
+            if (playing && position >= 300) return
+            SystemClock.sleep(50)
+        }
+        fail("Online player stalled: state=$state playWhenReady=$requested position=$position cacheBytes=${cacheBytes()}")
     }
 
     private class AudioServer : AutoCloseable {
