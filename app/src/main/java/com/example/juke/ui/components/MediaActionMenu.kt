@@ -29,23 +29,28 @@ import androidx.compose.ui.platform.LocalContext
 data class QueueSongActions(val play: () -> Unit, val moveUp: (() -> Unit)? = null,
     val moveDown: (() -> Unit)? = null, val remove: (() -> Unit)? = null)
 
+data class ExtraSongOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val action: () -> Unit)
+
 class MediaMenuController {
     var track by mutableStateOf<Track?>(null)
     var item by mutableStateOf<BrowseItem?>(null)
+    var extraOptions by mutableStateOf<List<ExtraSongOption>>(emptyList())
     var queueActions by mutableStateOf<QueueSongActions?>(null)
-    fun show(track: Track, queueActions: QueueSongActions? = null) { item = null; this.track = track; this.queueActions = queueActions }
-    fun show(item: BrowseItem) { track = null; queueActions = null; this.item = item }
-    fun dismiss() { track = null; item = null; queueActions = null }
+    fun show(track: Track, queueActions: QueueSongActions? = null, extras: List<ExtraSongOption> = emptyList()) { item = null; this.track = track; this.queueActions = queueActions; extraOptions = extras }
+    fun show(item: BrowseItem) { extraOptions = emptyList(); track = null; queueActions = null; this.item = item }
+    fun dismiss() { extraOptions = emptyList(); track = null; item = null; queueActions = null }
 }
 val LocalMediaMenu = staticCompositionLocalOf<MediaMenuController?> { null }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, library: LibraryViewModel, onOpen: (BrowseItem) -> Unit) {
+    val downloadedCollections by music.downloadedCollections.collectAsState()
     val downloaded by music.downloadedTracks.collectAsState()
     val downloadProgress by music.downloadProgress.collectAsState()
     val track = menu.track
     val item = menu.item
+    val extraOptions = menu.extraOptions
     val queueActions = menu.queueActions
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -146,7 +151,20 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     } else if (music.uiState.value.queue.any { it.uuid == track.uuid }) {
                         action("Remove from queue") { music.removeFromQueue(track.uuid) }
                     }
+                    if (extraOptions.isNotEmpty()) {
+                        HorizontalDivider()
+                        extraOptions.forEach { extra -> MusicMenuOption(extra.icon, extra.label) { menu.dismiss(); extra.action() } }
+                    }
                 } else if (item != null) {
+                    if (item.kind in listOf("album", "playlist")) {
+                        val saved = downloadedCollections.firstOrNull { it.id == item.id && it.kind == item.kind }
+                        action(if (saved == null) "Download" else "Remove download") {
+                            if (saved == null) music.downloadCollection(item) else music.downloads.removeCollection(saved)
+                        }
+                        if (saved != null && saved.available(downloaded).size < saved.tracks.size) {
+                            action("Retry download") { music.downloads.retryCollection(saved) }
+                        }
+                    }
                     action("Open ${item.kind}") { onOpen(item) }
                 }
             }

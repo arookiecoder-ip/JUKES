@@ -15,7 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -716,8 +716,16 @@ class PlaybackService : MediaLibraryService() {
                 starts.remove(source)
             }
         })
+        // Keep credentials out of media URIs (including Media3/system error logs).
+        val authenticatedAudio = androidx.media3.datasource.ResolvingDataSource.Factory(httpDataSourceFactory) { spec ->
+            val backend = android.net.Uri.parse(com.example.juke.network.Backend.audioBaseUrl)
+            if (spec.uri.host == backend.host && spec.uri.scheme == backend.scheme && spec.uri.port == backend.port &&
+                spec.uri.path?.startsWith("/audio/") == true) {
+                spec.withAdditionalHeaders(mapOf("X-Api-Key" to com.example.juke.network.Backend.apiKey))
+            } else spec
+        }
         val upstreamDataSourceFactory =
-            DefaultDataSource.Factory(applicationContext, httpDataSourceFactory)
+            DefaultDataSource.Factory(applicationContext, authenticatedAudio)
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(StreamCacheManager.getCache(applicationContext))
             .setUpstreamDataSourceFactory(upstreamDataSourceFactory)
@@ -1629,6 +1637,18 @@ class PlaybackManager private constructor(private val context: Context) {
                 if (it.playbackState == Player.STATE_IDLE && it.playerError == null) it.prepare()
                 it.play()
                 Log.d(TAG, "Playing")
+            }
+        }
+    }
+
+    /** A handoff commits only after the destination has prepared its selected track. */
+    suspend fun awaitReady() {
+        kotlinx.coroutines.withTimeout(30_000) {
+            while (true) {
+                val ready = controller
+                ready?.playerError?.let { throw it }
+                if (ready?.playbackState == Player.STATE_READY) return@withTimeout
+                kotlinx.coroutines.delay(50)
             }
         }
     }

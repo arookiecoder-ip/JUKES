@@ -9,7 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.juke.BuildConfig

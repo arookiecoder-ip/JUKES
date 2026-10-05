@@ -38,8 +38,8 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item(span = { GridItemSpan(2) }) { Text(kind.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.headlineMedium) }
             items(state.items, key = { it.id }) { item ->
-                if (item.kind == "playlist") PlaylistCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) })
-                else AlbumCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) })
+                if (item.kind == "playlist") PlaylistCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) }, fillCell = true)
+                else AlbumCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) }, fillCell = true)
             }
             if (state.loading && state.items.isEmpty()) items(8) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

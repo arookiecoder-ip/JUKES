@@ -9,7 +9,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.telephony.TelephonyManager
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import androidx.core.content.edit
 import com.example.juke.BuildConfig
 import com.posthog.PostHog

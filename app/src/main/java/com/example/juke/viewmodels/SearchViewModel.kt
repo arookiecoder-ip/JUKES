@@ -1,7 +1,7 @@
 package com.example.juke.viewmodels
 
 import android.app.Application
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope

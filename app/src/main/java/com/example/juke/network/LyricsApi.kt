@@ -1,6 +1,6 @@
 package com.example.juke.network
 
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import com.example.juke.models.LRCLibResult
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get

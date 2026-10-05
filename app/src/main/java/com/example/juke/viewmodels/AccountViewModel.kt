@@ -88,6 +88,8 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             _state.value = AccountUiState(stage = AuthStage.SIGNED_OUT)
             return
         }
+        // A saved session can open cached screens while validation runs in the background.
+        _state.update { it.copy(stage = AuthStage.SIGNED_IN) }
         viewModelScope.launch {
             val stage = try {
                 Backend.get("/alexa/status/")
@@ -167,7 +169,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         statusJob = viewModelScope.launch {
             _state.update { it.copy(checkingStatus = true) }
             try {
-                val profile = Backend.get("/api/profile_status/").objectOrEmpty()
+                val profile = Backend.get("/api/profile_status/", mapOf("audio_check" to "0")).objectOrEmpty()
                 val status = AccountStatus(
                     amazonConnected = profile.flag("amazon_connected"),
                     youtubeLibrary = profile.flag("youtube_auth_working"),
@@ -177,10 +179,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     youtubeReconnectRequired = profile.flag("youtube_browser_reconnect_required")
                 )
                 _state.update { it.copy(status = status) }
-                if (cookieJob?.isActive != true) {
-                    val audio = downloadCookies.check()
-                    _state.update { it.copy(status = it.status?.copy(youtubeCookies = audio.valid), cookieMessage = audio.message) }
-                }
+                // Audio download probes run only when explicitly requested, never at startup.
                 // Everything is connected: carry on into the app without a tap.
                 if (_state.value.status?.allConnected == true && _state.value.showAccountCheck) {
                     delay(1_200)

@@ -1,6 +1,6 @@
 package com.example.juke.services
 
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
 import com.example.juke.network.Backend
 import com.example.juke.network.array
 import com.example.juke.network.objectOrEmpty

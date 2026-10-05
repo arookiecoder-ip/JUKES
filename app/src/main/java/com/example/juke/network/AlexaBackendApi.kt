@@ -98,7 +98,7 @@ object AlexaBackendApi {
      */
     /** Device audio is independent of Echo playback state and download cancellation. */
     fun audioUrl(videoId: String): String =
-        "${Backend.audioBaseUrl}/audio/?video_id=${enc(videoId)}&key=${enc(Backend.apiKey)}"
+        "${Backend.audioBaseUrl}/audio/?video_id=${enc(videoId)}"
 
     fun proxyUrl(videoId: String): String = audioUrl(videoId)
 
