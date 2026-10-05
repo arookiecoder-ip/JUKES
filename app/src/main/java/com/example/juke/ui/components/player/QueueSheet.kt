@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.example.juke.models.Track
+import com.example.juke.ui.components.QueueSongActions
 import com.example.juke.ui.components.LocalMediaMenu
 import com.example.juke.viewmodels.MusicUiState
 import kotlin.math.roundToInt
@@ -82,7 +83,6 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 val editable = queue.isNotEmpty() && !uiState.isQueueOperationInProgress
                 var offset by remember { mutableFloatStateOf(0f) }
                 var dragging by remember { mutableStateOf(false) }
-                var options by remember { mutableStateOf(false) }
                 val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
                     if (editable && !active && !dragging && value == SwipeToDismissBoxValue.EndToStart) {
                         onRemoveTrack(track.uuid); true
@@ -108,16 +108,17 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                             Icon(Icons.Default.Delete, "Remove from queue", tint = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }) {
-                    QueueWebRow(track, index + 1, active, dragging, grip,
-                        onPlay = { onPlayTrack(track) }, onLongClick = { menu?.show(track) }, onOptions = { options = true }) {
-                        DropdownMenu(options, { options = false }) {
-                            DropdownMenuItem(text = { Text("Play now") }, onClick = { options = false; onPlayTrack(track) })
-                            DropdownMenuItem(text = { Text("Move up") }, enabled = editable && index > 0, onClick = { options = false; onMoveTrack(index, index - 1) })
-                            DropdownMenuItem(text = { Text("Move down") }, enabled = editable && index < queue.lastIndex, onClick = { options = false; onMoveTrack(index, index + 1) })
-                            DropdownMenuItem(text = { Text("Remove from queue") }, enabled = editable && !active, onClick = { options = false; onRemoveTrack(track.uuid) })
-                            DropdownMenuItem(text = { Text("Song options") }, onClick = { options = false; menu?.show(track) })
-                        }
+                    fun songOptions() {
+                        menu?.show(track, QueueSongActions(
+                            play = { onPlayTrack(track) },
+                            moveUp = if (editable && index > 0) ({ onMoveTrack(index, index - 1) }) else null,
+                            moveDown = if (editable && index < queue.lastIndex) ({ onMoveTrack(index, index + 1) }) else null,
+                            remove = if (editable && !active) ({ onRemoveTrack(track.uuid) }) else null
+                        ))
                     }
+                    QueueWebRow(track, index + 1, active, dragging, grip,
+                        onPlay = { onPlayTrack(track) }, onLongClick = ::songOptions, onOptions = ::songOptions) {}
+
                 }
             }
             if (upcoming == 0) item { Text("No upcoming songs", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }

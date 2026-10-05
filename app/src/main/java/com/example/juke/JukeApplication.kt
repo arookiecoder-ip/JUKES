@@ -13,6 +13,7 @@ class JukeApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.example.juke.network.Backend.init(this)
+        com.example.juke.network.NetworkFeedback.observe(this)
     }
 
     override fun newImageLoader(): ImageLoader {

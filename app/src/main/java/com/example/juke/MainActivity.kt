@@ -195,6 +195,9 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { libraryViewModel.signedOut.collect { account.sessionEnded() } }
                 LaunchedEffect(Unit) { searchViewModel.signedOut.collect { account.sessionEnded() } }
                 LaunchedEffect(Unit) {
+                    com.example.juke.network.NetworkFeedback.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+                }
+                LaunchedEffect(Unit) {
                     musicViewModel.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
                 }
                 LaunchedEffect(Unit) {
@@ -591,6 +594,10 @@ class MainActivity : ComponentActivity() {
                                 val searchViewModel =
                                     activityViewModelProvider[SearchViewModel::class.java]
                                 ArtistDetailScreen(
+                                    onNavigateToPlaylist = { playlist ->
+                                        activityViewModelProvider[PlaylistDetailViewModel::class.java].loadPlaylistDetails(playlist)
+                                        navController.navigate("playlist/${playlist.id}")
+                                    },
                                     onNavigateToArtist = { artist -> searchViewModel.loadArtistDetails(artist); navController.navigate("artist/${artist.id}") },
                                     searchViewModel = searchViewModel,
                                     musicViewModel = musicViewModel,

@@ -4,6 +4,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.border
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -256,11 +260,17 @@ private fun GlassTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
     var visible by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    val fieldShape = RoundedCornerShape(4.dp)
+    val frame by animateColorAsState(if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, label = "login-field-frame")
+    val fill by animateColorAsState(if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainer, label = "login-field-fill")
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 52.dp)
-            .glassPane(GlassShapes.Pill, GlassLevel.Regular)
+            .clip(fieldShape)
+            .background(fill)
+            .border(if (focused) 2.dp else 1.dp, frame, fieldShape)
             .padding(start = 20.dp, end = if (password) 4.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -277,7 +287,7 @@ private fun GlassTextField(
             visualTransformation = if (password && !visible) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
-            modifier = Modifier.weight(1f).semantics { contentDescription = placeholder }.padding(vertical = 14.dp),
+            modifier = Modifier.weight(1f).onFocusChanged { focused = it.isFocused }.semantics { contentDescription = placeholder }.padding(vertical = 14.dp),
             decorationBox = { inner ->
                 Box(contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart) {
                     if (value.isEmpty()) {

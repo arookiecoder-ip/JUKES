@@ -342,7 +342,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w(TAG, "Shared queue refresh failed: ${e.message}")
+                    Log.w(TAG, "Shared queue refresh failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
                 }
             }
         }
@@ -489,7 +489,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _signedOut.tryEmit(Unit)
                 return@launch
             } catch (e: Exception) {
-                Log.w(TAG, "Echo list failed: ${e.message}")
+                Log.w(TAG, "Echo list failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
                 false
             }
             if (!outputChosen) setOutputPreference(if (hasEcho) PlaybackOutput.ALEXA else PlaybackOutput.PHONE)
@@ -582,7 +582,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: BackendAuthException) {
                 _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Output switch failed: ${e.message}", e)
+                Log.e(TAG, "Output switch failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
                 _messages.tryEmit(e.message ?: "Couldn't switch playback")
             } finally {
                 _isSwitchingOutput.value = false
@@ -749,7 +749,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _signedOut.tryEmit(Unit)
         null
     } catch (e: Exception) {
-        Log.w(TAG, "Echo request failed: ${e.message}")
+        Log.w(TAG, "Echo request failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
         _messages.tryEmit(e.message ?: "The Echo didn't respond")
         null
     }
@@ -920,7 +920,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: BackendAuthException) {
                 _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't load the playlist: ${e.message}")
+                _messages.tryEmit("Couldn't load the playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }
@@ -959,9 +959,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             throw e
         } catch (e: Exception) {
             if (throwOnFailure) throw e
-            Log.e(TAG, "Phone playback failed: ${e.message}", e)
-            _uiState.update { it.copy(error = "Playback failed: ${e.message}") }
-            _messages.tryEmit("Playback failed: ${e.message}")
+            Log.e(TAG, "Phone playback failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
+            _uiState.update { it.copy(error = "Playback failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}") }
+            _messages.tryEmit("Playback failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
         } finally {
             _uiState.update { it.copy(isLoading = false) }
         }
@@ -1003,7 +1003,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun addNext(tracks: List<Track>) {
         if (tracks.isEmpty()) return
         if (isAlexa) {
-            launchEcho { echo.queueAdd(tracks, next = true) }
+            launchEcho { echo.queueAdd(tracks, next = true); _messages.tryEmit("Added to play next") }
             return
         }
         val current = _uiState.value.currentTrack
@@ -1021,6 +1021,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     val queue = state.queue.toMutableList().apply { addAll(insertIndex, resolved) }
                     _uiState.update { it.copy(queue = queue) }
                     resolved.forEachIndexed { i, track -> queueManager.insertQueueItem(1 + i, track) }
+                    _messages.tryEmit("Added to play next")
                 }
                 current.ytVideoId?.let { videoId ->
                     withContext(Dispatchers.IO) {
@@ -1031,8 +1032,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Play next failed: ${e.message}", e)
-                _messages.tryEmit("Couldn't add to the queue: ${e.message}")
+                Log.e(TAG, "Play next failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
+                _messages.tryEmit("Couldn't add to the queue: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             } finally {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
             }
@@ -1066,8 +1067,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Add to queue failed: ${e.message}", e)
-                _messages.tryEmit("Couldn't add to the queue: ${e.message}")
+                Log.e(TAG, "Add to queue failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
+                _messages.tryEmit("Couldn't add to the queue: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             } finally {
                 _uiState.update { it.copy(isQueueOperationInProgress = false) }
             }
@@ -1089,7 +1090,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w(TAG, "Couldn't refresh shared queue: ${e.message}")
+                    Log.w(TAG, "Couldn't refresh shared queue: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
                 }
                 playbackManager.skipToNext()
             }
@@ -1240,7 +1241,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: BackendAuthException) {
                 _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't update the like: ${e.message}")
+                _messages.tryEmit("Couldn't update the like: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }
@@ -1302,7 +1303,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to refresh lyrics: ${e.message}", e)
+                Log.e(TAG, "Failed to refresh lyrics: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
             } finally {
                 lyricsRefreshJobs.remove(track.uuid)
             }
@@ -1407,7 +1408,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load restored queue: ${e.message}", e)
+            Log.e(TAG, "Failed to load restored queue: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
         }
     }
 
@@ -1465,7 +1466,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: BackendAuthException) {
                 _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
-                _messages.tryEmit("Couldn't save the playlist: ${e.message}")
+                _messages.tryEmit("Couldn't save the playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
             }
         }
     }

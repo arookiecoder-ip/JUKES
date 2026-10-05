@@ -46,6 +46,14 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
                         { musicViewModel.playCollection(album, shuffle = true) }, { musicViewModel.queueCollection(album, next = false) })
                 }
             }
+            state.error?.let { message ->
+                item(key = "load-error") {
+                    Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                        Text(message, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { albumDetailViewModel.loadAlbumDetails(album) }) { Text("Retry") }
+                    }
+                }
+            }
             if (state.tracks.isNotEmpty()) {
                 item { Text("Tracks", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge) }
                 itemsIndexed(state.tracks) { index, track ->

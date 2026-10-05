@@ -32,7 +32,8 @@ import com.example.juke.utils.rememberJukeHaptics
 fun AlbumCard(
     album: BrowseItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPlay: (() -> Unit)? = null
 ) {
     val haptic = rememberJukeHaptics()
     val menu = LocalMediaMenu.current
@@ -43,6 +44,7 @@ fun AlbumCard(
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(album) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
+        androidx.compose.foundation.layout.Box(Modifier.size(148.dp)) {
         AsyncImage(
             model = album.image,
             contentDescription = album.title,
@@ -51,6 +53,9 @@ fun AlbumCard(
                 .clip(androidx.compose.ui.graphics.RectangleShape),
             contentScale = ContentScale.Crop
         )
+            onPlay?.let { play -> CollectionPlayButton("Play ${album.title}", play,
+                Modifier.align(Alignment.BottomEnd).padding(8.dp)) }
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = album.title,

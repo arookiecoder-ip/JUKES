@@ -216,7 +216,8 @@ internal fun SearchResultsList(
                     items(uiState.playlists.distinctBy { it.id }, key = { it.id }) { playlist ->
                         PlaylistCard(
                             playlist = playlist,
-                            onClick = { onNavigateToPlaylist(playlist) }
+                            onClick = { onNavigateToPlaylist(playlist) },
+                            onPlay = { musicViewModel.playCollection(playlist) }
                         )
                     }
                 }
@@ -233,7 +234,7 @@ internal fun SearchResultsList(
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     items(uiState.albums.distinctBy { it.id }, key = { it.id }) { album ->
-                        AlbumCard(album = album, onClick = { onNavigateToAlbum(album) })
+                        AlbumCard(album = album, onClick = { onNavigateToAlbum(album) }, onPlay = { musicViewModel.playCollection(album) })
                     }
                 }
             }

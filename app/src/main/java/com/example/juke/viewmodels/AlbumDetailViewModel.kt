@@ -70,8 +70,8 @@ class AlbumDetailViewModel : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e("AlbumDetailViewModel", "Error loading album: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't load the album") }
+                Log.e("AlbumDetailViewModel", "Error loading album: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}", e)
+                _uiState.update { it.copy(isLoading = false, error = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't load the album") }
             }
         }
     }

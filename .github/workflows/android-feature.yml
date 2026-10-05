@@ -44,7 +44,7 @@ jobs:
           test "$status" = "200" || { echo "Account login endpoint returned $status instead of 200"; exit 1; }
 
       - name: Check browse, playback presentation and Echo snapshots
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --no-daemon
 
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |

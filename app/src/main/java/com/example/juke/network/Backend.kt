@@ -1,5 +1,10 @@
 package com.example.juke.network
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.IOException
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.juke.BuildConfig
@@ -68,9 +73,9 @@ object Backend {
                 }
             }
             install(HttpTimeout) {
-                requestTimeoutMillis = 120_000
+                requestTimeoutMillis = 45_000
                 connectTimeoutMillis = 20_000
-                socketTimeoutMillis = 90_000
+                socketTimeoutMillis = 30_000
             }
         }
     }
@@ -119,7 +124,28 @@ object Backend {
         try { post("/logout/") } finally { clearSession() }
     }
 
-    private suspend fun call(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?): JsonElement {
+    private suspend fun call(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?): JsonElement = coroutineScope {
+        val slowNotice = launch {
+            delay(8_000)
+            NetworkFeedback.notify("Taking longer than usual to load. Please wait…")
+        }
+        try {
+            performCall(method, path, query, body)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            val message = networkErrorMessage(error)
+            if (message != null) {
+                NetworkFeedback.notify(message)
+                throw IOException(message, error)
+            }
+            throw error
+        } finally {
+            slowNotice.cancel()
+        }
+    }
+
+    private suspend fun performCall(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?): JsonElement {
         require(path.startsWith("/") && !path.startsWith("//"))
         val response = client.request(baseUrl + path) {
             this.method = method
@@ -144,9 +170,16 @@ object Backend {
             throw BackendAuthException("Sign in to continue.")
         }
         if (code !in 200..299) {
-            throw IllegalStateException(errorMessage(parsed) ?: "Server error ($code)")
+            val message = when (code) {
+                408, 504 -> "The server took too long to respond. Please try again."
+                429 -> "Too many requests. Please wait a moment and try again."
+                in 500..599 -> "The server is temporarily unavailable. Please try again."
+                else -> errorMessage(parsed) ?: "Request failed ($code). Please try again."
+            }
+            if (code >= 500 || code == 408 || code == 429) NetworkFeedback.notify(message)
+            throw IllegalStateException(message)
         }
-        return parsed ?: throw IllegalStateException("Unexpected server response")
+        return parsed ?: throw IllegalStateException("The server returned an unreadable response. Please try again.")
     }
 
     private fun errorMessage(parsed: JsonElement?): String? {

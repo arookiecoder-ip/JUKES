@@ -456,9 +456,9 @@ fun MiniPlayer(
             // Keep the line fixed to both dock edges, including during a track swipe.
             val progress = if (uiState.duration > 0)
                 (uiState.position.toFloat() / uiState.duration).coerceIn(0f, 1f) else 0f
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp)
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp)
                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f))) {
-                Box(Modifier.fillMaxWidth(progress).height(3.dp).background(MaterialTheme.colorScheme.primary))
+                Box(Modifier.fillMaxWidth(progress).height(1.dp).background(MaterialTheme.colorScheme.primary))
             }
 
         }

@@ -382,9 +382,7 @@ private fun CollectionCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> 
         Box(Modifier.size(160.dp).testTag("home-artwork-${item.id}").background(MaterialTheme.colorScheme.surfaceVariant)) {
             AsyncImage(item.image, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             if (item.kind in listOf("album", "playlist")) {
-                androidx.compose.material3.FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(40.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = 0.24f))) {
-                    Icon(Icons.Filled.PlayArrow, "Play ${item.title}", Modifier.size(26.dp), tint = Color.White)
-                }
+                com.example.juke.ui.components.CollectionPlayButton("Play ${item.title}", onPlay, Modifier.align(Alignment.BottomEnd).padding(8.dp))
             }
         }
         Spacer(Modifier.height(8.dp))

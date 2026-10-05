@@ -112,15 +112,28 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(LibraryFilter.entries) { option ->
-                    GlassFilterChip(selected = option == filter, onClick = { filter = option }, label = { Text(option.label) })
+                    FilterChip(selected = option == filter, onClick = { filter = option }, label = { Text(option.label) },
+                        shape = androidx.compose.ui.graphics.RectangleShape,
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        border = FilterChipDefaults.filterChipBorder(enabled = true, selected = option == filter,
+                            borderColor = MaterialTheme.colorScheme.outlineVariant,
+                            selectedBorderColor = MaterialTheme.colorScheme.primary,
+                            borderWidth = 1.dp, selectedBorderWidth = 1.dp))
                 }
+            }
+            if (state.error != null && entries.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(state.error.orEmpty(), Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = libraryViewModel::refresh) { Text("Retry") }
             }
             PullToRefreshBox(isRefreshing = state.isLoading && entries.isNotEmpty(), onRefresh = libraryViewModel::refresh,
                 modifier = Modifier.fillMaxSize()) {
                 when {
                     state.isLoading && entries.isEmpty() -> TrackListSkeleton(modifier = Modifier.fillMaxSize())
                     state.needsYouTube -> LibraryNotice("Connect YouTube Music", "Your library comes from your connected account.", "Open Settings", onOpenSettings)
-                    state.error != null -> LibraryNotice("Couldn't load your library", state.error.orEmpty(), "Try again", libraryViewModel::refresh)
+                    state.error != null && entries.isEmpty() -> LibraryNotice("Couldn't load your library", state.error.orEmpty(), "Try again", libraryViewModel::refresh)
                     entries.isEmpty() -> LibraryNotice(
                         if (state.searchQuery.isNotBlank()) "No matches" else "No ${filter.label.lowercase()} yet",
                         if (state.searchQuery.isNotBlank()) "Try another search or filter." else "Saved items from your YouTube Music account appear here.")

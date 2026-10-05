@@ -26,12 +26,16 @@ import kotlinx.serialization.json.JsonObject
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 
+data class QueueSongActions(val play: () -> Unit, val moveUp: (() -> Unit)? = null,
+    val moveDown: (() -> Unit)? = null, val remove: (() -> Unit)? = null)
+
 class MediaMenuController {
     var track by mutableStateOf<Track?>(null)
     var item by mutableStateOf<BrowseItem?>(null)
-    fun show(track: Track) { item = null; this.track = track }
-    fun show(item: BrowseItem) { track = null; this.item = item }
-    fun dismiss() { track = null; item = null }
+    var queueActions by mutableStateOf<QueueSongActions?>(null)
+    fun show(track: Track, queueActions: QueueSongActions? = null) { item = null; this.track = track; this.queueActions = queueActions }
+    fun show(item: BrowseItem) { track = null; queueActions = null; this.item = item }
+    fun dismiss() { track = null; item = null; queueActions = null }
 }
 val LocalMediaMenu = staticCompositionLocalOf<MediaMenuController?> { null }
 
@@ -40,10 +44,12 @@ val LocalMediaMenu = staticCompositionLocalOf<MediaMenuController?> { null }
 fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, library: LibraryViewModel, onOpen: (BrowseItem) -> Unit) {
     val track = menu.track
     val item = menu.item
+    val queueActions = menu.queueActions
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var saveTrack by remember { mutableStateOf<Track?>(null) }
     var playlists by remember { mutableStateOf<List<BrowseItem>?>(null) }
+    var playlistError by remember { mutableStateOf<String?>(null) }
     var create by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     fun resolve(block: suspend () -> Unit) {
@@ -77,7 +83,9 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                 }
                 @Composable fun action(label: String, run: () -> Unit) {
                     val icon = when (label) {
-                        "Play" -> Icons.Filled.PlayArrow
+                        "Play", "Play now" -> Icons.Filled.PlayArrow
+                        "Move up" -> Icons.Filled.ArrowUpward
+                        "Move down" -> Icons.Filled.ArrowDownward
                         "Like", "Unlike" -> Icons.Filled.ThumbUp
                         "Play next" -> Icons.Filled.SkipNext
                         "Add to queue" -> Icons.Filled.QueueMusic
@@ -92,6 +100,11 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     MusicMenuOption(icon, label) { menu.dismiss(); run() }
                 }
                 if (track != null) {
+                    queueActions?.let { actions ->
+                        action("Play now", actions.play)
+                        actions.moveUp?.let { action("Move up", it) }
+                        actions.moveDown?.let { action("Move down", it) }
+                    }
                     action("Go to artist") {
                         resolve {
                             val id = track.artistId ?: Backend.get("/api/artist/resolve/", mapOf("name" to track.artist)).objectOrEmpty().text("channel_id", "artist_id", "id")
@@ -107,13 +120,16 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         }
                     }
                     action("Save to Playlist") {
-                        saveTrack = track; playlists = null
+                        saveTrack = track; playlists = null; playlistError = null
                         resolve {
                             try { playlists = library.editablePlaylists() }
-                            catch (e: Exception) { saveTrack = null; throw e }
+                            catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { playlistError = networkErrorMessage(e) ?: e.message ?: "Couldn't load playlists"; throw e }
                         }
                     }
-                    if (music.uiState.value.queue.any { it.uuid == track.uuid }) {
+                    if (queueActions != null) {
+                        queueActions.remove?.let { action("Remove from queue", it) }
+                    } else if (music.uiState.value.queue.any { it.uuid == track.uuid }) {
                         action("Remove from queue") { music.removeFromQueue(track.uuid) }
                     }
                 } else if (item != null) {
@@ -124,13 +140,21 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
     }
     saveTrack?.let { selected ->
         if (create) {
-            AlertDialog(onDismissRequest = { create = false; saveTrack = null }, title = { Text("New playlist") },
+            AlertDialog(shape = RectangleShape, onDismissRequest = { create = false; saveTrack = null }, title = { Text("New playlist") },
                 text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Playlist name") }) },
                 confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { library.createPlaylist(name.trim(), listOf(selected)); create = false; saveTrack = null; name = "" }) { Text("Create") } },
                 dismissButton = { TextButton(onClick = { create = false }) { Text("Back") } })
         } else {
             AddToPlaylistDialog(playlists, listOf(selected), onDismiss = { saveTrack = null },
-                onAddToPlaylist = { library.addTracksToPlaylist(it, listOf(selected)); saveTrack = null }, onCreatePlaylist = { create = true })
+                onAddToPlaylist = { library.addTracksToPlaylist(it, listOf(selected)); saveTrack = null }, onCreatePlaylist = { create = true }, error = playlistError,
+                onRetry = {
+                    playlistError = null
+                    resolve {
+                        try { playlists = library.editablePlaylists() }
+                        catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { playlistError = networkErrorMessage(e) ?: e.message ?: "Couldn't load playlists"; throw e }
+                    }
+                })
         }
     }
 }

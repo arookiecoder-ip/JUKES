@@ -220,7 +220,10 @@ fun PlayerScreen(
     var editablePlaylists by remember { mutableStateOf<List<BrowseItem>?>(null) }
 
     // Fetch the account's editable playlists when the dialog opens
-    LaunchedEffect(showAddToPlaylistDialog) {
+    var playlistLoadError by remember { mutableStateOf<String?>(null) }
+    var playlistRetry by remember { mutableStateOf(0) }
+    LaunchedEffect(showAddToPlaylistDialog, playlistRetry) {
+        playlistLoadError = null
         editablePlaylists = null
         if (showAddToPlaylistDialog != null) {
             editablePlaylists = try {
@@ -228,7 +231,8 @@ fun PlayerScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                emptyList()
+                playlistLoadError = com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't load playlists"
+                null
             }
         }
     }
@@ -418,10 +422,11 @@ fun PlayerScreen(
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             onDismissRequest = { showQueue = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.75f),
+            modifier = Modifier.fillMaxWidth(),
             dragHandle = null
         ) {
             val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
+            Box(Modifier.fillMaxWidth().height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.75f)) {
             QueueBottomSheetContent(
                 statusText = when {
                     rec.resolving > 0 -> "Finding next songs… (${rec.resolving})"
@@ -441,6 +446,7 @@ fun PlayerScreen(
                 onClearPlayed = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.CLEAR_PLAYED) },
                 onSaveAsPlaylist = { musicViewModel.saveQueueAsPlaylist() }
             )
+            }
         }
     }
 
@@ -482,6 +488,8 @@ fun PlayerScreen(
     showAddToPlaylistDialog?.let { track ->
         AddToPlaylistDialog(
             playlists = editablePlaylists,
+            error = playlistLoadError,
+            onRetry = { playlistRetry++ },
             tracks = listOf(track),
             onDismiss = { showAddToPlaylistDialog = null },
             onAddToPlaylist = { playlist ->

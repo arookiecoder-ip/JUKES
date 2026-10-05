@@ -114,7 +114,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         isLoading = false,
                         isRefreshing = false,
-                        error = if (it.shelves.isEmpty()) "Couldn't load recommendations. Pull down to try again." else null
+                        error = com.example.juke.network.networkErrorMessage(e) ?: "Couldn't load recommendations. Pull down to try again."
                     )
                 }
             }
