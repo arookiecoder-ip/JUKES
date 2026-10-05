@@ -49,7 +49,7 @@ class QueueManager private constructor(private val context: Context) {
     private val _currentQueue = MutableStateFlow<List<Track>>(emptyList())
     val currentQueue: StateFlow<List<Track>> = _currentQueue.asStateFlow()
 
-    data class AlexaQueueWindow(val currentUuid: String, val tracks: List<Track>)
+    data class AlexaQueueWindow(val currentUuid: String, val tracks: List<Track>, val serverIndex: Int)
     private val _alexaQueueWindow = MutableStateFlow<AlexaQueueWindow?>(null)
     val alexaQueueWindow = _alexaQueueWindow.asStateFlow()
 
@@ -167,7 +167,7 @@ class QueueManager private constructor(private val context: Context) {
                 if (gen != sessionGen.get()) return@withLock null
                 trackDao.insertTracks(tracks.map { it.toEntity() })
                 _currentQueue.value = _currentQueue.value.take(localIndex.coerceAtLeast(0)) + current + tracks
-                AlexaQueueWindow(current.uuid, tracks).also { _alexaQueueWindow.value = it }
+                AlexaQueueWindow(current.uuid, tracks, index).also { _alexaQueueWindow.value = it }
             } finally {
                 if (gen == sessionGen.get()) _recStatus.value = RecStatus()
             }
