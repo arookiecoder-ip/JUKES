@@ -102,19 +102,9 @@ object AlexaBackendApi {
 
     fun proxyUrl(videoId: String): String = audioUrl(videoId)
 
-    /** Resolve a playable `/audio/...` audio URL for a video_id. */
+    /** The audio route itself prepares the file; no separate legacy stream lookup is required. */
     suspend fun getStreamUrl(videoId: String): String {
         requireConfigured()
-        val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/get_stream/") {
-            header("X-Api-Key", Backend.apiKey)
-            parameter("video_id", videoId)
-        }
-        if (response.status.value !in 200..299) {
-            val body = runCatching { response.bodyAsText() }.getOrDefault("")
-            throw Exception("get_stream failed (${response.status.value}): ${body.take(200)}")
-        }
-        val parsed: StreamPayload = response.body()
-        if (parsed.audioUrl.isBlank()) throw Exception("get_stream returned empty audio_url")
         return audioUrl(videoId)
     }
 
