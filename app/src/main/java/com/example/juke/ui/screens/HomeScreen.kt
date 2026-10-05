@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -70,6 +71,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -134,62 +136,64 @@ fun HomeScreen(
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Frozen header
-        HomeHeader(
-            greeting = uiState.greeting,
-            alexaStatus = alexaStatus,
-            onSettingsClick = {
-                haptic.click()
-                onSettingsClick()
-            }
-        )
+    HomeContent(
+        uiState = uiState, alexaStatus = alexaStatus, bottomPadding = bottomPadding,
+        onSettingsClick = { haptic.click(); onSettingsClick() }, onRefresh = homeViewModel::refresh,
+        onSearchClick = onSearchClick, onOpenItem = onOpenItem,
+        onPlayTracks = { tracks, index -> musicViewModel.setQueue(tracks, index) },
+        onPlayCollection = musicViewModel::playCollection
+    )
+}
 
-        // Scrollable content with pull-to-refresh
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = { homeViewModel.refresh() },
-            modifier = Modifier
-                .fillMaxSize()
-                .weight(1f)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun HomeContent(
+    uiState: com.example.juke.viewmodels.HomeUiState,
+    alexaStatus: String,
+    bottomPadding: Dp = 0.dp,
+    onSettingsClick: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
+    onOpenItem: (BrowseItem) -> Unit = {},
+    onPlayTracks: (List<Track>, Int) -> Unit = { _, _ -> },
+    onPlayCollection: (BrowseItem) -> Unit = {}
+) {
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { onRefresh() },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        val heroIndex = uiState.shelves.indexOfFirst { it.tracks.size == it.items.size && it.tracks.size > 1 }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().testTag("Home feed"),
+            contentPadding = PaddingValues(bottom = 16.dp + bottomPadding)
         ) {
+            item(key = "home-header") {
+                HomeHeader(alexaStatus = alexaStatus, onSettingsClick = { onSettingsClick() })
+            }
             if (uiState.shelves.isEmpty()) {
-                EmptyHomeState(
-                    message = uiState.error ?: "No recommendations yet. Pull down to try again.",
-                    onRetry = { homeViewModel.refresh() },
-                    onSearchClick = onSearchClick,
-                    modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
-                )
-            } else {
-                // The first song shelf leads as the hero carousel, as Recently Played did.
-                val heroIndex = uiState.shelves.indexOfFirst { it.tracks.size == it.items.size && it.tracks.size > 1 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp + bottomPadding)
-                ) {
-                    uiState.shelves.forEachIndexed { index, shelf ->
-                        item(key = "shelf_${index}_${shelf.id}") {
-                            when {
-                                index == heroIndex -> RecentlyPlayedSection(
-                                    title = shelf.title,
-                                    tracks = shelf.tracks,
-                                    onTrackClick = { trackIndex -> musicViewModel.setQueue(shelf.tracks, trackIndex) }
-                                )
-                                shelf.items.all { it.kind == "artist" } -> ArtistShelf(
-                                    title = shelf.title,
-                                    artists = shelf.items,
-                                    onClick = onOpenItem
-                                )
-                                else -> BrowseShelfRow(
-                                    title = shelf.title,
-                                    items = shelf.items,
-                                    tracks = shelf.tracks,
-                                    onTrackClick = { trackIndex -> musicViewModel.setQueue(shelf.tracks, trackIndex) },
-                                    onOpen = onOpenItem,
-                                    onPlayCollection = { musicViewModel.playCollection(it) }
-                                )
-                            }
-                        }
+                item(key = "empty-home") {
+                    EmptyHomeState(
+                        message = uiState.error ?: "No recommendations yet. Pull down to try again.",
+                        onRetry = { onRefresh() },
+                        onSearchClick = onSearchClick,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 360.dp)
+                    )
+                }
+            }
+            uiState.shelves.forEachIndexed { index, shelf ->
+                item(key = "shelf_${index}_${shelf.id}") {
+                    when {
+                        index == heroIndex -> RecentlyPlayedSection(
+                            title = shelf.title, tracks = shelf.tracks,
+                            onTrackClick = { onPlayTracks(shelf.tracks, it) }
+                        )
+                        shelf.items.all { it.kind == "artist" } -> ArtistShelf(shelf.title, shelf.items, onOpenItem)
+                        else -> BrowseShelfRow(
+                            title = shelf.title, items = shelf.items, tracks = shelf.tracks,
+                            onTrackClick = { onPlayTracks(shelf.tracks, it) },
+                            onOpen = onOpenItem, onPlayCollection = { onPlayCollection(it) }
+                        )
                     }
                 }
             }
@@ -199,7 +203,6 @@ fun HomeScreen(
 
 @Composable
 private fun HomeHeader(
-    greeting: String,
     alexaStatus: String,
     onSettingsClick: () -> Unit
 ) {
@@ -207,16 +210,18 @@ private fun HomeHeader(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = greeting,
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(com.example.juke.R.drawable.music_box_wordmark),
+                contentDescription = null, modifier = Modifier.size(32.dp)
+            )
+            Text("Music Box", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
 
         Text(alexaStatus, style = MaterialTheme.typography.labelSmall,
             color = if (alexaStatus.endsWith("Online")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -388,7 +393,7 @@ private fun RecentlyPlayedSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 
@@ -420,7 +425,7 @@ private fun BrowseShelfRow(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 
@@ -440,7 +445,7 @@ private fun ArtistShelf(
                 ArtistCircle(artist = artist, onClick = { onClick(artist) })
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 
@@ -452,7 +457,7 @@ private fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 24.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -497,7 +502,7 @@ private fun MusicCard(track: Track, onClick: () -> Unit) {
 private fun CollectionCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> Unit) {
     val menu = LocalMediaMenu.current
     Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = { menu?.show(item) }, onLongClickLabel = "Collection options")) {
-        Box(Modifier.size(160.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        Box(Modifier.size(160.dp).testTag("home-artwork-${item.id}").background(MaterialTheme.colorScheme.surfaceVariant)) {
             AsyncImage(item.image, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             if (item.kind in listOf("album", "playlist")) {
                 androidx.compose.material3.FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(40.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = 0.24f))) {
@@ -528,7 +533,7 @@ private fun ArtistCircle(
 
     Column(
         modifier = Modifier
-            .width(112.dp)
+            .width(160.dp)
             .graphicsLayer {
                 scaleX = cardScale
                 scaleY = cardScale
@@ -546,13 +551,12 @@ private fun ArtistCircle(
             ) {
                 haptic.click()
                 onClick()
-            }
-            .padding(4.dp),
+            },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(96.dp)
+                .size(160.dp).testTag("home-artwork-${artist.id}")
                 .glassPane(CircleShape, GlassLevel.Regular),
             contentAlignment = Alignment.Center
         ) {
@@ -577,7 +581,7 @@ private fun ArtistCircle(
 
         Text(
             text = artist.title,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
@@ -585,6 +589,8 @@ private fun ArtistCircle(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
+        Text("Artist", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 

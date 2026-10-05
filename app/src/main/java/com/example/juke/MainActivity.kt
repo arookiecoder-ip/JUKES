@@ -457,7 +457,7 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         if (currentRoute != "settings") {
                             Column(
-                                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface),
+                                modifier = Modifier.fillMaxWidth().background(com.example.juke.ui.theme.dockColor()),
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })

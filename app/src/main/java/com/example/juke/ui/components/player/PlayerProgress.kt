@@ -49,7 +49,7 @@ fun PlayerProgress(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 0.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
@@ -76,45 +76,17 @@ internal fun PlaybackSeekSlider(
 ) {
     val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val haptic = rememberJukeHaptics()
-    var lastBucket by remember(durationMs) { mutableIntStateOf((progress * 24).toInt()) }
-    Slider(
+    ExpandableTrackSlider(
         value = progress,
+        label = "Playback position",
         enabled = durationMs > 0,
-        onValueChange = { value ->
-            val bucket = (value * 24).toInt()
-            if (bucket != lastBucket) {
-                haptic.tick()
-                lastBucket = bucket
-            }
+        restingHeight = 4.dp,
+        draggingHeight = 8.dp,
+        onValueChangeFinished = { value ->
+            haptic.gestureEnd()
             onSeek((value * durationMs).toLong())
         },
-        onValueChangeFinished = { haptic.gestureEnd() },
-        thumb = {
-            Box(
-                Modifier
-                    .size(22.dp)
-                    .shadow(6.dp, CircleShape, clip = false, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.45f))
-                    .background(
-                        if (durationMs > 0) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                        CircleShape
-                    )
-            )
-        },
-        track = { state ->
-            SliderDefaults.Track(
-                sliderState = state,
-                modifier = Modifier.height(6.dp),
-                thumbTrackGapSize = 0.dp,
-                drawStopIndicator = null,
-                enabled = durationMs > 0,
-                colors = SliderDefaults.colors(
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
-                )
-            )
-        },
-        modifier = modifier.fillMaxWidth().semantics { contentDescription = "Playback position" }
+        modifier = modifier
     )
 }
 

@@ -43,9 +43,13 @@ object GlassBackdrop {
 fun Modifier.glassPane(shape: Shape = GlassShapes.Card, level: GlassLevel = GlassLevel.Regular, tint: Color? = null): Modifier =
     clip(shape).background(MaterialTheme.colorScheme.surface)
 
+/** Shared charcoal surface for the docked navigation and mini player. */
+@Composable
+fun dockColor(): Color = if (isGlassDark()) Color(0xFF252525) else Color(0xFFE4E4E7)
+
 @Composable
 fun Modifier.glassFloat(shape: Shape = GlassShapes.Bar, level: GlassLevel = GlassLevel.Regular, tint: Color? = null, source: HazeState? = LocalHazeState.current): Modifier =
-    clip(shape).background(MaterialTheme.colorScheme.surface)
+    clip(shape).background(dockColor())
 
 // The tab group's spring/shift animation is independent of surface rendering.
 @Composable

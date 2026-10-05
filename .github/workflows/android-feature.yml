@@ -45,10 +45,61 @@ jobs:
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug assembleDebugAndroidTest lintDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload UI test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-apk
+          path: app/build/outputs/apk/androidTest/debug/*.apk
+
+  ui-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable KVM
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Download app APK
+        uses: actions/download-artifact@v4
+        with:
+          name: app-debug
+          path: apk
+
+      - name: Download test APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-test-apk
+          path: test-apk
+
+      - name: Exercise Home, queue and web-style sliders
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install apk/app-debug.apk
+            adb install test-apk/app-debug-androidTest.apk
+            adb shell am instrument -w -e class com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            cat ui-results.txt
+            adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
+            ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' ui-results.txt
+            grep -E 'OK \([0-9]+ tests?\)' ui-results.txt
+
+      - name: Upload UI results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-results
+          path: |
+            ui-results.txt
+            screenshots
