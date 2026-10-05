@@ -167,12 +167,8 @@ jobs:
           script: |
             adb install apk/app-debug.apk
             adb install test-apk/app-debug-androidTest.apk
-            if [ "${{ inputs.playback_tests }}" = "true" ]; then
-              adb shell am instrument -w -e class com.example.juke.PlaybackStreamRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
-            else
-              adb shell am instrument -w -e class com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
-              adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
-            fi
+            adb shell am instrument -w -e class ${{ inputs.playback_tests && 'com.example.juke.PlaybackStreamRegressionTest' || 'com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest' }} com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            [ "${{ inputs.full_ui_tests }}" != "true" ] || adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
             cat ui-results.txt
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' ui-results.txt
             grep -E 'OK \([0-9]+ tests?\)' ui-results.txt
