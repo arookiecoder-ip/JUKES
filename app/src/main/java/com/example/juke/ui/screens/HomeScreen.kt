@@ -239,7 +239,7 @@ private fun HomeHeader(
 internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (Int) -> Unit) {
     val menu = LocalMediaMenu.current
     Column {
-        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             androidx.compose.material3.OutlinedButton(onClick = { onTrackClick(0) }, enabled = tracks.isNotEmpty(),

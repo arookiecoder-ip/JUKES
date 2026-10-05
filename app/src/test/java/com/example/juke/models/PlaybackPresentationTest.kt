@@ -32,4 +32,19 @@ class PlaybackPresentationTest {
             Track("song", "Song", "First, Second", durationSec = 10, artistId = "UCfirst").artistCredits())
         assertEquals(1, Track("solo", "Song", "Solo", durationSec = 10).artistCredits().size)
     }
+    @Test fun actualTrackIdentityWinsOverStaleQueueIndex() {
+        val old = Track("old", "Old", "Artist", durationSec = 100, thumbnailUri = "old.jpg")
+        val next = Track("next", "Next", "Artist", durationSec = 200, thumbnailUri = "next.jpg")
+        val stale = MusicUiState(currentTrack = old, queue = listOf(old, next), queueIndex = 0, position = 8000)
+        val result = com.example.juke.viewmodels.reconcilePhonePlayback(stale, listOf(old, next), "next")
+        assertEquals(next, result.currentTrack)
+        assertEquals(1, result.queueIndex)
+        assertEquals("next.jpg", result.currentTrack?.thumbnailUri)
+        assertEquals(0L, result.position)
+        val reordered = com.example.juke.viewmodels.reconcilePhonePlayback(result, listOf(next, old), "next")
+        assertEquals(next, reordered.currentTrack)
+        assertEquals(0, reordered.queueIndex)
+        assertSame(stale, com.example.juke.viewmodels.reconcilePhonePlayback(stale, listOf(next), "missing"))
+    }
+
 }

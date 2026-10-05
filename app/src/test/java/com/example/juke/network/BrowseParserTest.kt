@@ -77,4 +77,12 @@ class BrowseParserTest {
         assertEquals("abcdef12345", song.id)
     }
 
+    @Test fun largestThumbnailIsSelectedRegardlessOfArrayOrder() {
+        val track = item("""{"videoId":"abcdef12345","thumbnails":[{"url":"large","width":1200,"height":1200},{"url":"tiny","width":60,"height":60}]}""")
+        assertEquals("large", track.image)
+        assertEquals("https://lh3.googleusercontent.com/art=w1200-h1200-l90-rj", largeArtworkUrl("https://lh3.googleusercontent.com/art=w60-h60-l90-rj"))
+        assertEquals("https://example.com/art?w=60&signature=abc", largeArtworkUrl("https://example.com/art?w=60&signature=abc"))
+        assertEquals("https://i.ytimg.com/vi/song/hqdefault.jpg", largeArtworkUrl("https://i.ytimg.com/vi/song/mqdefault.jpg"))
+    }
+
 }

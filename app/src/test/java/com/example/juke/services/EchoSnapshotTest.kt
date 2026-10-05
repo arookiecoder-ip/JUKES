@@ -39,4 +39,12 @@ class EchoSnapshotTest {
         assertEquals(75, parseEchoSnapshot(raw, 1_000, 75, true).volume)
         assertEquals(20, parseEchoSnapshot(raw, 1_000, 75, false).volume)
     }
+    @Test fun liveMetadataReplacesStaleQueueArtworkWithoutLosingQueueIdentity() {
+        val state = snapshot("""{"video_id":"AAAAAAAAAAA","title":"Live title","thumbnail_url":"large.jpg","queue_index":0,"queue":[{"video_id":"AAAAAAAAAAA","title":"Old title","thumbnail":"tiny.jpg"}]}""")
+        assertEquals("Live title", state.track?.title)
+        assertEquals("large.jpg", state.track?.thumbnailUri)
+        assertEquals(state.queue[0].uuid, state.track?.uuid)
+        assertEquals(0, state.index)
+    }
+
 }

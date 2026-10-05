@@ -33,23 +33,24 @@ fun PlaylistCard(
     playlist: BrowseItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onPlay: (() -> Unit)? = null
+    onPlay: (() -> Unit)? = null,
+    artworkSize: androidx.compose.ui.unit.Dp = 148.dp
 ) {
     val haptic = rememberJukeHaptics()
     val menu = LocalMediaMenu.current
     Column(
         modifier = modifier
-            .width(148.dp)
+            .width(artworkSize)
             .clip(androidx.compose.ui.graphics.RectangleShape)
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(playlist) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
-        androidx.compose.foundation.layout.Box(Modifier.size(148.dp)) {
+        androidx.compose.foundation.layout.Box(Modifier.size(artworkSize)) {
         AsyncImage(
             model = playlist.image,
             contentDescription = playlist.title,
             modifier = Modifier
-                .size(148.dp)
+                .size(artworkSize)
                 .clip(androidx.compose.ui.graphics.RectangleShape),
             contentScale = ContentScale.Crop
         )

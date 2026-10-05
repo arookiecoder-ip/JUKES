@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.MoreVert
 import coil.compose.AsyncImage
 
 /** Flat, dense track row shared by the album / artist / playlist detail screens (matches Library). */
@@ -36,6 +37,8 @@ fun FlatTrackRow(
     modifier: Modifier = Modifier,
     track: com.example.juke.models.Track? = null,
     collection: com.example.juke.network.BrowseItem? = null,
+    sharpArtwork: Boolean = false,
+    showMore: Boolean = false,
     number: Int? = null
 ) {
     val menu = LocalMediaMenu.current
@@ -57,7 +60,7 @@ fun FlatTrackRow(
                 contentDescription = null,
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(if (sharpArtwork) androidx.compose.ui.graphics.RectangleShape else RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
                 contentScale = ContentScale.Crop
             )
@@ -87,6 +90,11 @@ fun FlatTrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.width(48.dp).padding(end = 8.dp)
             )
+            if (showMore) androidx.compose.material3.IconButton(onClick = {
+                track?.let { menu?.show(it) } ?: collection?.let { menu?.show(it) }
+            }) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.MoreVert, "More options")
+            }
         }
         HorizontalDivider(
             modifier = Modifier.padding(start = if (number != null) 48.dp else 60.dp),

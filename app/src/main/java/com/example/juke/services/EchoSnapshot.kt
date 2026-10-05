@@ -42,10 +42,19 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
     }
     val index = (np["queue_index"] as? JsonPrimitive)?.intOrNull ?: -1
     val videoId = np.text("video_id")
-    val track = queue.getOrNull(index)?.takeIf { it.ytVideoId == videoId }
-        ?: videoId.takeIf { it.isNotBlank() }?.let {
-            BrowseParser.item(np).toTrack().copy(uuid = "echo:current:$it", ytVideoId = it)
-        }
+    // Current now-playing metadata wins over queued thumbnail/title snapshots for the same video.
+    val queued = queue.getOrNull(index)?.takeIf { it.ytVideoId == videoId }
+    val track = videoId.takeIf { it.isNotBlank() }?.let {
+        val live = BrowseParser.item(np).toTrack()
+        live.copy(uuid = queued?.uuid ?: "echo:current:$it", ytVideoId = it,
+            title = np.text("title").takeIf(String::isNotBlank) ?: queued?.title ?: live.title,
+            artist = live.artist.ifBlank { queued?.artist.orEmpty() },
+            thumbnailUri = live.thumbnailUri ?: queued?.thumbnailUri,
+            durationSec = live.durationSec.takeIf { it > 0 } ?: queued?.durationSec ?: 0,
+            artists = live.artists.ifEmpty { queued?.artists.orEmpty() },
+            artistId = live.artistId ?: queued?.artistId,
+            albumId = live.albumId ?: queued?.albumId)
+    }
     val volume = (np["volume"] as? JsonPrimitive)?.intOrNull?.coerceIn(0, 100)
     return EchoState(
         track = track,

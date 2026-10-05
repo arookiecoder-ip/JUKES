@@ -10,7 +10,10 @@ fun JsonObject.flag(name: String): Boolean = (get(name) as? JsonPrimitive)?.bool
 fun JsonObject.array(name: String): JsonArray = get(name) as? JsonArray ?: JsonArray(emptyList())
 fun imageUrl(value: JsonElement?): String = when (value) {
     is JsonPrimitive -> value.contentOrNull.orEmpty()
-    is JsonArray -> imageUrl(value.lastOrNull())
+    is JsonArray -> imageUrl(value.maxByOrNull { entry ->
+        val obj = entry.objectOrEmpty()
+        obj.number("width") * obj.number("height")
+    }?.takeIf { it.objectOrEmpty().number("width") > 0 } ?: value.lastOrNull())
     is JsonObject -> value.text("url").ifBlank { imageUrl(value["thumbnails"]) }
     else -> ""
 }
