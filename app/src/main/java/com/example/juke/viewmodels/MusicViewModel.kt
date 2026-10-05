@@ -504,6 +504,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
         signedIn = false
+        com.example.juke.services.RemotePlaybackService.stop(getApplication())
         signInJob?.cancel()
         echo.clear()
         AccountRepository.clear()
@@ -517,7 +518,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updatePolling() {
-        if (signedIn && isAlexa && echo.serial.value.isNotBlank()) echo.startPolling(isForeground) else echo.stopPolling()
+        if (signedIn && isAlexa && echo.serial.value.isNotBlank()) {
+            echo.startPolling(isForeground)
+            if (isForeground) com.example.juke.services.RemotePlaybackService.start(getApplication())
+        } else {
+            echo.stopPolling()
+            com.example.juke.services.RemotePlaybackService.stop(getApplication())
+        }
     }
 
     private fun setOutputPreference(output: PlaybackOutput) {

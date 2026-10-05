@@ -59,6 +59,8 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -183,6 +185,7 @@ class PlaybackService : MediaLibraryService() {
     // Track which songs have reached 50% during this playback session
     private val tracksPlayCountedThisSession = mutableSetOf<String>()
     private var currentPlayingTrackId: String? = null
+    private var lastReportedListen: String? = null
     private val progressHandler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
         override fun run() {
@@ -302,7 +305,7 @@ class PlaybackService : MediaLibraryService() {
     private val resumeAfterCall = object : Runnable {
         override fun run() {
             if (inCall()) mainHandler.postDelayed(this, 1_500)
-            else {
+            else if (getSharedPreferences("music_settings_prefs", MODE_PRIVATE).getString("playback_output", "PHONE") != "ALEXA") {
                 player.play()
                 Log.d(TAG, "Call ended - resumed")
             }
@@ -398,6 +401,29 @@ class PlaybackService : MediaLibraryService() {
         .setUsage(C.USAGE_MEDIA)
         .build()
 
+    /** Report an actual device play, including automatic queue advances, to the YouTube account. */
+    private fun reportDeviceListen() {
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        if (lastReportedListen == mediaId) return
+        if (getSharedPreferences("music_settings_prefs", MODE_PRIVATE).getString("playback_output", "PHONE") == "ALEXA") return
+        lastReportedListen = mediaId
+        serviceScope.launch {
+            try {
+                val track = database.trackDao().getTrackByUuid(mediaId) ?: return@launch
+                val videoId = track.ytVideoId ?: return@launch
+                com.example.juke.network.Backend.post("/api/track/$videoId/listen", kotlinx.serialization.json.buildJsonObject {
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("thumbnail", track.thumbnailUri.orEmpty())
+                })
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (lastReportedListen == mediaId) lastReportedListen = null
+                Log.w(TAG, "Couldn't report device listening history")
+            }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
@@ -435,6 +461,8 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
                 currentPlayingTrackId = trackId
+                lastReportedListen = null
+                if (player.isPlaying) reportDeviceListen()
                 Log.d(TAG, "Media item transition: $trackId, reason: $reason")
                 // Note: Play count is now incremented only when track reaches 50% via checkPlayCountThreshold()
 
@@ -512,6 +540,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             Log.d(TAG, "Is playing: $isPlaying")
             if (isPlaying) {
+                reportDeviceListen()
                 progressHandler.post(progressRunnable)
             } else {
                 progressHandler.removeCallbacks(progressRunnable)
@@ -821,7 +850,7 @@ class PlaybackService : MediaLibraryService() {
     /** Notification like button for the current song. */
     private fun updateCustomLayout(isLiked: Boolean) {
         val iconResId =
-            if (isLiked) R.drawable.baseline_favorite_24 else R.drawable.baseline_favorite_border_24
+            if (isLiked) R.drawable.thumb_up_filled else R.drawable.thumb_up_outline
         val button = CommandButton.Builder()
             .setDisplayName("Like")
             .setIconResId(iconResId)

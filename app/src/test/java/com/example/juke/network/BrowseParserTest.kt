@@ -65,4 +65,16 @@ class BrowseParserTest {
         assertEquals("playlist", station.kind)
         assertEquals("RD123", station.playlistId)
     }
+    @Test fun albumAndSinglePreviewVideosDoNotReplaceCollectionRoutes() {
+        val album = BrowseParser.item(Json.parseToJsonElement("""{"browseId":"MPRE123","videoId":"abcdef12345","title":"Album"}""").jsonObject, "albums")
+        assertEquals("album", album.kind)
+        assertEquals("MPRE123", album.id)
+        val single = BrowseParser.item(Json.parseToJsonElement("""{"playlistId":"OLAK123","videoId":"abcdef12345","type":"Single"}""").jsonObject, "singles")
+        assertEquals("album", single.kind)
+        assertEquals("OLAK123", single.id)
+        val song = item("""{"videoId":"abcdef12345","album":{"id":"MPRE123"}}""")
+        assertEquals("track", song.kind)
+        assertEquals("abcdef12345", song.id)
+    }
+
 }

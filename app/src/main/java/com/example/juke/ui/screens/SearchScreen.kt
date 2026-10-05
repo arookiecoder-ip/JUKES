@@ -145,7 +145,7 @@ fun SearchScreen(
     LaunchedEffect(searchFocusTrigger) {
         if (searchFocusTrigger != previousFocusTrigger && searchFocusTrigger > 0) {
             previousFocusTrigger = searchFocusTrigger
-            active = true
+            if (discovery != null) { discovery = null; active = false } else active = true
         }
     }
 

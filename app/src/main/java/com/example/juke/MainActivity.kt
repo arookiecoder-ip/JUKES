@@ -409,7 +409,8 @@ class MainActivity : ComponentActivity() {
                 // (and on top of each other), so a tab tap must first dispose of all of them.
                 fun isDetailRoute(route: String?) =
                     route != null && (route.startsWith("artist/") ||
-                        route.startsWith("album/") || route.startsWith("playlist/"))
+                        route.startsWith("album/") || route.startsWith("playlist/") ||
+                        route.startsWith("artist-releases/") || route.startsWith("artist-songs/"))
 
                 val onNavigate: (Screen) -> Unit = { screen ->
                     val wasDetail = isDetailRoute(currentRoute)
@@ -660,7 +661,12 @@ class MainActivity : ComponentActivity() {
                                     bottomPadding = bottomPadding
                                 )
                             }
-                            composable("album/{albumId}") {
+                            composable("album/{albumId}") { entry ->
+                                val albumId = entry.arguments?.getString("albumId").orEmpty()
+                                LaunchedEffect(albumId) {
+                                    val vm = activityViewModelProvider[AlbumDetailViewModel::class.java]
+                                    if (vm.uiState.value.album?.id != albumId) vm.loadAlbumDetailsById(albumId)
+                                }
                                 val albumDetailViewModel =
                                     activityViewModelProvider[AlbumDetailViewModel::class.java]
                                 AlbumDetailScreen(

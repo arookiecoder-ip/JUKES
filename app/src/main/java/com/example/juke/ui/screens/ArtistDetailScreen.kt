@@ -84,7 +84,7 @@ fun ArtistDetailScreen(
                     item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }
                     itemsIndexed(state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
                         SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
-                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "—:—", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track, durationLoading = (state.songsLoading || state.durationsLoading) && track.durationSec <= 0)
+                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
                         }
                     }
                     if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {
