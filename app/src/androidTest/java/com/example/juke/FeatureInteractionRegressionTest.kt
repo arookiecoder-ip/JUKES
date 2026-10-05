@@ -69,7 +69,7 @@ class FeatureInteractionRegressionTest {
         compose.onNodeWithText("Open Artist").assertDoesNotExist()
     }
     @Test fun selectedDownloadsDeleteOnlyAfterConfirmation() {
-        val tracks = (1..3).map { Track("s$it", "Song $it", "Artist", ytVideoId = "video00000$it") }
+        val tracks = (1..3).map { Track("s$it", "Song $it", "Artist", durationSec = 180, ytVideoId = "video00000$it") }
         val selection = DownloadSelection().apply { select(tracks[0]); toggle(tracks[2]) }
         var removed = emptyList<Track>()
         compose.setContent { JUKETheme { Surface { DownloadSelectionBar(selection, tracks) { removed = it } } } }
@@ -83,4 +83,23 @@ class FeatureInteractionRegressionTest {
         assertEquals(listOf(tracks[0], tracks[2]), removed)
         assertFalse(selection.active)
     }
+    @Test fun downloadNotificationsAreProgressNotificationsThatOpenDownloads() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val destination = com.example.juke.services.downloadDestinationIntent(context)
+        assertEquals(MainActivity::class.java.name, destination.component?.className)
+        assertTrue(destination.getBooleanExtra(com.example.juke.services.DownloadService.OPEN_DOWNLOADS, false))
+        assertNull(destination.data)
+        val state = com.example.juke.services.DownloadStatus(active = 3, total = 10, completed = 2, title = "Song", percent = 25)
+        val active = com.example.juke.services.downloadNotification(context, state, true)
+        assertEquals(android.app.Notification.CATEGORY_PROGRESS, active.category)
+        assertTrue(active.flags and android.app.Notification.FLAG_ONGOING_EVENT != 0)
+        assertEquals(25, active.extras.getInt(android.app.Notification.EXTRA_PROGRESS))
+        assertNotNull(active.contentIntent)
+        assertEquals("Cancel", active.actions.single().title.toString())
+        assertFalse(active.extras.getString(android.app.Notification.EXTRA_TEMPLATE).orEmpty().contains("MediaStyle"))
+        val finished = com.example.juke.services.downloadNotification(context, state.copy(active = 0, completed = 10), false)
+        assertEquals("Downloads complete", finished.extras.getString(android.app.Notification.EXTRA_TITLE))
+        assertTrue(finished.flags and android.app.Notification.FLAG_AUTO_CANCEL != 0)
+    }
+
 }

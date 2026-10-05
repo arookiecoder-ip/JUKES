@@ -17,10 +17,10 @@ import kotlinx.coroutines.flow.collect
 class DownloadService : Service() {
     companion object {
         const val OPEN_DOWNLOADS = "open_music_downloads"
-        private const val CANCEL = "cancel_music_downloads"
-        private const val CHANNEL = "music_downloads"
-        private const val ACTIVE_ID = 1201
-        private const val FINISHED_ID = 1202
+        internal const val CANCEL = "cancel_music_downloads"
+        internal const val CHANNEL = "music_downloads"
+        internal const val ACTIVE_ID = 1201
+        internal const val FINISHED_ID = 1202
         fun start(context: Context) {
             try { ContextCompat.startForegroundService(context, Intent(context, DownloadService::class.java)) }
             catch (_: Exception) { /* OS transfers remain managed by DownloadManager; retry on next foreground start. */ }
@@ -33,37 +33,16 @@ class DownloadService : Service() {
         super.onCreate()
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Music downloads", NotificationManager.IMPORTANCE_LOW))
     }
-    private fun notification(state: DownloadStatus, ongoing: Boolean): android.app.Notification {
-        val open = PendingIntent.getActivity(this, 1201, Intent(this, MainActivity::class.java)
-            .putExtra(OPEN_DOWNLOADS, true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(if (ongoing) android.R.drawable.stat_sys_download else android.R.drawable.stat_sys_download_done)
-            .setContentTitle(if (ongoing) "Downloading music" else if (state.failed > 0) "Some downloads failed" else "Downloads complete")
-            .setContentText(if (ongoing) "${state.title} · ${state.completed}/${state.total} complete"
-                else "${state.completed} downloaded" + if (state.failed > 0) " · ${state.failed} failed" else "")
-            .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(ongoing).setAutoCancel(!ongoing)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .apply {
-                if (ongoing) {
-                    setProgress(100, state.percent.coerceAtLeast(0), state.percent < 0)
-                    val cancel = PendingIntent.getService(this@DownloadService, 1202,
-                        Intent(this@DownloadService, DownloadService::class.java).setAction(CANCEL),
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                    addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancel)
-                }
-            }.build()
-    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val downloads = DownloadRepository.get(this)
-        startForeground(ACTIVE_ID, notification(downloads.status.value, true))
+        startForeground(ACTIVE_ID, downloadNotification(this, downloads.status.value, true))
         if (intent?.action == CANCEL) downloads.cancelAll()
         if (observing?.isActive != true) observing = scope.launch {
             downloads.status.collect { state ->
-                if (state.active > 0) manager.notify(ACTIVE_ID, notification(state, true))
+                if (state.active > 0) manager.notify(ACTIVE_ID, downloadNotification(this@DownloadService, state, true))
                 else {
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                    if (state.completed > 0 || state.failed > 0) manager.notify(FINISHED_ID, notification(state, false))
+                    if (state.completed > 0 || state.failed > 0) manager.notify(FINISHED_ID, downloadNotification(this@DownloadService, state, false))
                     stopSelf(); cancel()
                 }
             }
@@ -76,3 +55,28 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
 }
+
+internal fun downloadDestinationIntent(context: Context): Intent = Intent(context, MainActivity::class.java)
+    .putExtra(DownloadService.OPEN_DOWNLOADS, true)
+    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
+internal fun downloadNotification(context: Context, state: DownloadStatus, ongoing: Boolean): android.app.Notification {
+        val open = PendingIntent.getActivity(context, 1201, downloadDestinationIntent(context),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return NotificationCompat.Builder(context, DownloadService.CHANNEL)
+            .setSmallIcon(if (ongoing) android.R.drawable.stat_sys_download else android.R.drawable.stat_sys_download_done)
+            .setContentTitle(if (ongoing) "Downloading music" else if (state.failed > 0) "Some downloads failed" else "Downloads complete")
+            .setContentText(if (ongoing) "${state.title} · ${state.completed}/${state.total} complete"
+                else "${state.completed} downloaded" + if (state.failed > 0) " · ${state.failed} failed" else "")
+            .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(ongoing).setAutoCancel(!ongoing)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .apply {
+                if (ongoing) {
+                    setProgress(100, state.percent.coerceAtLeast(0), state.percent < 0)
+                    val cancel = PendingIntent.getService(context, 1202,
+                        Intent(context, DownloadService::class.java).setAction(DownloadService.CANCEL),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancel)
+                }
+            }.build()
+    }

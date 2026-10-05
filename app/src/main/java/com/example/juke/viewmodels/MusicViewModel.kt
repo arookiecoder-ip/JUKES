@@ -41,6 +41,7 @@ import com.example.juke.services.transferPlayback
 import com.example.juke.services.PlaybackManager
 import com.example.juke.services.QueueManager
 import com.example.juke.ui.theme.ExtractedColors
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -182,6 +183,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val pendingPlayback = MutableStateFlow<Track?>(null)
     private var pendingPlaybackJob: Job? = null
     private var phoneQueueSyncJob: Job? = null
+    private val phoneQueueMutex = kotlinx.coroutines.sync.Mutex()
     private var sharedPhoneQueueReady = false
     private var playbackRequestId = 0L
 
@@ -322,16 +324,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 delay(3_000)
                 if (!signedIn || isAlexa || _isSwitchingOutput.value || !sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true || _uiState.value.isQueueOperationInProgress || !com.example.juke.network.NetworkFeedback.online.value) continue
-                val current = _uiState.value.currentTrack ?: continue
+                val state = _uiState.value
+                val current = state.currentTrack ?: continue
                 val videoId = current.ytVideoId ?: continue
                 try {
                     val playing = _uiState.value.isPlaying
                     val position = playbackManager.getCurrentPosition()
-                    val window = withContext(Dispatchers.IO) {
+                    val window = withContext(Dispatchers.IO) { phoneQueueMutex.withLock {
+                        if (!sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true ||
+                            _uiState.value.currentTrack?.uuid != current.uuid) return@withLock null
                         AlexaBackendApi.updateQueue("current", videoId, emptyList(),
-                            playing = playing, positionMs = position)
+                            playing = playing, positionMs = position, queueIndex = state.queueIndex)
                         queueManager.refreshAlexaQueue(current)
-                    }
+                    } }
                     if (window != null && signedIn && !isAlexa && !_isSwitchingOutput.value && sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true) applyAlexaWindow(window)
                 } catch (e: CancellationException) {
                     throw e
@@ -911,7 +916,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun publishPhoneQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean, startRadio: Boolean = false) {
+    private suspend fun publishPhoneQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean, startRadio: Boolean = false) = phoneQueueMutex.withLock {
         require(index in tracks.indices)
         require(tracks.size <= 5_000) { "This queue exceeds the server's 5,000-song limit" }
         val body = if (startRadio && tracks.size == 1) JsonObject(tracks.single().metadata() + mapOf("force_radio" to JsonPrimitive(true)))
@@ -921,12 +926,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         // The same atomic queue installation as the website, without a serial/Alexa dispatch.
         Backend.post("/alexa/play_queue/", body)
-        AlexaBackendApi.updateQueue("current", requireNotNull(tracks[index].ytVideoId), emptyList(), playing, positionMs)
+        AlexaBackendApi.updateQueue("current", requireNotNull(tracks[index].ytVideoId), emptyList(), playing, positionMs, queueIndex = index)
     }
 
     private fun synchronizePhoneQueue(startRadio: Boolean = false) {
         if (isAlexa || !signedIn || !com.example.juke.network.NetworkFeedback.online.value) return
         sharedPhoneQueueReady = false
+        queueManager.clearQueue()
         phoneQueueSyncJob?.cancel()
         val state = _uiState.value
         val position = playbackManager.getCurrentPosition()

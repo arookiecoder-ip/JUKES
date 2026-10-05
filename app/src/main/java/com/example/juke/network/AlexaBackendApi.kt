@@ -70,7 +70,8 @@ object AlexaBackendApi {
         val after: String,
         val tracks: List<BackendTrack>,
         val playing: Boolean? = null,
-        @SerialName("position_ms") val positionMs: Long? = null
+        @SerialName("position_ms") val positionMs: Long? = null,
+        @SerialName("queue_index") val queueIndex: Int? = null
     )
 
     fun thumbnailUrl(raw: JsonElement?): String? {
@@ -137,10 +138,10 @@ object AlexaBackendApi {
 
     suspend fun updateQueue(
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
-        playing: Boolean? = null, positionMs: Long? = null
+        playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null
     ) {
         Backend.post("/api/app/queue/", kotlinx.serialization.json.Json.encodeToJsonElement(
-            QueueUpdate.serializer(), QueueUpdate(action, afterVideoId, tracks, playing, positionMs)).jsonObject)
+            QueueUpdate.serializer(), QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex)).jsonObject)
     }
 
     fun backendTrack(track: Track): BackendTrack = BackendTrack(
