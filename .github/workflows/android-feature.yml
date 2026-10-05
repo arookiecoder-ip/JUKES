@@ -10,6 +10,10 @@ on:
       - '.github/signing/debug-certificate.sha256'
   workflow_dispatch:
     inputs:
+      playback_tests:
+        description: Run only the focused HTTP audio player regression tests
+        type: boolean
+        default: false
       full_ui_tests:
         description: Run the full emulator suite and lint (slower)
         type: boolean
@@ -100,7 +104,7 @@ jobs:
           ./gradlew assembleDebug --no-daemon
 
       - name: Build optional UI test APK
-        if: ${{ inputs.full_ui_tests == true }}
+        if: ${{ inputs.full_ui_tests == true || inputs.playback_tests == true }}
         run: ./gradlew assembleDebugAndroidTest --no-daemon
 
       - name: Report lint findings
@@ -126,14 +130,14 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Upload UI test APK
-        if: ${{ inputs.full_ui_tests == true }}
+        if: ${{ inputs.full_ui_tests == true || inputs.playback_tests == true }}
         uses: actions/upload-artifact@v4
         with:
           name: ui-test-apk
           path: app/build/outputs/apk/androidTest/debug/*.apk
 
   ui-tests:
-    if: ${{ inputs.full_ui_tests == true }}
+    if: ${{ inputs.full_ui_tests == true || inputs.playback_tests == true }}
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -152,7 +156,7 @@ jobs:
           name: ui-test-apk
           path: test-apk
 
-      - name: Exercise Home, queue and web-style sliders
+      - name: Exercise requested native regression checks
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -163,9 +167,13 @@ jobs:
           script: |
             adb install apk/app-debug.apk
             adb install test-apk/app-debug-androidTest.apk
-            adb shell am instrument -w -e class com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            if [ "${{ inputs.playback_tests }}" = "true" ]; then
+              adb shell am instrument -w -e class com.example.juke.PlaybackStreamRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            else
+              adb shell am instrument -w -e class com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+              adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
+            fi
             cat ui-results.txt
-            adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' ui-results.txt
             grep -E 'OK \([0-9]+ tests?\)' ui-results.txt
 
