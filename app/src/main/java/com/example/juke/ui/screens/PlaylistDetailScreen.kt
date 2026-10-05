@@ -27,7 +27,7 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
     val playlist = state.playlist
     Box(Modifier.fillMaxSize()) {
         if (playlist == null || (state.isLoading && state.tracks.isEmpty())) {
-            MediaDetailSkeleton(Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
+            MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
             item(key = "hero") {
                 DetailHero(state.imageUrl) {

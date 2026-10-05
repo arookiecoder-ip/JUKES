@@ -92,6 +92,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.CompositionLocalProvider
 import com.example.juke.ui.screens.AlbumDetailScreen
+import com.example.juke.ui.screens.ArtistSongsScreen
 import com.example.juke.ui.screens.ArtistDetailScreen
 import com.example.juke.ui.screens.AccountCheckScreen
 import com.example.juke.ui.screens.SettingsScreen
