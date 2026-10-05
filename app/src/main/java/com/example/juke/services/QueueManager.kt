@@ -132,7 +132,7 @@ class QueueManager private constructor(private val context: Context) {
     }
 
     private fun requestFill(current: Track) {
-        if (current.ytVideoId.isNullOrBlank()) return
+        if (current.ytVideoId.isNullOrBlank() || !com.example.juke.network.NetworkFeedback.online.value) return
         sessionScope.launch {
             try {
                 refreshAlexaQueue(current)
@@ -147,7 +147,7 @@ class QueueManager private constructor(private val context: Context) {
     /** Refresh a bounded window in the server's current order, including removals. */
     suspend fun refreshAlexaQueue(current: Track): AlexaQueueWindow? {
         val videoId = current.ytVideoId?.takeIf { it.isNotBlank() } ?: return null
-        if (!AlexaBackendApi.isConfigured()) return null
+        if (!AlexaBackendApi.isConfigured() || !com.example.juke.network.NetworkFeedback.online.value) return null
         val gen = sessionGen.get()
         return fillMutex.withLock {
             if (gen != sessionGen.get()) return@withLock null

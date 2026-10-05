@@ -32,6 +32,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** The web-remote session expired or was never opened: the user must sign in again. */
 class BackendAuthException(message: String) : Exception(message)
+class BackendHttpException(val statusCode: Int, message: String) : IllegalStateException(message)
 
 /** Result of the first login step. */
 sealed interface LoginStep {
@@ -177,7 +178,7 @@ object Backend {
                 else -> errorMessage(parsed) ?: "Request failed ($code). Please try again."
             }
             if (code >= 500 || code == 408 || code == 429) NetworkFeedback.notify(message)
-            throw IllegalStateException(message)
+            throw BackendHttpException(code, message)
         }
         return parsed ?: throw IllegalStateException("The server returned an unreadable response. Please try again.")
     }

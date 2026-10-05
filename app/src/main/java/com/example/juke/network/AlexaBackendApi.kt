@@ -93,14 +93,16 @@ object AlexaBackendApi {
     }
 
     /**
-     * The proxy URL the server hands out for [videoId]. Used for songs further down a queue so a
-     * long hand-off doesn't ask the server for every song first; [getStreamUrl] also warms the
-     * server's audio cache, so the song that plays next uses that.
+     * Device audio never changes Echo now-playing state and is not cancelled by an Echo skip.
+     * The existing alias is retained for queue callers; it resolves to the independent audio route.
      */
-    fun proxyUrl(videoId: String): String =
-        "${Backend.audioBaseUrl}/proxy/?video_id=${enc(videoId)}&key=${enc(Backend.apiKey)}"
+    /** Device audio is independent of Echo playback state and download cancellation. */
+    fun audioUrl(videoId: String): String =
+        "${Backend.audioBaseUrl}/audio/?video_id=${enc(videoId)}&key=${enc(Backend.apiKey)}"
 
-    /** Resolve a playable `/proxy/...` audio URL for a video_id. */
+    fun proxyUrl(videoId: String): String = audioUrl(videoId)
+
+    /** Resolve a playable `/audio/...` audio URL for a video_id. */
     suspend fun getStreamUrl(videoId: String): String {
         requireConfigured()
         val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/get_stream/") {
@@ -113,7 +115,7 @@ object AlexaBackendApi {
         }
         val parsed: StreamPayload = response.body()
         if (parsed.audioUrl.isBlank()) throw Exception("get_stream returned empty audio_url")
-        return parsed.audioUrl
+        return audioUrl(videoId)
     }
 
     /** Radio/autoplay continuation seeded from one video. Stream URLs resolved lazily. */
