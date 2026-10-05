@@ -327,7 +327,11 @@ fun PlayerScreen(
             ) {
                 val compact = maxHeight < 680.dp
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.padding(horizontal = 20.dp)) {
+                    Box(Modifier.fillMaxWidth().height(maxHeight * 0.6f)) {
+                        PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
+                            currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
+                            isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
+                        Box(Modifier.align(Alignment.TopCenter).padding(horizontal = 20.dp)) {
                         PlayerHeader(
                             onDismiss = onDismiss,
                             onShowSleepTimer = { showSleepTimerDialog = true },
@@ -344,13 +348,9 @@ fun PlayerScreen(
                             onToggleLyrics = { showLyrics = !showLyrics },
                             showLyrics = showLyrics
                         )
+                        }
                     }
-                    Box(Modifier.fillMaxWidth().weight(1f)) {
-                        PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
-                            currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
-                            isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
-                    }
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                    Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
                         Text(currentTrack.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         Text(currentTrack.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -362,12 +362,12 @@ fun PlayerScreen(
                             PlayerAction(icon = rememberVectorPainter(if (currentTrack.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp),
                                 label = if (currentTrack.isFavourite) "Unlike" else "Like", active = currentTrack.isFavourite, iconSize = 24.dp) { musicViewModel.toggleFavorite(currentTrack) }
                             PlayerAction(icon = painterResource(R.drawable.baseline_mix), label = "Mix", iconSize = 24.dp) { musicViewModel.startRadio() }
-                            PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = "Play on", active = isAlexa, iconSize = 24.dp) { showOutputSheet = true }
+                            PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = if (isAlexa) "Alexa" else "Phone", active = isAlexa, iconSize = 24.dp) { showOutputSheet = true }
                             PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
                         PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel)
                         PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = isTablet,
-                            playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp)
+                            playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
                         Spacer(Modifier.height(8.dp))
                         if (isAlexa) EchoVolumeRow(volume = echoVolume, onVolumeChange = musicViewModel::setEchoVolume)
                         else PhoneVolumeRow()
@@ -384,8 +384,8 @@ fun PlayerScreen(
         GlassModalBottomSheet(
             onDismissRequest = { showQueue = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.82f),
-            showHandle = true
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.86f),
+            showHandle = false
         ) {
             val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
             QueueBottomSheetContent(
@@ -493,7 +493,6 @@ fun PlayerHeader(
                 track?.let { com.example.juke.ui.components.MusicMenuHeader(it.title, it.artist, it.thumbnailUri) }
                 fun run(action: () -> Unit) { showMenu = false; action() }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics") { run(onToggleLyrics) }
-                com.example.juke.ui.components.MusicMenuOption(Icons.Default.PlaylistAdd, "Save to Playlist") { run(onAddToPlaylist) }
                 if (isAlbumAvailable) com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Album, "Go to album") { run(onNavigateToAlbum) }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Speed, "Speed ${playbackSpeed}×") { run(onCycleSpeed) }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Timer, "Sleep timer") { run(onShowSleepTimer) }
@@ -609,30 +608,22 @@ fun SleepTimerDialog(
 /** Echo volume slider; drags are sent to the Echo a moment after you pause (the controller debounces). */
 @Composable
 private fun EchoVolumeRow(volume: Int?, onVolumeChange: (Int) -> Unit) {
-    var dragging by remember { mutableStateOf(false) }
-    var local by remember { mutableFloatStateOf(volume?.toFloat() ?: 0f) }
-    LaunchedEffect(volume) { if (!dragging && volume != null) local = volume.toFloat() }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-        Slider(
-            value = local,
-            onValueChange = { dragging = true; local = it; onVolumeChange(it.toInt()) },
-            onValueChangeFinished = { dragging = false },
-            valueRange = 0f..100f,
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        com.example.juke.ui.components.player.ExpandableTrackSlider(
+            value = (volume ?: 0) / 100f,
+            label = "Volume",
             enabled = volume != null,
+            onValueChange = { onVolumeChange((it * 100).toInt()) },
+            onValueChangeFinished = { onVolumeChange((it * 100).toInt()) },
             modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
         )
-        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-        Text(
-            text = "${local.toInt()}",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            modifier = Modifier.width(32.dp),
-            textAlign = TextAlign.End
-        )
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("${volume ?: "—"}", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(32.dp), textAlign = TextAlign.End)
     }
 }
 

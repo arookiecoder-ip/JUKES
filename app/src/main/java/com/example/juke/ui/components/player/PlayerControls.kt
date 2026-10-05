@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
@@ -55,7 +56,8 @@ fun PlayerControls(
     playButtonSize: Dp? = null,
     buttonSize: Dp? = null,
     iconSize: Dp? = null,
-    smallIconSize: Dp? = null
+    smallIconSize: Dp? = null,
+    onSaveToPlaylist: () -> Unit = {}
 ) {
     val haptic = rememberJukeHaptics()
     val resolvedPlayButtonSize = playButtonSize ?: if (isLarge) 88.dp else 72.dp
@@ -156,6 +158,12 @@ fun PlayerControls(
                 modifier = Modifier.size(resolvedIconSize),
                 tint = MaterialTheme.colorScheme.onSurface
             )
+        }
+
+        IconButton(onClick = { haptic.click(); onSaveToPlaylist() }, modifier = Modifier.size(resolvedButtonSize)) {
+            Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.PlaylistAdd,
+                contentDescription = "Save to playlist", modifier = Modifier.size(resolvedSmallIconSize),
+                tint = MaterialTheme.colorScheme.onSurface)
         }
 
     }

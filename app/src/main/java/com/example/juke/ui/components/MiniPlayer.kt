@@ -398,25 +398,6 @@ fun MiniPlayer(
                         }
                     }
 
-                    // Favourite button — tinted primary when hearted
-                    IconButton(
-                        onClick = {
-                            haptic.confirm()
-                            musicViewModel.toggleFavorite(currentTrack)
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (currentTrack.isFavourite) Icons.Filled.ThumbUp
-                            else Icons.Outlined.ThumbUp,
-                            contentDescription = if (currentTrack.isFavourite) "Remove from favourites"
-                            else "Add to favourites",
-                            tint = if (currentTrack.isFavourite) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
                     // Play / Pause
                     val miniPlayScale = remember { Animatable(1f) }
                     LaunchedEffect(uiState.isPlaying) {
@@ -456,29 +437,7 @@ fun MiniPlayer(
                     }
                 }
 
-                // Progress line at the bottom
-                val progress = if (uiState.duration > 0) {
-                    (uiState.position.toFloat() / uiState.duration.toFloat()).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 22.dp, vertical = 6.dp)
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(GlassShapes.Pill)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progress)
-                            .height(3.dp)
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f))
-                    )
-                }
             }
 
             // The track a swipe is gliding to, sliding in from the side the card is leaving.
@@ -494,6 +453,14 @@ fun MiniPlayer(
                     }
                 )
             }
+            // Keep the line fixed to both dock edges, including during a track swipe.
+            val progress = if (uiState.duration > 0)
+                (uiState.position.toFloat() / uiState.duration).coerceIn(0f, 1f) else 0f
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp)
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f))) {
+                Box(Modifier.fillMaxWidth(progress).height(3.dp).background(MaterialTheme.colorScheme.primary))
+            }
+
         }
     }
 }
@@ -543,13 +510,6 @@ private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modi
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Icon(
-            imageVector = if (track.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-            contentDescription = null,
-            tint = if (track.isFavourite) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-            modifier = Modifier.padding(10.dp).size(20.dp)
-        )
         Icon(
             painter = painterResource(
                 if (isPlaying) com.example.juke.R.drawable.baseline_pause_24
