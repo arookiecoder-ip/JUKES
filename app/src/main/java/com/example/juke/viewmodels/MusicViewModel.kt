@@ -42,6 +42,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -385,56 +388,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Synch UI queue with PlaybackManager source of truth
+        // Resolve queue and current song from one Media3 event snapshot, never from an old index.
         viewModelScope.launch {
-            playbackManager.queueFlow.collect { queueIds ->
-                if (queueIds.isEmpty()) return@collect
-
-                withContext(Dispatchers.IO) {
-                    val currentTrackMap = _uiState.value.queue.associateBy { it.uuid }
-                    val existingQueue = _uiState.value.queue
-                    val idsChanged = existingQueue.map { it.uuid } != queueIds
-
-                    val newQueue = queueIds.mapNotNull { id ->
-                        try {
-                            trackDao.getTrackByUuid(id)?.toTrack() ?: currentTrackMap[id]
-                        } catch (e: Exception) {
-                            currentTrackMap[id]
-                        }
-                    }
-
-                    if (newQueue != existingQueue || idsChanged) {
-                        _uiState.update { state ->
-                            val currentIndex = state.queueIndex
-                            state.copy(
-                                queue = newQueue,
-                                currentTrack = newQueue.getOrNull(currentIndex) ?: state.currentTrack
-                            )
-                        }
-                    }
+            playbackManager.snapshot.collectLatest { snapshot ->
+                if (snapshot.currentId == null || snapshot.queueIds.isEmpty()) return@collectLatest
+                val old = _uiState.value.queue.associateBy { it.uuid }
+                val tracks = withContext(Dispatchers.IO) {
+                    snapshot.queueIds.mapNotNull { id -> old[id] ?: trackDao.getTrackByUuid(id)?.toTrack() }
                 }
-            }
-        }
-
-        // The playback manager's index is the source of truth for "what is playing" on the phone.
-        viewModelScope.launch {
-            playbackManager.currentQueueIndexFlow.collect { index ->
-                val currentState = _uiState.value
-                val currentQueue = currentState.queue
-
-                if (index >= 0 && index < currentQueue.size) {
-                    val queueTrack = currentQueue[index]
-                    val track = withContext(Dispatchers.IO) {
-                        trackDao.getTrackByUuid(queueTrack.uuid)?.toTrack() ?: queueTrack
-                    }
-
-                    if (
-                        currentState.queueIndex != index ||
-                        currentState.currentTrack?.uuid != track.uuid ||
-                        currentState.currentTrack != track
-                    ) {
-                        _uiState.update { it.copy(currentTrack = track, queueIndex = index) }
-                        queueManager.onPlaybackAdvanced(track, currentQueue.size - index - 1)
-                    }
+                if (snapshot != playbackManager.snapshot.value) return@collectLatest
+                val previous = _uiState.value
+                val state = reconcilePhonePlayback(previous, tracks, snapshot.currentId)
+                _uiState.value = state
+                if (previous.currentTrack?.uuid != state.currentTrack?.uuid) {
+                    state.currentTrack?.let { track -> queueManager.onPlaybackAdvanced(track, tracks.size - state.queueIndex - 1) }
                 }
             }
         }
@@ -784,8 +751,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         val videoId = requireNotNull(track.ytVideoId)
                         if (!echo.awaitPlaying(videoId)) _messages.tryEmit("The Echo hasn't confirmed playback yet")
                     }
-                } else block()
-            } finally {
+                } else {
+                    block()
+                    val ready = withTimeoutOrNull(45_000) {
+                        playbackManager.snapshot.first { it.currentId == track.uuid }
+                        playbackManager.isBufferingFlow.first { !it }
+                        true
+                    }
+                    if (ready != true) _messages.tryEmit("Playback is taking longer than usual")
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+            catch (e: Exception) { _messages.tryEmit(com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't play this song") }
+            finally {
                 // A cancelled earlier request must not clear the next song's loading state.
                 if (requestId == playbackRequestId) pendingPlayback.value = null
             }
@@ -804,7 +782,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun startRadio(track: Track) {
         if (isAlexa) { launchPlayback(track) { echo.playSong(track, radio = true) }; return }
         launchPlayback(track) {
-            phoneSetQueue(listOf(track), 0, throwOnFailure = false)
+            phoneSetQueue(listOf(track), 0, throwOnFailure = true)
             if (_uiState.value.currentTrack?.ytVideoId == track.ytVideoId) {
                 queueManager.initializeQueue(listOf(_uiState.value.currentTrack!!), isRadioMode = true)
             }
@@ -940,7 +918,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * their proxy URLs. The shared queue on the server is replaced so the Echo and the web
      * remote see the same songs.
      */
-    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = false) {
+    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true) {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
             phoneQueueSyncJob?.cancel()
@@ -1494,3 +1472,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 internal fun withPendingPlayback(state: MusicUiState, pending: Track?): MusicUiState =
     if (pending == null) state else state.copy(currentTrack = pending, position = 0L,
         duration = pending.durationSec * 1000L, isLoading = true)
+
+internal fun reconcilePhonePlayback(state: MusicUiState, queue: List<Track>, currentId: String): MusicUiState {
+    val index = queue.indexOfFirst { it.uuid == currentId }
+    if (index < 0) return state
+    val track = queue[index]
+    val changed = state.currentTrack?.uuid != currentId
+    return state.copy(queue = queue, queueIndex = index, currentTrack = track,
+        position = if (changed) 0 else state.position, duration = track.durationSec * 1000L)
+}

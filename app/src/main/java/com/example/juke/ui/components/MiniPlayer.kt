@@ -326,19 +326,7 @@ fun MiniPlayer(
                         // Explicit cache keys ensure Coil hits memory/disk cache immediately
                         // when the MiniPlayer re-renders after a track change, preventing
                         // the blank thumbnail flash on already-loaded images.
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(currentTrack.thumbnailUri)
-                                .memoryCacheKey(currentTrack.thumbnailUri)
-                                .diskCacheKey(currentTrack.thumbnailUri)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = currentTrack.title,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(androidx.compose.ui.graphics.RectangleShape),
-                            contentScale = ContentScale.Crop
-                        )
+                        TrackArtwork(currentTrack, Modifier.size(46.dp).clip(androidx.compose.ui.graphics.RectangleShape))
                     } else {
                         Box(
                             modifier = Modifier
@@ -480,16 +468,7 @@ private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modi
             contentAlignment = Alignment.Center
         ) {
             if (track.thumbnailUri != null) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(track.thumbnailUri)
-                        .memoryCacheKey(track.thumbnailUri)
-                        .diskCacheKey(track.thumbnailUri)
-                        .build(),
-                    contentDescription = track.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                TrackArtwork(track, Modifier.fillMaxSize())
             }
         }
         Spacer(modifier = Modifier.width(12.dp))

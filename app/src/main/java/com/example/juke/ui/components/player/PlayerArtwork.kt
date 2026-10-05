@@ -17,6 +17,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,26 +56,29 @@ fun PlayerArtwork(
         pageCount = { queue.size.coerceAtLeast(1) }
     )
 
-    // Sync external playback changes (next button, track end) to the Pager
-    LaunchedEffect(queueIndex) {
-        if (queueIndex in queue.indices && pagerState.currentPage != queueIndex) {
-            pagerState.animateScrollToPage(queueIndex)
+    val dragged by pagerState.interactionSource.collectIsDraggedAsState()
+    var userSwipe by remember { mutableStateOf(false) }
+    LaunchedEffect(dragged) { if (dragged) userSwipe = true }
+    LaunchedEffect(queueIndex, currentTrack.ytVideoId) {
+        if (!dragged && queueIndex in queue.indices && pagerState.currentPage != queueIndex) {
+            userSwipe = false
+            pagerState.scrollToPage(queueIndex)
         }
     }
-
-    // Sync manual user swipes to the ViewModel
-    LaunchedEffect(pagerState.settledPage) {
-        if (pagerState.settledPage != queueIndex && pagerState.settledPage in queue.indices) {
-            val swipedTrack = queue[pagerState.settledPage]
-            musicViewModel.playTrackFromQueue(swipedTrack)
-            haptic.click()
+    LaunchedEffect(pagerState.isScrollInProgress, pagerState.settledPage) {
+        if (!pagerState.isScrollInProgress && userSwipe) {
+            userSwipe = false
+            if (pagerState.settledPage != queueIndex && pagerState.settledPage in queue.indices) {
+                musicViewModel.playTrackFromQueue(queue[pagerState.settledPage])
+                haptic.click()
+            }
         }
     }
 
     // Every page fills the same artwork slot, with no spacing or scale animation.
     val artworkModifier = modifier.fillMaxSize()
 
-    if (queue.isEmpty()) {
+    if (queue.isEmpty() || queue.getOrNull(queueIndex)?.ytVideoId != currentTrack.ytVideoId) {
         // Fallback if queue is empty for some reason
         ArtworkCard(
             track = currentTrack,
@@ -135,17 +143,7 @@ private fun ArtworkCard(
             // Use an explicit ImageRequest so Coil can key the memory/disk cache by URI
             // and immediately serve from cache when the composable is re-entered after
             // a track switch (avoids the blank-frame flash on already-rendered components).
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(track.thumbnailUri)
-                    .memoryCacheKey(track.thumbnailUri)
-                    .diskCacheKey(track.thumbnailUri)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = track.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+            com.example.juke.ui.components.TrackArtwork(track, Modifier.fillMaxSize(), large = true)
         } else {
             Box(
                 modifier = Modifier

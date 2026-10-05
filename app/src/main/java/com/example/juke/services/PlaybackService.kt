@@ -1169,6 +1169,15 @@ class PlaybackManager private constructor(private val context: Context) {
     private val database: MusicDatabase = MusicDatabase.getDatabase(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val _snapshot = MutableStateFlow(PhonePlaybackSnapshot())
+    val snapshot: StateFlow<PhonePlaybackSnapshot> = _snapshot.asStateFlow()
+    private var pendingQueueAction: ((MediaController) -> Unit)? = null
+    private var userQueueRequested = false
+    private fun publishSnapshot(ctrl: MediaController) {
+        _snapshot.value = PhonePlaybackSnapshot((0 until ctrl.mediaItemCount).map { ctrl.getMediaItemAt(it).mediaId },
+            ctrl.currentMediaItem?.mediaId)
+    }
+
     // Flow to emit current track UUID changes
     private val _currentTrackId = MutableStateFlow<String?>(null)
     val currentTrackIdFlow: StateFlow<String?> = _currentTrackId.asStateFlow()
@@ -1250,6 +1259,9 @@ class PlaybackManager private constructor(private val context: Context) {
 
                     // Add a Player.Listener on the controller's underlying player
                     playerListener = object : Player.Listener {
+                        override fun onEvents(player: Player, events: Player.Events) {
+                            controller?.let(::publishSnapshot)
+                        }
                         override fun onTimelineChanged(
                             timeline: androidx.media3.common.Timeline,
                             reason: Int
@@ -1402,10 +1414,11 @@ class PlaybackManager private constructor(private val context: Context) {
                         }
                     }
 
-                    // Restore saved playback state if exists
-                    scope.launch {
-                        restorePlaybackState()
-                    }
+                    publishSnapshot(requireNotNull(controller))
+                    val queued = pendingQueueAction
+                    pendingQueueAction = null
+                    if (queued != null) queued(requireNotNull(controller))
+                    else if (!userQueueRequested) scope.launch { restorePlaybackState() }
                 },
                 MoreExecutors.directExecutor()
             )
@@ -1445,6 +1458,7 @@ class PlaybackManager private constructor(private val context: Context) {
         keepShuffleMode: Boolean = false,
         playWhenReady: Boolean = true
     ) {
+        userQueueRequested = true
         initialize()
 
         if (!keepShuffleMode) {
@@ -1456,7 +1470,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
         val mediaItems = tracks.mapNotNull { track -> createValidatedMediaItem(track) }
 
-        controller?.apply {
+        val action: (MediaController) -> Unit = { ctrl -> ctrl.apply {
             // When starting a fresh queue the caller is responsible for ordering the tracks
             // (pre-shuffling in Kotlin when shuffle is on). Disabling ExoPlayer's own shuffle
             // prevents double-shuffling where ExoPlayer would override the intended playback
@@ -1468,7 +1482,9 @@ class PlaybackManager private constructor(private val context: Context) {
             setMediaItems(mediaItems, startIndex, startPositionMs)
             prepare()
             if (playWhenReady) play() else pause()
-        }
+        } }
+        val ready = controller
+        if (ready != null) action(ready) else pendingQueueAction = action
 
         // Emit the initial track ID
         tracks.getOrNull(startIndex)?.let { startTrack ->
@@ -2110,6 +2126,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
             // MediaController methods must be called on main thread
             withContext(Dispatchers.Main) {
+                if (userQueueRequested) return@withContext
                 controller?.apply {
                     setMediaItems(
                         mediaItems,
