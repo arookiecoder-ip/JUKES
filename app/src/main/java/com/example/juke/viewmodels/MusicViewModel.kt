@@ -1022,27 +1022,46 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         require(index in tracks.indices)
         require(tracks.size <= 5_000) { "This queue exceeds the server's 5,000-song limit" }
         val seed = requireNotNull(tracks[index].ytVideoId)
-        var items = tracks.map(AlexaBackendApi::backendTrack)
-        if (startRadio && tracks.size == 1) {
-            try {
-                val radio = withTimeoutOrNull(8_000) { AlexaBackendApi.getRadio(seed) }.orEmpty()
-                items = (items + radio.filter { it.videoId != seed }).distinctBy { it.videoId }
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { Log.w(TAG, "Phone radio unavailable: ${e.javaClass.simpleName}") }
-        }
-        // Install queue and cursor atomically on the same keyed backend used by phone reads/audio.
-        // This route never dispatches an Echo command.
-        AlexaBackendApi.updateQueue("start", seed, items, playing, positionMs, queueIndex = index,
-            buffering = playbackManager.isBufferingFlow.value)
-        coroutineContext.ensureActive()
-        if (startRadio && tracks.size == 1 && items.size > 1) {
-            val full = tracks + items.drop(1).map { it.toAppTrack(AlexaBackendApi.audioUrl(it.videoId)) }
-            withContext(Dispatchers.IO) { trackDao.insertTracks(full.map { it.toEntity() }) }
-            if (_uiState.value.currentTrack?.uuid == tracks[index].uuid) {
+        val claim = com.example.juke.services.PhonePlaybackOwnership.token
+        var firstPublication = true
+        com.example.juke.services.publishPhoneQueueInStages(
+            initial = tracks.map(AlexaBackendApi::backendTrack),
+            publish = { items ->
+                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim))
+                    throw CancellationException("Phone queue publication was superseded")
+                // Publish before radio lookup so web Play always sees the actual phone song.
+                AlexaBackendApi.updateQueue("start", seed, items,
+                    if (firstPublication) playing else playbackManager.isPlayingFlow.value,
+                    if (firstPublication) positionMs else playbackManager.getCurrentPosition(),
+                    queueIndex = index, buffering = playbackManager.isBufferingFlow.value)
+                firstPublication = false
+            },
+            expand = expand@{ initial ->
+                if (!startRadio || tracks.size != 1) return@expand initial
+                val radio = try {
+                    withTimeoutOrNull(8_000) { AlexaBackendApi.getRadio(seed) }.orEmpty()
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    Log.w(TAG, "Phone radio unavailable: ${e.javaClass.simpleName}")
+                    emptyList()
+                }
+                coroutineContext.ensureActive()
+                val items = (initial + radio.filter { it.videoId != seed }).distinctBy { it.videoId }
+                if (items.size <= initial.size) return@expand initial
+                if (_uiState.value.currentTrack?.uuid != tracks[index].uuid ||
+                    _uiState.value.queue.map { it.uuid } != tracks.map { it.uuid } ||
+                    !com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim))
+                    throw CancellationException("Local queue changed while radio was loading")
+                val full = tracks + items.drop(1).map { it.toAppTrack(AlexaBackendApi.audioUrl(it.videoId)) }
+                withContext(Dispatchers.IO) { trackDao.insertTracks(full.map { it.toEntity() }) }
+                coroutineContext.ensureActive()
+                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim))
+                    throw CancellationException("Playback moved while radio was loading")
                 playbackManager.replaceUpcoming(full, index)
                 _uiState.update { it.copy(queue = full) }
+                items
             }
-        }
+        )
     }
 
     private fun synchronizePhoneQueue(startRadio: Boolean = false) {
