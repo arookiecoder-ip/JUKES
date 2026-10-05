@@ -417,8 +417,8 @@ fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
                 onAction = {}
             )
             Text("Audio server: ${Backend.audioBaseUrl}", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                TextButton(onClick = account::testDownloadCookies, enabled = !state.cookieBusy && !state.checkingStatus) { Text("Test audio download") }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                TextButton(onClick = account::testDownloadCookies, enabled = !state.cookieBusy) { Text("Test audio download") }
                 TextButton(onClick = { showCookies = true }, enabled = !state.cookieBusy) { Text("Replace cookies") }
             }
             if (status != null) {
@@ -457,6 +457,7 @@ private fun DownloadCookiesDialog(state: AccountUiState, account: AccountViewMod
     var reading by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
     val initialSaved = remember { state.cookieSaved }
     val busy = state.cookieBusy || reading
     LaunchedEffect(state.cookieSaved) {
@@ -490,19 +491,26 @@ private fun DownloadCookiesDialog(state: AccountUiState, account: AccountViewMod
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("Replace download cookies") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Server: ${Backend.audioBaseUrl}")
                 Text("Upload or paste a Netscape cookies.txt export. The server tests an audio download before saving. A failed test keeps the existing cookies. Library sign-in is separate.")
                 OutlinedTextField(export, { export = it; fileError = null }, label = { Text("Cookie export") },
                     modifier = Modifier.fillMaxWidth().testTag("download-cookie-export"), minLines = 3, maxLines = 6,
                     enabled = !busy, visualTransformation = PasswordVisualTransformation())
-                TextButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, enabled = !busy) { Text("Choose cookies.txt") }
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    export = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                    fileError = if (export.isBlank()) "The clipboard is empty." else null
+                    keyboard?.hide()
+                }, enabled = !busy) { Text("Paste from clipboard") }
+                TextButton(onClick = { keyboard?.hide(); picker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Choose cookies.txt") }
+                if (export.isNotBlank()) Text("${export.lineSequence().count()} lines loaded", style = MaterialTheme.typography.bodySmall)
                 (fileError ?: state.cookieMessage)?.let { Text(it) }
                 if (busy) CircularProgressIndicator(Modifier.size(24.dp))
             }
         },
-        confirmButton = { TextButton(onClick = { account.replaceDownloadCookies(export) },
-            enabled = !busy && !state.checkingStatus && export.isNotBlank()) { Text("Test and save") } },
+        confirmButton = { TextButton(onClick = { keyboard?.hide(); account.replaceDownloadCookies(export) },
+            enabled = !busy && export.isNotBlank()) { Text("Test and save") } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } }
     )
 }
