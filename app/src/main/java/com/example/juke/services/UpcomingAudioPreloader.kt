@@ -40,13 +40,14 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
 
 @UnstableApi
 fun upcomingAudioUrls(player: Player): List<String> {
-    if (player.currentMediaItemIndex !in 0 until player.mediaItemCount) return emptyList()
+    if (player.repeatMode == Player.REPEAT_MODE_ONE || player.currentMediaItemIndex !in 0 until player.mediaItemCount) return emptyList()
     val timeline = player.currentTimeline
     val seen = mutableSetOf(player.currentMediaItemIndex)
     var index = player.currentMediaItemIndex
     val urls = mutableListOf<String>()
-    while (urls.size < 5) {
-        index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled)
+    var inspected = 0
+    while (inspected++ < 5) {
+        index = timeline.getNextWindowIndex(index, player.repeatMode, player.shuffleModeEnabled)
         if (index < 0 || !seen.add(index)) break
         player.getMediaItemAt(index).localConfiguration?.uri?.toString()?.let {
             if (Uri.parse(it).scheme in listOf("http", "https")) urls += it
