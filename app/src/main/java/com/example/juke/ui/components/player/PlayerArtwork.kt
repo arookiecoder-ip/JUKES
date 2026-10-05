@@ -1,5 +1,10 @@
 package com.example.juke.ui.components.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.SizeTransform
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -118,6 +123,24 @@ fun PlayerArtwork(
 
 @Composable
 private fun ArtworkCard(
+    track: Track,
+    showLyrics: Boolean,
+    currentPosition: Long,
+    musicViewModel: MusicViewModel,
+    isTablet: Boolean,
+    onToggleLyrics: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedContent(targetState = track, contentKey = { it.ytVideoId }, modifier = modifier.fillMaxSize(),
+        transitionSpec = { (slideInHorizontally { it } togetherWith slideOutHorizontally { -it }).using(SizeTransform(sizeAnimationSpec = { _, _ -> androidx.compose.animation.core.snap() })) },
+        label = "Song artwork transition") { shownTrack ->
+        ArtworkCardContent(shownTrack, showLyrics && shownTrack.ytVideoId == track.ytVideoId,
+            currentPosition, musicViewModel, isTablet, onToggleLyrics, Modifier.fillMaxSize())
+    }
+}
+
+@Composable
+private fun ArtworkCardContent(
     track: Track,
     showLyrics: Boolean,
     currentPosition: Long,

@@ -66,9 +66,9 @@ class TabletPlaybackRegressionTest {
             val line = compose.onNodeWithTag("Lyric line $index").fetchSemanticsNode().boundsInRoot
             return kotlin.math.abs(viewport.center.y - line.center.y) < 4 * context.resources.displayMetrics.density
         }
-        compose.waitUntil(5_000) { centred(8) }
+        compose.waitUntil(5_000) { runCatching { centred(8) }.getOrDefault(false) }
         compose.onNodeWithTag("Lyric line 9").performClick()
-        compose.waitUntil(5_000) { centred(9) }
+        compose.waitUntil(5_000) { runCatching { centred(9) }.getOrDefault(false) }
         compose.onNodeWithTag("Synced lyrics").performTouchInput { swipeUp() }
         compose.waitUntil(5_000) { runCatching { centred(9) }.getOrDefault(false) }
     }
