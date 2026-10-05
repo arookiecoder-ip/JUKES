@@ -109,7 +109,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         "Shuffle play" -> Icons.Filled.Shuffle
                         else -> Icons.Filled.OpenInNew
                     }
-                    MusicMenuOption(icon, label) { menu.dismiss(); run() }
+                    MusicMenuOption(icon, label, enabled = label != "Downloading…", showProgress = label == "Downloading…") { menu.dismiss(); run() }
                 }
                 if (track != null) {
                     queueActions?.let { actions ->

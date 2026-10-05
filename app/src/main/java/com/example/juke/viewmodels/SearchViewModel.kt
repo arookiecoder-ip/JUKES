@@ -357,7 +357,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                     playlists = rows("playlists").filter { it.playlistId.isNotBlank() || it.id.isNotBlank() },
                     isSearching = false
                 )
-                if (hero?.kind == "artist" && preview.size < 3) {
+                if (hero?.kind == "artist") {
                     try {
                         val artist = Backend.get("/api/artist/${hero.id}").objectOrEmpty()
                         val topSongs = artist.array("topSongs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }

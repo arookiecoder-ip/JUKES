@@ -45,9 +45,10 @@ fun MusicQuickAction(icon: ImageVector, label: String, modifier: Modifier = Modi
 }
 
 @Composable
-fun MusicMenuOption(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+fun MusicMenuOption(icon: ImageVector, label: String, enabled: Boolean = true, showProgress: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (showProgress) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        else Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium)
     }

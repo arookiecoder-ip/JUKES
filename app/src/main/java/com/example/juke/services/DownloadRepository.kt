@@ -49,6 +49,8 @@ class DownloadRepository private constructor(private val context: Context) {
     val tracks = _tracks.asStateFlow()
     private val _progress = MutableStateFlow<Map<String, Int>>(emptyMap())
     val progress = _progress.asStateFlow()
+    private val _activeTracks = MutableStateFlow<List<Track>>(emptyList())
+    val activeTracks = _activeTracks.asStateFlow()
     private val _collections = MutableStateFlow(savedCollections.toList())
     val collections = _collections.asStateFlow()
     private val _status = MutableStateFlow(DownloadStatus())
@@ -154,6 +156,7 @@ class DownloadRepository private constructor(private val context: Context) {
     }
     private fun publishStatus(percentages: Map<String, Int> = _progress.value) {
         val activeTracks = (pending.map { it.track } + queued.values).distinctBy { it.ytVideoId }
+        _activeTracks.value = activeTracks
         val ids = activeTracks.mapNotNull { it.ytVideoId }
         _progress.value = ids.associateWith { percentages[it] ?: -1 }
         val known = _progress.value.values.filter { it >= 0 }

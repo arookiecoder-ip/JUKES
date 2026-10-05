@@ -70,9 +70,10 @@ fun LibraryScreen(
     val selection = remember { DownloadSelection() }
     val downloaded by musicViewModel.downloadedTracks.collectAsStateWithLifecycle()
     val progress by musicViewModel.downloadProgress.collectAsStateWithLifecycle()
+    val downloading by musicViewModel.downloads.activeTracks.collectAsStateWithLifecycle()
     val online by com.example.juke.network.NetworkFeedback.online.collectAsStateWithLifecycle()
-    val downloadedSongs = remember(downloaded, downloadedCollections, state.searchQuery) {
-        com.example.juke.services.standaloneDownloads(downloaded, downloadedCollections).filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
+    val downloadedSongs = remember(downloaded, downloading, downloadedCollections, state.searchQuery) {
+        com.example.juke.services.standaloneDownloads((downloaded + downloading).distinctBy { it.ytVideoId }, downloadedCollections).filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
     }
     val collectionDownloads = downloadedCollections.filter { it.title.contains(state.searchQuery, true) || it.subtitle.contains(state.searchQuery, true) }
     val context = LocalContext.current
@@ -183,7 +184,11 @@ fun LibraryScreen(
                             }
                             items(downloadedSongs, key = { it.ytVideoId ?: it.uuid }) { song ->
                                 DownloadTrackRow(song, selection, onPlay = {
-                                    musicViewModel.playDownloaded(downloadedSongs, downloadedSongs.indexOf(song))
+                                    if (song.ytVideoId in progress) com.example.juke.network.NetworkFeedback.notify("This song is still downloading")
+                                    else {
+                                        val ready = downloadedSongs.filter { it.ytVideoId !in progress }
+                                        musicViewModel.playDownloaded(ready, ready.indexOf(song))
+                                    }
                                 })
                             }
                         }

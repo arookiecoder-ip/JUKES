@@ -64,7 +64,7 @@ class FeatureInteractionRegressionTest {
             compose.onNodeWithTag("Search result artwork", useUnmergedTree = true).assertWidthIsEqualTo(84.dp).assertHeightIsEqualTo(84.dp)
             if (type != "artist") compose.onNodeWithTag("Search top result").assertHeightIsEqualTo(120.dp)
         }
-        compose.onNodeWithText("Artist", substring = false).assertExists()
+        compose.onAllNodesWithText("Artist", substring = false).assertCountEquals(4)
         for (song in songs) compose.onNodeWithText(song.title).assertIsDisplayed()
         compose.onNodeWithText("Open Artist").assertDoesNotExist()
     }
