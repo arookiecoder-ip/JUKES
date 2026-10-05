@@ -25,11 +25,11 @@ import org.junit.Test
 
 class WebLayoutRegressionTest {
     @get:Rule val compose = createComposeRule()
-    private fun screenshot(name: String) {
+    private fun screenshot(name: String, node: SemanticsNodeInteraction = compose.onRoot()) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = java.io.File(context.getExternalFilesDir(null), "screenshots").apply { mkdirs() }
         java.io.File(directory, "$name.png").outputStream().use {
-            compose.onAllNodes(isRoot()).onLast().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+            node.captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
     private val song = Track("song", "Song title", "First, Second", durationSec = 180)
@@ -73,7 +73,7 @@ class WebLayoutRegressionTest {
         compose.onNodeWithContentDescription("Song options").performClick()
         compose.onNodeWithText("Lyrics").assertIsDisplayed()
         compose.onNodeWithText("Romanized lyrics: Off").assertIsDisplayed()
-        screenshot("expanded-player-menu")
+        screenshot("expanded-player-menu", compose.onNodeWithTag("Player options", useUnmergedTree = true))
     }
     @Test fun artistPickerListsAndSelectsIndividualArtists() {
         var selected: ArtistCredit? = null
