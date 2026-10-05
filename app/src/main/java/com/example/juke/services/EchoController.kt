@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.example.juke.utils.SafeLog as Log
 import com.example.juke.models.Track
 import com.example.juke.network.Backend
+import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.BackendAuthException
 import com.example.juke.network.BrowseParser
 import com.example.juke.network.array
@@ -235,21 +236,23 @@ class EchoController(
         refreshSoon()
     }
 
-    /** Stage the shared queue, then dispatch exactly once at the handoff position. */
+    /** Install the paused shared cursor, then use the same Resume path as the web player. */
     suspend fun transferQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean) {
         val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
         val selected = tracks.getOrNull(index)
         require(playable.isNotEmpty()) { "Nothing to play" }
-        Backend.post("/alexa/play_queue/", buildJsonObject {
-            // No serial: install metadata without starting the Echo at zero first.
-            put("queue_items", JsonArray(playable.map { it.metadata() }))
-            put("start_index", playable.indexOf(selected).coerceAtLeast(0))
-            put("suppress_radio", true)
-        })
-        if (!playing) command("pause", refreshAfter = false)
-        seek(positionMs, refreshAfter = false)
+        val targetIndex = playable.indexOf(selected).coerceAtLeast(0)
+        val videoId = requireNotNull(playable[targetIndex].ytVideoId)
+        startTransferredAlexaQueue(playing,
+            installPaused = {
+                AlexaBackendApi.updateQueue("start", videoId, playable.map(AlexaBackendApi::backendTrack),
+                    playing = false, positionMs = positionMs.coerceAtLeast(0), queueIndex = targetIndex,
+                    buffering = false)
+            },
+            resume = { command("play", refreshAfter = false) },
+            keepPaused = { seek(positionMs, refreshAfter = false) })
         if (playing) {
-            check(awaitPlaying(requireNotNull(selected?.ytVideoId ?: playable.first().ytVideoId))) {
+            check(awaitPlaying(videoId)) {
                 "The Echo did not confirm playback. Playback stayed on the original device."
             }
         } else refresh(stateOnly = true)
@@ -332,7 +335,11 @@ class EchoController(
             while (!confirmed) {
                 refresh(stateOnly = true)
                 val s = _state.value
-                confirmed = s.confirmed && s.playing && s.track?.ytVideoId == videoId
+                check(s.sharedOutput.mode != "phone") { "Playback moved to a phone before the Echo confirmed." }
+                check(s.playing || s.processing || s.track?.ytVideoId != videoId) {
+                    "The Echo stopped before confirming playback. Retry the switch."
+                }
+                confirmed = s.confirmedOnAlexa(videoId)
                 if (!confirmed) delay(250)
             }
             true

@@ -30,6 +30,8 @@ class SharedPlaybackOutputTest {
         assertEquals("phone", snapshot.sharedOutput.mode)
         assertTrue(snapshot.confirmed)
         assertFalse(snapshot.processing)
+        assertFalse(snapshot.confirmedOnAlexa("abcdefghijk"))
+        assertTrue(snapshot.copy(sharedOutput = SharedPlaybackOutput("alexa")).confirmedOnAlexa("abcdefghijk"))
     }
     @Test fun actualAlexaBufferingRemainsUnconfirmedAndProcessing() {
         val snapshot = parseEchoSnapshot(Json.parseToJsonElement("""{
@@ -40,6 +42,7 @@ class SharedPlaybackOutputTest {
         assertFalse(snapshot.confirmed)
         assertTrue(snapshot.processing)
         assertTrue(snapshot.playing)
+        assertFalse(snapshot.confirmedOnAlexa("abcdefghijk"))
     }
     @Test fun preparedAudioCannotRestartPhoneAfterPauseAcknowledgement() {
         assertFalse(canStartPhonePlayback("old", "", true, 0, 100))
