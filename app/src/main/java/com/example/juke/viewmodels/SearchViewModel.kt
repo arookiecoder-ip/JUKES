@@ -344,7 +344,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 val liked = AccountRepository.liked.value
                 fun rows(key: String) = result.array(key).mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, key) } }
                 val all = rows("all")
-                val songs = rows("songs").filter { com.example.juke.network.isAudioSearchItem(it) }
+                val songs = com.example.juke.network.searchSongItems(all, rows("songs"))
                 val hero = com.example.juke.network.audioSearchHero(all, songs)
                 val heroIndex = all.indexOf(hero)
                 val preview = if (hero?.kind == "artist") all.drop(heroIndex + 1).takeWhile { it.kind == "track" }

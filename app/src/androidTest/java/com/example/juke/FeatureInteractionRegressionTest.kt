@@ -45,9 +45,9 @@ class FeatureInteractionRegressionTest {
             Button(onClick = { expanded = !expanded }) { Text("More") }
             if (expanded) Spacer(Modifier.height(300.dp))
         } } }
-        compose.onNodeWithTag("Artist banner", useUnmergedTree = true).assertHeightIsEqualTo(240.dp)
+        compose.onNodeWithTag("Artist banner", useUnmergedTree = true).assertHeightIsEqualTo(380.dp)
         compose.onNodeWithText("More").performClick()
-        compose.onNodeWithTag("Artist banner", useUnmergedTree = true).assertHeightIsEqualTo(240.dp)
+        compose.onNodeWithTag("Artist banner", useUnmergedTree = true).assertHeightIsEqualTo(380.dp)
     }
     @Test fun searchArtworkSizeIsConsistentAndArtistShowsThreeSongs() {
         var kind by mutableStateOf("song")

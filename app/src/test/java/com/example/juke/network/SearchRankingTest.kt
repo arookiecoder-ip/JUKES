@@ -24,4 +24,11 @@ class SearchRankingTest {
         val song = item("audio", "আমার গান", "song")
         assertEquals(song, audioSearchHero(listOf(video), listOf(other, song)))
     }
+    @Test fun missingSongArrayStillShowsMixedTracksWithoutDroppingVideos() {
+        val video = item("video", "Song", "video")
+        val audio = item("audio", "Song", "song")
+        assertEquals(listOf(audio, video), searchSongItems(listOf(video, audio), emptyList()))
+        assertEquals(listOf(video), searchSongItems(listOf(video), emptyList()))
+        assertEquals(listOf(audio, video), searchSongItems(listOf(video, audio), listOf(audio)))
+    }
 }
