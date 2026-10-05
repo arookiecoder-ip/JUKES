@@ -22,21 +22,21 @@ class SharedPlaybackOutputTest {
         assertFalse(SharedPlaybackOutput("phone", "my-phone", "").belongsToPhone("my-phone", ""))
     }
     @Test fun confirmedPhoneMetadataDoesNotBecomeUnconfirmedEchoPlayback() {
-        val snapshot = decodeEchoSnapshot(Json.parseToJsonElement("""{
+        val snapshot = parseEchoSnapshot(Json.parseToJsonElement("""{
             "video_id":"abcdefghijk","title":"Phone song","queue":[],"queue_index":-1,
             "playback_output":"phone","output_owner":"my-phone","output_token":"current",
             "playing":true,"playback_confirmed":true,"playback_processing":false
-        }""").jsonObject, now = 100)
+        }""").jsonObject, now = 100, previousVolume = null, preserveVolume = false)
         assertEquals("phone", snapshot.sharedOutput.mode)
         assertTrue(snapshot.confirmed)
         assertFalse(snapshot.processing)
     }
     @Test fun actualAlexaBufferingRemainsUnconfirmedAndProcessing() {
-        val snapshot = decodeEchoSnapshot(Json.parseToJsonElement("""{
+        val snapshot = parseEchoSnapshot(Json.parseToJsonElement("""{
             "video_id":"abcdefghijk","title":"Echo song","queue":[],"queue_index":-1,
             "playback_output":"alexa","playing":true,
             "playback_confirmed":false,"playback_processing":true
-        }""").jsonObject, now = 100)
+        }""").jsonObject, now = 100, previousVolume = null, preserveVolume = false)
         assertFalse(snapshot.confirmed)
         assertTrue(snapshot.processing)
         assertTrue(snapshot.playing)

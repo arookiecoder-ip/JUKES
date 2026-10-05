@@ -755,8 +755,8 @@ class PlaybackService : MediaLibraryService() {
                         PhonePlaybackOwnership.releaseTo(status)
                         if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
                             val snapshot = com.example.juke.network.AlexaBackendApi.phoneQueueSnapshot()
-                            RemotePlaybackService.start(applicationContext, decodeEchoSnapshot(snapshot,
-                                android.os.SystemClock.elapsedRealtime()), false)
+                            RemotePlaybackService.start(applicationContext, parseEchoSnapshot(snapshot,
+                                android.os.SystemClock.elapsedRealtime(), null, false), false)
                         }
                         continue
                     }
