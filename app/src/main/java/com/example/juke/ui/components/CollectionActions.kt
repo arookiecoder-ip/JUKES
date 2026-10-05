@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.example.juke.network.BrowseItem
 
 @Composable
-fun CollectionActions(item: BrowseItem, onPlay: () -> Unit, onShuffle: () -> Unit, onQueue: () -> Unit) {
+fun CollectionActions(item: BrowseItem, onPlay: () -> Unit, onShuffle: () -> Unit, onQueue: () -> Unit, options: List<ExtraSongOption> = emptyList()) {
     val menu = LocalMediaMenu.current
     val share = rememberShareAction()
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically,
@@ -31,6 +31,6 @@ fun CollectionActions(item: BrowseItem, onPlay: () -> Unit, onShuffle: () -> Uni
                 else "https://music.youtube.com/playlist?list=${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
             share("Share ${item.title}", url)
         }) { Icon(Icons.Default.Share, "Share collection", Modifier.size(28.dp)) }
-        IconButton(onClick = { menu?.show(item) }) { Icon(Icons.Default.MoreVert, "Collection options", Modifier.size(28.dp)) }
+        IconButton(onClick = { menu?.show(item, extras = options) }) { Icon(Icons.Default.MoreVert, "Collection options", Modifier.size(28.dp)) }
     }
 }

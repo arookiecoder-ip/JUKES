@@ -153,8 +153,8 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
                     item {
                         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(shelf.items, key = { it.id }) { item ->
-                                if (item.kind == "album") AlbumCard(item, { onOpenAlbum(item) }, onPlay = { music.playCollection(item) }, artworkSize = 160.dp)
-                                else PlaylistCard(item, { onOpenPlaylist(item) }, onPlay = { music.playCollection(item) }, artworkSize = 160.dp)
+                                if (item.kind == "album") AlbumCard(item, { onOpenAlbum(item) }, onPlay = { music.playCollection(item) }, artworkSize = 148.dp)
+                                else PlaylistCard(item, { onOpenPlaylist(item) }, onPlay = { music.playCollection(item) }, artworkSize = 148.dp)
                             }
                         }
                     }

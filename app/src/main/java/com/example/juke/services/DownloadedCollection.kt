@@ -23,3 +23,9 @@ fun standaloneDownloads(downloaded: List<Track>, collections: List<DownloadedCol
     val members = collections.flatMap { it.tracks }.mapNotNull { it.ytVideoId }.toSet()
     return downloaded.filter { it.ytVideoId !in members }
 }
+
+/** Null means online; an empty offline result must never fall back to a network fetch. */
+fun offlineCollectionTracks(item: BrowseItem, collections: List<DownloadedCollection>, files: List<Track>): List<Track>? {
+    if (item.raw["offline"]?.toString() != "true") return null
+    return collections.firstOrNull { it.id == item.id && it.kind == item.kind }?.available(files).orEmpty()
+}

@@ -35,20 +35,11 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
             MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
             item(key = "hero") {
-                DetailHero(state.imageUrl) {
-                    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        AsyncImage(state.imageUrl, state.title, Modifier.size(200.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                        Spacer(Modifier.height(12.dp))
-                        Text(state.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Text(state.artist, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clickable(enabled = state.artistId.isNotBlank()) { onNavigateToArtist(state.artistId) })
-                        Text(listOf("Album", state.year, "${state.tracks.size} tracks").filter { it.isNotBlank() }.joinToString(" · "),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    }
-                    CollectionActions(album, { musicViewModel.playCollection(album) },
-                        { musicViewModel.playCollection(album, shuffle = true) }, { musicViewModel.queueCollection(album, next = false) })
-                }
+                CollectionDetailHero(album, state.title, state.imageUrl, state.artist,
+                    listOf("Album", state.year, "${state.tracks.size} tracks").filter { it.isNotBlank() }.joinToString(" · "),
+                    onCreditClick = if (state.artistId.isNotBlank()) ({ onNavigateToArtist(state.artistId) }) else null,
+                    onPlay = { musicViewModel.playCollection(album) }, onShuffle = { musicViewModel.playCollection(album, shuffle = true) },
+                    onQueue = { musicViewModel.queueCollection(album, next = false) })
             }
             state.error?.let { message ->
                 item(key = "load-error") {
@@ -62,8 +53,8 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
                 item { Text("Tracks", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge) }
                 itemsIndexed(state.tracks) { index, track ->
                     SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
-                        FlatTrackRow(track.thumbnailUri, track.title, track.artist, "%d:%02d".format(track.durationSec / 60, track.durationSec % 60),
-                            onClick = { musicViewModel.setQueue(state.tracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track, number = index + 1)
+                        FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "",
+                            onClick = { musicViewModel.setQueue(state.tracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track, showMore = true, number = index + 1)
                     }
                 }
             }

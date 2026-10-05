@@ -28,33 +28,27 @@ fun DownloadedCollectionScreen(collectionKey: String, music: MusicViewModel, onB
         else {
             val available = remember(collection, files) { collection.available(files) }
             val local = available.associateBy { it.ytVideoId }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 24.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
                 item {
-                    DetailHero(collection.image) {
-                        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 52.dp, start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-                            coil.compose.AsyncImage(collection.image, collection.title, Modifier.size(180.dp).align(Alignment.CenterHorizontally), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-                            Spacer(Modifier.height(16.dp))
-                            Text(collection.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("Downloaded ${collection.kind} · ${available.size}/${collection.tracks.size} songs", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                FilledIconButton(enabled = available.isNotEmpty(), onClick = { music.playDownloaded(available, 0) }) { Icon(Icons.Default.PlayArrow, "Play downloaded collection") }
-                                FilledTonalIconButton(enabled = available.isNotEmpty(), onClick = { music.playDownloaded(available.shuffled(), 0) }) { Icon(Icons.Default.Shuffle, "Shuffle downloaded collection") }
-                                IconButton(onClick = { music.downloads.retryCollection(collection) }) { Icon(Icons.Default.Download, "Download missing songs") }
-                                IconButton(onClick = { selection.active = true }) { Icon(Icons.Default.CheckBoxOutlineBlank, "Select collection songs") }
-                            }
-                        }
-                    }
+                    val item = collection.browseItem()
+                    CollectionDetailHero(item, collection.title, collection.image,
+                        if (collection.kind == "playlist" && collection.subtitle.isNotBlank()) "By ${collection.subtitle}" else collection.subtitle,
+                        if (collection.kind == "album") "Album · ${collection.tracks.size} tracks" else "${collection.tracks.size} tracks",
+                        onPlay = { music.playCollection(item) }, onShuffle = { music.playCollection(item, shuffle = true) },
+                        onQueue = { music.queueCollection(item, next = false) },
+                        options = listOf(ExtraSongOption(Icons.Default.CheckBoxOutlineBlank, "Select songs") { selection.active = true }))
                 }
                 item { DownloadSelectionBar(selection, available, music.downloads::removeAll) }
+                item { Text("Tracks", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge) }
                 itemsIndexed(collection.tracks, key = { index, track -> "$index:${track.uuid}" }) { index, original ->
                     val song = local[original.ytVideoId]?.copy(uuid = original.uuid) ?: original
-                    if (original.ytVideoId in local) DownloadTrackRow(song, selection,
-                        onPlay = { music.playDownloaded(available, available.indexOfFirst { it.uuid == original.uuid }.coerceAtLeast(0)) },
-                        modifier = Modifier.padding(horizontal = 16.dp), number = if (collection.kind == "album") index + 1 else null)
-                    else Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(original.title, Modifier.weight(1f), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        DownloadedBadge(original.ytVideoId)
-                        IconButton(onClick = { music.download(original) }) { Icon(Icons.Default.Download, "Download ${original.title}") }
+                    SwipeToAddNextContainer(onAddNext = { music.addNext(song) }, onAddToQueue = { music.addToQueue(listOf(song)) }) {
+                        DownloadTrackRow(song, selection, onPlay = {
+                            val position = if (original.ytVideoId in local) collection.tracks.take(index).count { it.ytVideoId in local } else -1
+                            if (position >= 0) music.playDownloaded(available, position)
+                            else com.example.juke.network.NetworkFeedback.notify("Download this song to play offline")
+                        }, modifier = Modifier.padding(horizontal = 20.dp),
+                            number = if (collection.kind == "album") index + 1 else null, sharpArtwork = false)
                     }
                 }
             }

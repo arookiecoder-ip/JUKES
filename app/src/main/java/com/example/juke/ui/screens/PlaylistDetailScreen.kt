@@ -34,19 +34,10 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
             MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
             item(key = "hero") {
-                DetailHero(state.imageUrl) {
-                    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        AsyncImage(state.imageUrl, state.title, Modifier.size(200.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                        Spacer(Modifier.height(12.dp))
-                        Text(state.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        if (state.author.isNotBlank()) Text("By ${state.author}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${state.trackCount} tracks", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                        if (state.description.isNotBlank()) Text(state.description, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
-                    }
-                    CollectionActions(playlist, { musicViewModel.playCollection(playlist) },
-                        { musicViewModel.playCollection(playlist, shuffle = true) }, { musicViewModel.queueCollection(playlist, next = false) })
-                }
+                CollectionDetailHero(playlist, state.title, state.imageUrl, state.author.takeIf { it.isNotBlank() }?.let { "By $it" }.orEmpty(),
+                    "${state.trackCount} tracks", state.description,
+                    onPlay = { musicViewModel.playCollection(playlist) }, onShuffle = { musicViewModel.playCollection(playlist, shuffle = true) },
+                    onQueue = { musicViewModel.queueCollection(playlist, next = false) })
             }
             state.error?.let { message ->
                 item(key = "load-error") {
@@ -61,9 +52,9 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
                 itemsIndexed(state.tracks) { index, track ->
                     if (index >= state.tracks.size - 5) LaunchedEffect(state.tracks.size) { playlistDetailViewModel.loadMore() }
                     SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
-                        FlatTrackRow(track.thumbnailUri, track.title, track.artist, "%d:%02d".format(track.durationSec / 60, track.durationSec % 60),
+                        FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "",
                             onClick = { musicViewModel.playPlaylist(playlistDetailViewModel.playlistId, state.tracks, index) },
-                            modifier = Modifier.padding(horizontal = 20.dp), track = track)
+                            modifier = Modifier.padding(horizontal = 20.dp), track = track, showMore = true)
                     }
                 }
                 if (state.isLoadingMore) item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp)) }

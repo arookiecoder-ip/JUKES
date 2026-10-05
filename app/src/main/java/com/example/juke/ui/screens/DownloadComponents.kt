@@ -42,14 +42,14 @@ fun DownloadSelectionBar(selection: DownloadSelection, tracks: List<Track>, onRe
 
 @Composable
 fun DownloadTrackRow(track: Track, selection: DownloadSelection, onPlay: () -> Unit,
-    modifier: Modifier = Modifier, number: Int? = null) {
+    modifier: Modifier = Modifier, number: Int? = null, sharpArtwork: Boolean = true) {
     val menu = LocalMediaMenu.current
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (selection.active) Checkbox(checked = track.ytVideoId in selection.selected, onCheckedChange = { selection.toggle(track) })
         FlatTrackRow(track.thumbnailUri, track.title, track.artist,
             if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "",
             onClick = { if (selection.active) selection.toggle(track) else onPlay() }, modifier = Modifier.weight(1f),
-            track = track, sharpArtwork = true, showMore = !selection.active, number = number,
+            track = track, sharpArtwork = sharpArtwork, showMore = !selection.active, number = number,
             onOptions = { menu?.show(track, QueueSongActions(play = onPlay, select = { selection.select(track) })) })
     }
 }

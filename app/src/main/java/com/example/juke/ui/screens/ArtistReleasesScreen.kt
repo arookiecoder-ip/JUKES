@@ -33,10 +33,10 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
     Box(Modifier.fillMaxSize()) {
         if (state.error != null && state.items.isEmpty()) ConnectionErrorState(state.error.orEmpty(), releases::loadMore,
             Modifier.fillMaxSize().padding(bottom = bottomPadding))
-        else LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().statusBarsPadding(), state = grid,
+        else LazyVerticalGrid(GridCells.Adaptive(148.dp), Modifier.fillMaxSize().statusBarsPadding(), state = grid,
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 60.dp, bottom = bottomPadding + 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            item(span = { GridItemSpan(2) }) { Text(kind.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.headlineMedium) }
+            item(span = { GridItemSpan(maxLineSpan) }) { Text(kind.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.headlineMedium) }
             items(state.items, key = { it.id }) { item ->
                 if (item.kind == "playlist") PlaylistCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) }, fillCell = true)
                 else AlbumCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) }, fillCell = true)
@@ -46,11 +46,11 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
                     Box(Modifier.fillMaxWidth().aspectRatio(1f).shimmerEffect())
                     Box(Modifier.fillMaxWidth(0.8f).height(16.dp).shimmerEffect())
                 }
-            } else if (state.loading) item(span = { GridItemSpan(2) }) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            state.error?.let { message -> item(span = { GridItemSpan(2) }) {
+            } else if (state.loading) item(span = { GridItemSpan(maxLineSpan) }) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            state.error?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) {
                 ConnectionErrorState(message, releases::loadMore, Modifier.fillMaxWidth())
             } }
-            if (!state.loading && state.error == null && state.items.isEmpty()) item(span = { GridItemSpan(2) }) { Text("No releases available yet") }
+            if (!state.loading && state.error == null && state.items.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("No releases available yet") }
         }
         DetailBackButton(onBack, Modifier.align(Alignment.TopStart))
     }
