@@ -604,7 +604,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             pauseSource = { if (wasPlaying) echo.command("pause", refreshAfter = false) },
             startTarget = {
                 phoneSetQueue(queue.map { it.copy(uuid = java.util.UUID.randomUUID().toString()) }, index,
-                    positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true, synchronizeQueue = false)
+                    positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
                 playbackManager.awaitReady()
             },
             restoreSource = { if (wasPlaying) echo.command("play") },
@@ -958,14 +958,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun publishPhoneQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean, startRadio: Boolean = false) = phoneQueueMutex.withLock {
         require(index in tracks.indices)
         require(tracks.size <= 5_000) { "This queue exceeds the server's 5,000-song limit" }
-        val body = if (startRadio && tracks.size == 1) JsonObject(tracks.single().metadata() + mapOf("force_radio" to JsonPrimitive(true)))
-            else buildJsonObject {
-                put("queue_items", JsonArray(tracks.map { it.metadata() }))
-                put("start_index", index); put("suppress_radio", true)
-            }
-        // The same atomic queue installation as the website, without a serial/Alexa dispatch.
-        Backend.post("/alexa/play_queue/", body)
-        AlexaBackendApi.updateQueue("current", requireNotNull(tracks[index].ytVideoId), emptyList(), playing, positionMs, queueIndex = index)
+        val seed = requireNotNull(tracks[index].ytVideoId)
+        var items = tracks.map(AlexaBackendApi::backendTrack)
+        if (startRadio && tracks.size == 1) {
+            try {
+                val radio = withTimeoutOrNull(8_000) { AlexaBackendApi.getRadio(seed) }.orEmpty()
+                items = (items + radio.filter { it.videoId != seed }).distinctBy { it.videoId }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { Log.w(TAG, "Phone radio unavailable: ${e.javaClass.simpleName}") }
+        }
+        // Install queue and cursor atomically on the same keyed backend used by phone reads/audio.
+        // This route never dispatches an Echo command.
+        AlexaBackendApi.updateQueue("start", seed, items, playing, positionMs, queueIndex = index)
     }
 
     private fun synchronizePhoneQueue(startRadio: Boolean = false) {

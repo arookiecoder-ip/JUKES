@@ -145,6 +145,11 @@ object AlexaBackendApi {
             QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex))
     }
 
+    suspend fun phoneQueueSnapshot(): kotlinx.serialization.json.JsonObject {
+        requireConfigured()
+        return readPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey)
+    }
+
     fun backendTrack(track: Track): BackendTrack = BackendTrack(
         title = track.title,
         artist = track.artist,
@@ -198,4 +203,17 @@ internal suspend fun publishPhoneQueue(
     if (response.status.value !in 200..299) {
         throw BackendHttpException(response.status.value, "Phone queue update failed (${response.status.value}). Check the audio server and its API key.")
     }
+}
+
+internal suspend fun readPhoneQueue(
+    client: io.ktor.client.HttpClient, audioServer: String, apiKey: String
+): kotlinx.serialization.json.JsonObject {
+    val response = client.get(audioServer.trimEnd('/') + "/alexa/now_playing/") {
+        header("X-Api-Key", apiKey)
+        parameter("serial", "phone")
+    }
+    if (response.status.value !in 200..299) {
+        throw BackendHttpException(response.status.value, "Phone queue read failed (${response.status.value}).")
+    }
+    return kotlinx.serialization.json.Json.parseToJsonElement(response.bodyAsText()).jsonObject
 }

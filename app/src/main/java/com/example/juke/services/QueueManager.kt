@@ -144,7 +144,7 @@ class QueueManager private constructor(private val context: Context) {
             if (gen != sessionGen.get()) return@withLock null
             try {
                 _recStatus.value = RecStatus(resolving = 1)
-                val snapshot = Backend.get("/alexa/now_playing/", mapOf("serial" to "phone")).objectOrEmpty()
+                val snapshot = AlexaBackendApi.phoneQueueSnapshot()
                 val items = snapshot.array("queue").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
                     .filter { it.videoId.isNotBlank() }
                 val reportedIndex = snapshot.number("queue_index").toInt()
