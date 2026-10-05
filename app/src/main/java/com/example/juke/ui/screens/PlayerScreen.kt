@@ -200,6 +200,7 @@ fun PlayerScreen(
     val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
     val currentTrack = uiState.currentTrack
     var showQueue by remember { mutableStateOf(false) }
+    LaunchedEffect(showQueue) { if (showQueue) musicViewModel.refreshQueue() }
     val playbackSpeed by musicViewModel.playbackSpeed.collectAsStateWithLifecycle()
     var showLyrics by remember { mutableStateOf(false) }
     var showArtists by remember { mutableStateOf(false) }
@@ -426,6 +427,7 @@ fun PlayerScreen(
             dragHandle = null
         ) {
             val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
+            val queueError by musicViewModel.queueLoadError.collectAsStateWithLifecycle()
             Box(Modifier.fillMaxWidth().height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.75f)) {
             QueueBottomSheetContent(
                 statusText = when {
@@ -433,6 +435,7 @@ fun PlayerScreen(
                     rec.reserve > 0 -> "${rec.reserve} more songs ready from the radio"
                     else -> null
                 },
+                error = queueError, onRetry = musicViewModel::refreshQueue,
                 currentTrack = currentTrack,
                 queue = uiState.queue,
                 queueIndex = uiState.queueIndex,

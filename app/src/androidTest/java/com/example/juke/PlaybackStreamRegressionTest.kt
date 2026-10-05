@@ -204,7 +204,7 @@ class PlaybackStreamRegressionTest {
         fail("Online player stalled: state=$state playWhenReady=$requested position=$position cacheBytes=${cacheBytes()}")
     }
 
-    private class AudioServer : AutoCloseable {
+    internal class AudioServer : AutoCloseable {
         private val socket = ServerSocket(0, 20, InetAddress.getByName("127.0.0.1"))
         val base = "http://127.0.0.1:${socket.localPort}"
         val requests = CopyOnWriteArrayList<Map<String, String>>()

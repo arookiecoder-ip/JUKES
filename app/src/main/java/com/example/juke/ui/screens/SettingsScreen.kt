@@ -94,14 +94,7 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Haptic feedback", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    Switch(checked = hapticsEnabled, onCheckedChange = {
-                        hapticsEnabled = it; settingsPrefs.edit().putBoolean("haptics_enabled", it).apply()
-                    })
-                }
-            } }
+            item(key = "haptic-settings") { HapticSettingsCard() }
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Alexa", fontWeight = FontWeight.SemiBold)

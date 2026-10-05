@@ -258,6 +258,8 @@ class PlaybackService : MediaLibraryService() {
         Log.d(TAG, "Audio offload ${if (allowed) "enabled" else "disabled"}")
     }
 
+    private var upcomingPreloader: UpcomingAudioPreloader? = null
+    private var preloadConnectivityJob: Job? = null
     private lateinit var audioManager: AudioManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingPlayAfterManualTrackChangeFromIndex: Int? = null
@@ -605,12 +607,7 @@ class PlaybackService : MediaLibraryService() {
                                 // handle on the old file (closing buffers) at transition time.
                                 kotlinx.coroutines.delay(3_000L)
 
-                                // Clear ExoPlayer's overlay cache entry for this URI
-                                StreamCacheManager.removeTrackCache(oldTrack.localUri)
-                                Log.d(
-                                    TAG,
-                                    "Cleared ExoPlayer cache for finished stream: ${oldTrack.title}"
-                                )
+                                // Retain streamed bytes for replay, shuffle and output handoffs.
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error cleaning up stream track: ${e.message}")
@@ -736,6 +733,22 @@ class PlaybackService : MediaLibraryService() {
             .setLoadControl(loadControl) // <-- Apply the LoadControl here
             .build()
 
+        upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
+            StreamCacheManager.getCache(applicationContext)), serviceScope)
+        preloadConnectivityJob = serviceScope.launch {
+            com.example.juke.network.NetworkFeedback.online.collect { online ->
+                upcomingPreloader?.update(if (online) upcomingAudioUrls(player) else emptyList())
+            }
+        }
+        player.addListener(object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_POSITION_DISCONTINUITY)) {
+                    upcomingPreloader?.update(if (com.example.juke.network.NetworkFeedback.online.value) upcomingAudioUrls(player) else emptyList())
+                }
+            }
+        })
+
         // Initialize Skip Silence from Preferences
         val prefs = getSharedPreferences("audio_effects_prefs", MODE_PRIVATE)
         audioEffectController.edgeSilence.enabled = prefs.getBoolean("skip_silence_enabled", false)
@@ -848,6 +861,8 @@ class PlaybackService : MediaLibraryService() {
         audioEffectController.release()
 
 
+        preloadConnectivityJob?.cancel()
+        upcomingPreloader?.clear()
         // Release the stream cache
         StreamCacheManager.release()
 

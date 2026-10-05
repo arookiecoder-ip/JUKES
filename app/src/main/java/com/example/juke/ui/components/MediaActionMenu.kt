@@ -60,6 +60,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
     var playlistError by remember { mutableStateOf<String?>(null) }
     var create by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
+    var deletingCollection by remember { mutableStateOf<com.example.juke.services.DownloadedCollection?>(null) }
     fun resolve(block: suspend () -> Unit) {
         scope.launch {
             try { block() } catch (e: CancellationException) { throw e }
@@ -102,7 +103,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         "Go to album" -> Icons.Filled.Album
                         "Share" -> Icons.Filled.Share
                         "Download", "Downloading…" -> Icons.Filled.Download
-                        "Remove download" -> Icons.Filled.DownloadDone
+                        "Remove download", "Delete album download", "Delete playlist download" -> Icons.Filled.Delete
                         "Save to Playlist" -> Icons.Filled.PlaylistAdd
                         "Remove from queue" -> Icons.Filled.Delete
                         "Select" -> Icons.Filled.CheckBoxOutlineBlank
@@ -160,8 +161,10 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                 } else if (item != null) {
                     if (item.kind in listOf("album", "playlist")) {
                         val saved = downloadedCollections.firstOrNull { it.id == item.id && it.kind == item.kind }
-                        action(if (saved == null) "Download" else "Remove download") {
-                            if (saved == null) music.downloadCollection(item) else music.downloads.removeCollection(saved)
+                        action(if (saved == null) "Download" else if (item.raw.flag("offline")) "Delete ${item.kind} download" else "Remove download") {
+                            if (saved == null) music.downloadCollection(item)
+                            else if (item.raw.flag("offline")) deletingCollection = saved
+                            else music.downloads.removeCollection(saved)
                         }
                         if (saved != null && saved.available(downloaded).size < saved.tracks.size) {
                             action("Retry download") { music.downloads.retryCollection(saved) }
@@ -176,6 +179,12 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                 }
             }
         }
+    }
+    deletingCollection?.let { collection ->
+        GlassAlertDialog(onDismissRequest = { deletingCollection = null }, title = { Text("Delete ${collection.kind} download?") },
+            text = { Text("Remove ${collection.title} and its downloaded songs from this device? Songs in other downloaded collections are kept.") },
+            confirmButton = { TextButton(onClick = { music.downloads.removeCollection(collection); deletingCollection = null }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { deletingCollection = null }) { Text("Cancel") } })
     }
     saveTrack?.let { selected ->
         if (create) {

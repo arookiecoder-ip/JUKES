@@ -298,6 +298,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Reorder only upcoming media items; the current track and its position are preserved. */
+    private val _queueLoadError = MutableStateFlow<String?>(null)
+    val queueLoadError = _queueLoadError.asStateFlow()
+    fun refreshQueue() {
+        viewModelScope.launch {
+            _queueLoadError.value = null
+            try {
+                if (isAlexa) echo.refresh(force = true, stateOnly = true)
+                else {
+                    if (!sharedPhoneQueueReady) { synchronizePhoneQueue(); phoneQueueSyncJob?.join() }
+                    val current = _uiState.value.currentTrack ?: return@launch
+                    phoneQueueMutex.withLock { queueManager.refreshAlexaQueue(current) }?.let { applyAlexaWindow(it) }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _queueLoadError.value = com.example.juke.network.networkErrorMessage(e) ?: "Couldn't load queue. Try again." }
+        }
+    }
+
     private fun applyAlexaWindow(window: QueueManager.AlexaQueueWindow) {
         val state = _uiState.value
         val current = state.currentTrack ?: return
@@ -323,6 +340,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (isActive) {
                 delay(3_000)
+                if (signedIn && !isAlexa && !_isSwitchingOutput.value && !sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true && com.example.juke.network.NetworkFeedback.online.value) {
+                    synchronizePhoneQueue(); continue
+                }
                 if (!signedIn || isAlexa || _isSwitchingOutput.value || !sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true || _uiState.value.isQueueOperationInProgress || !com.example.juke.network.NetworkFeedback.online.value) continue
                 val state = _uiState.value
                 val current = state.currentTrack ?: continue

@@ -3,6 +3,10 @@ package com.example.juke.ui.components.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -38,7 +42,7 @@ import kotlin.math.roundToInt
 fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex: Int, uiState: MusicUiState,
     onClose: () -> Unit, onMoveTrack: (Int, Int) -> Unit, onRemoveTrack: (String) -> Unit,
     onPlayTrack: (Track) -> Unit, statusText: String? = null, onShuffleUpcoming: () -> Unit = {},
-    onSortUpcoming: () -> Unit = {}, onClearPlayed: () -> Unit = {}, onSaveAsPlaylist: () -> Unit = {}) {
+    error: String? = null, onRetry: () -> Unit = {}, onSortUpcoming: () -> Unit = {}, onClearPlayed: () -> Unit = {}, onSaveAsPlaylist: () -> Unit = {}) {
     val menu = LocalMediaMenu.current
     val rows = queue.ifEmpty { listOf(currentTrack) }
     val currentIndex = if (queue.isEmpty()) 0 else queueIndex.takeIf { it in queue.indices }
@@ -55,6 +59,34 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
         val occurrence = occurrences.getOrDefault(id, 0)
         occurrences[id] = occurrence + 1
         "$id:$occurrence"
+    }
+    val byKey = keys.zip(rows).toMap()
+    var order by remember(keys) { mutableStateOf(keys) }
+    var draggedKey by remember { mutableStateOf<String?>(null) }
+    var origin by remember { mutableIntStateOf(-1) }
+    var dragCenter by remember { mutableFloatStateOf(0f) }
+    var dragDelta by remember { mutableFloatStateOf(0f) }
+    var initialTop by remember { mutableFloatStateOf(0f) }
+    fun updateTarget() {
+        val key = draggedKey ?: return
+        val target = list.layoutInfo.visibleItemsInfo.filter { it.index < order.size }
+            .minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - dragCenter) }?.index ?: return
+        val from = order.indexOf(key)
+        if (from >= 0 && from != target) order = order.toMutableList().apply { add(target, removeAt(from)) }
+    }
+    LaunchedEffect(keys) { draggedKey = null; order = keys }
+    LaunchedEffect(draggedKey) {
+        while (draggedKey != null) {
+            val layout = list.layoutInfo
+            val edge = rowHeight
+            val speed = when {
+                dragCenter < layout.viewportStartOffset + edge -> -rowHeight / 6f
+                dragCenter > layout.viewportEndOffset - edge -> rowHeight / 6f
+                else -> 0f
+            }
+            if (speed != 0f) { list.scrollBy(speed); updateTarget() }
+            delay(16)
+        }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -77,32 +109,41 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
         if (uiState.isQueueOperationInProgress) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (!statusText.isNullOrBlank()) Text(statusText, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(bottom = 12.dp)) {
-            itemsIndexed(rows, key = { index, _ -> keys[index] }) { index, track ->
+        error?.let { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(it, Modifier.weight(1f), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onRetry) { Text("Retry") }
+        } }
+        LazyColumn(Modifier.weight(1f).testTag("Queue rows"), state = list, contentPadding = PaddingValues(bottom = 12.dp)) {
+            itemsIndexed(order, key = { _, key -> key }) { position, key ->
+                val track = byKey.getValue(key)
+                val index = keys.indexOf(key)
                 val active = index == currentIndex
                 val editable = queue.isNotEmpty() && !uiState.isQueueOperationInProgress
-                var offset by remember { mutableFloatStateOf(0f) }
-                var dragging by remember { mutableStateOf(false) }
+                val dragging = draggedKey == key
+                val offset = if (dragging) initialTop + dragDelta - (list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset ?: initialTop.toInt()) else 0f
                 val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
                     if (editable && !active && !dragging && value == SwipeToDismissBoxValue.EndToStart) {
                         onRemoveTrack(track.uuid); true
                     } else false
                 })
-                val grip = Modifier.size(width = 28.dp, height = 48.dp).pointerInput(index, queue.size, editable) {
-                    if (editable) detectDragGestures(onDragStart = { dragging = true },
-                        onDragCancel = { dragging = false; offset = 0f },
-                        onDragEnd = {
-                            val target = (index + (offset / rowHeight).roundToInt()).coerceIn(0, queue.lastIndex)
-                            dragging = false; offset = 0f
-                            if (target != index) onMoveTrack(index, target)
-                        }, onDrag = { change, delta ->
-                            change.consume()
-                            offset = (offset + delta.y).coerceIn(-index * rowHeight, (queue.lastIndex - index) * rowHeight)
-                        })
+                val grip = Modifier.size(width = 36.dp, height = 56.dp).pointerInput(key, editable) {
+                    if (editable) detectDragGestures(onDragStart = {
+                        origin = index; draggedKey = key; dragDelta = 0f
+                        initialTop = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset?.toFloat() ?: 0f
+                        dragCenter = initialTop + rowHeight / 2
+                    }, onDragCancel = { draggedKey = null; order = keys }, onDragEnd = {
+                        val target = order.indexOf(key)
+                        draggedKey = null
+                        if (target >= 0 && target != origin) onMoveTrack(origin, target)
+                    }, onDrag = { change, delta ->
+                        change.consume(); dragDelta += delta.y
+                        dragCenter = initialTop + rowHeight / 2 + dragDelta
+                        updateTarget()
+                    })
                 }
                 SwipeToDismissBox(dismiss, enableDismissFromStartToEnd = false,
                     enableDismissFromEndToStart = editable && !active && !dragging,
-                    modifier = Modifier.zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset },
+                    modifier = Modifier.animateItem().testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset }.shadow(if (dragging) 8.dp else 0.dp),
                     backgroundContent = {
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
                             Icon(Icons.Default.Delete, "Remove from queue", tint = MaterialTheme.colorScheme.onErrorContainer)
@@ -116,7 +157,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                             remove = if (editable && !active) ({ onRemoveTrack(track.uuid) }) else null
                         ))
                     }
-                    QueueWebRow(track, index + 1, active, dragging, grip,
+                    QueueWebRow(track, position + 1, active, dragging, grip,
                         onPlay = { onPlayTrack(track) }, onLongClick = ::songOptions, onOptions = ::songOptions) {}
 
                 }

@@ -21,3 +21,9 @@ fun audioSearchHero(all: List<BrowseItem>, songs: List<BrowseItem>): BrowseItem?
         ?: audio.firstOrNull { normalize(it.title) == normalize(top.title) }
         ?: audio.firstOrNull() ?: top
 }
+
+/** Song shelves must survive servers that only return tracks in the mixed result array. */
+fun searchSongItems(all: List<BrowseItem>, songs: List<BrowseItem>): List<BrowseItem> {
+    val playable = (songs + all).filter { it.kind == "track" && it.videoId.isNotBlank() }.distinctBy { it.videoId }
+    return playable.sortedBy { if (isAudioSearchItem(it)) 0 else 1 }
+}
