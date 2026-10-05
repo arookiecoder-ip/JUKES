@@ -42,4 +42,9 @@ class DownloadedCollectionTest {
         assertEquals(emptyList<Track>(), offlineCollectionTracks(item, emptyList(), files))
         assertNull(offlineCollectionTracks(item.copy(raw = kotlinx.serialization.json.JsonObject(emptyMap())), listOf(collection), files))
     }
+    @Test fun downloadedPlaylistShareRetainsPublicPlaylistIdentity() {
+        val collection = DownloadedCollection("VLPL123", "playlist", "Mix", "", "", emptyList())
+        assertEquals("PL123", collection.browseItem().playlistId)
+        assertEquals("playlist:VLPL123", collection.key)
+    }
 }

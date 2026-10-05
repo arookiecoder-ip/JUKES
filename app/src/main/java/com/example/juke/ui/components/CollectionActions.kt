@@ -28,7 +28,7 @@ fun CollectionActions(item: BrowseItem, onPlay: () -> Unit, onShuffle: () -> Uni
         }
         IconButton(onClick = {
             val url = if (item.kind == "album") "https://music.youtube.com/browse/${item.id}"
-                else "https://music.youtube.com/playlist?list=${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
+                else "https://music.youtube.com/playlist?list=${item.playlistId.ifBlank { item.id }.removePrefix("VL")}"
             share("Share ${item.title}", url)
         }) { Icon(Icons.Default.Share, "Share collection", Modifier.size(28.dp)) }
         IconButton(onClick = { menu?.show(item, extras = options) }) { Icon(Icons.Default.MoreVert, "Collection options", Modifier.size(28.dp)) }
