@@ -185,6 +185,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var phoneQueueSyncJob: Job? = null
     private val phoneQueueMutex = kotlinx.coroutines.sync.Mutex()
     private var sharedPhoneQueueReady = false
+    private var phoneQueueCursorOffset = 0
     private var playbackRequestId = 0L
 
     val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
@@ -322,6 +323,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (current.uuid != window.currentUuid || state.isQueueOperationInProgress || !sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true) return
         val currentIndex = state.queue.indexOfFirst { it.uuid == current.uuid }
         if (currentIndex < 0) return
+        phoneQueueCursorOffset = window.serverIndex - currentIndex
         val queue = state.queue.take(currentIndex + 1) + window.tracks
         if (queue.map { it.uuid } == state.queue.map { it.uuid }) return
         playbackManager.replaceUpcoming(queue, currentIndex)
@@ -354,8 +356,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     val window = withContext(Dispatchers.IO) { phoneQueueMutex.withLock {
                         if (!sharedPhoneQueueReady || phoneQueueSyncJob?.isActive == true ||
                             _uiState.value.currentTrack?.uuid != current.uuid) return@withLock null
-                        AlexaBackendApi.updateQueue("current", videoId, emptyList(),
-                            playing = playing, positionMs = position, queueIndex = state.queueIndex)
+                        try {
+                            AlexaBackendApi.updateQueue("current", videoId, emptyList(),
+                                playing = playing, positionMs = position, queueIndex = state.queueIndex + phoneQueueCursorOffset)
+                        } catch (e: com.example.juke.network.BackendHttpException) {
+                            if (e.statusCode != 409) throw e
+                            // A remote insert/reorder may shift the cursor without changing the song.
+                            val refreshed = queueManager.refreshAlexaQueue(current)
+                            if (refreshed == null) {
+                                // Restarted/replaced server queue: reinstall the still-playing phone queue.
+                                sharedPhoneQueueReady = false
+                                return@withLock null
+                            }
+                            AlexaBackendApi.updateQueue("current", videoId, emptyList(),
+                                playing = playing, positionMs = position, queueIndex = refreshed.serverIndex)
+                            return@withLock refreshed
+                        }
                         queueManager.refreshAlexaQueue(current)
                     } }
                     if (window != null && signedIn && !isAlexa && !_isSwitchingOutput.value && sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true) applyAlexaWindow(window)
@@ -970,6 +986,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // Install queue and cursor atomically on the same keyed backend used by phone reads/audio.
         // This route never dispatches an Echo command.
         AlexaBackendApi.updateQueue("start", seed, items, playing, positionMs, queueIndex = index)
+        phoneQueueCursorOffset = 0
     }
 
     private fun synchronizePhoneQueue(startRadio: Boolean = false) {
