@@ -526,8 +526,7 @@ class MainActivity : ComponentActivity() {
                         NavHost(
                             navController = navController,
                             startDestination = Screen.Home.route,
-                            modifier = Modifier.widthIn(max = 1400.dp).fillMaxSize(),
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.widthIn(max = 1400.dp).fillMaxSize()
                         ) {
                             composable(Screen.Home.route) {
                                 HomeScreen(
