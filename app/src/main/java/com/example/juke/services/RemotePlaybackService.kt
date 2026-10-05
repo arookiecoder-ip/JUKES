@@ -105,17 +105,24 @@ class RemotePlaybackService : MediaSessionService() {
         fun refresh() = invalidateState()
         override fun getState(): State {
             val track = snapshot.track
-            val playlist = if (track == null) emptyList() else listOf(MediaItemData.Builder(track.ytVideoId ?: track.uuid)
-                .setMediaItem(MediaItem.Builder().setMediaId(track.ytVideoId ?: track.uuid)
-                    .setMediaMetadata(MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist)
-                        .apply { track.thumbnailUri?.takeIf(String::isNotBlank)?.let { setArtworkUri(it.toUri()) } }.build()).build())
-                .setDurationUs(if (snapshot.durationMs > 0) snapshot.durationMs * 1000 else C.TIME_UNSET).build())
+            val queue = if (track == null) emptyList() else snapshot.queue.takeIf {
+                snapshot.index in it.indices && it[snapshot.index].ytVideoId == track.ytVideoId
+            } ?: listOf(track)
+            val index = if (queue.isEmpty()) C.INDEX_UNSET else snapshot.index.takeIf { it in queue.indices } ?: 0
+            val playlist = queue.mapIndexed { i, song ->
+                val duration = if (i == index) snapshot.durationMs else song.durationSec * 1000L
+                MediaItemData.Builder("$i:${song.ytVideoId ?: song.uuid}")
+                    .setMediaItem(MediaItem.Builder().setMediaId(song.ytVideoId ?: song.uuid)
+                        .setMediaMetadata(MediaMetadata.Builder().setTitle(song.title).setArtist(song.artist)
+                            .apply { song.thumbnailUri?.takeIf(String::isNotBlank)?.let { setArtworkUri(it.toUri()) } }.build()).build())
+                    .setDurationUs(if (duration > 0) duration * 1000 else C.TIME_UNSET).build()
+            }
             return State.Builder().setAvailableCommands(Player.Commands.Builder().addAll(
                 Player.COMMAND_PLAY_PAUSE, Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_PREVIOUS,
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
                 Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
                 Player.COMMAND_GET_TIMELINE, Player.COMMAND_GET_METADATA).build())
-                .setPlaylist(playlist).setCurrentMediaItemIndex(if (track == null) C.INDEX_UNSET else 0)
+                .setPlaylist(playlist).setCurrentMediaItemIndex(index)
                 .setPlaybackState(if (track == null) Player.STATE_IDLE else Player.STATE_READY)
                 .setPlayWhenReady(snapshot.playing, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                 .setContentPositionMs { snapshot.livePosition() }
