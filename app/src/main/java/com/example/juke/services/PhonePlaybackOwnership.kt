@@ -36,7 +36,7 @@ object PhonePlaybackOwnership {
         check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank())
         token = output.token
         // Pause before the server lease expires, leaving room for a slow status request.
-        leaseUntilMs = SystemClock.elapsedRealtime() + (output.leaseMs - 4_000).coerceAtLeast(1_000)
+        leaseUntilMs = SystemClock.elapsedRealtime() + (output.leaseMs - 4_000).coerceAtLeast(0)
         prefs.edit().putString("last_token", token).apply()
         remote.value = null
     }

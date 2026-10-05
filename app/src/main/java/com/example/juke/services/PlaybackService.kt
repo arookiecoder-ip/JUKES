@@ -734,6 +734,14 @@ class PlaybackService : MediaLibraryService() {
             .setLoadControl(loadControl) // <-- Apply the LoadControl here
             .build()
 
+        // Keep the safety deadline independent of suspended network requests.
+        serviceScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                delay(250)
+                if (PhonePlaybackOwnership.token.isNotBlank() && player.playWhenReady &&
+                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) player.pause()
+            }
+        }
         // Ownership remains enforced by the foreground service when the Activity is closed.
         serviceScope.launch {
             var lastReport = 0L
