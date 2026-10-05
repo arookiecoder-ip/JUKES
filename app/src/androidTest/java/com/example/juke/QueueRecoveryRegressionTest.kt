@@ -60,8 +60,11 @@ class QueueRecoveryRegressionTest {
                 error = "Queue connection interrupted", onRetry = { retried = true })
         } } }
         compose.onNodeWithText("Retry").performClick(); assertTrue(retried)
-        compose.onNodeWithContentDescription("Drag to reorder Queue song 1").performTouchInput {
-            down(center); moveBy(androidx.compose.ui.geometry.Offset(0f, 150f)); advanceEventTime(300); up()
+        compose.onNodeWithContentDescription("Drag to reorder Queue song 1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            val distance = 140 * context.resources.displayMetrics.density
+            moveBy(androidx.compose.ui.geometry.Offset(0f, distance / 2)); advanceEventTime(32)
+            moveBy(androidx.compose.ui.geometry.Offset(0f, distance / 2)); advanceEventTime(100); up()
         }
         compose.waitForIdle()
         assertNotNull("Drag did not reorder", move)
