@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -49,7 +49,7 @@ import com.example.juke.utils.rememberJukeHaptics
 @Composable
 fun SwipeToAddNextContainer(
     onAddNext: () -> Unit,
-    onDelete: (() -> Unit)? = null,
+    onAddToQueue: () -> Unit,
     @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit
 ) {
@@ -69,7 +69,7 @@ fun SwipeToAddNextContainer(
                     if (!actionFired.value) {
                         actionFired.value = true
                         haptic.confirm()
-                        onAddNext()
+                        onAddToQueue()
                     }
                     false // Reset swipe position after action
                 }
@@ -77,8 +77,8 @@ fun SwipeToAddNextContainer(
                 SwipeToDismissBoxValue.EndToStart -> {
                     if (!actionFired.value) {
                         actionFired.value = true
-                        haptic.reject()
-                        onDelete?.invoke()
+                        haptic.confirm()
+                        onAddNext()
                     }
                     false // Reset swipe position after action
                 }
@@ -103,13 +103,13 @@ fun SwipeToAddNextContainer(
 
     SwipeToDismissBox(
         state = dismissState,
-        enableDismissFromEndToStart = onDelete != null,
+        enableDismissFromEndToStart = true,
         backgroundContent = {
             // No opaque fill: a tinted glow that lights up from behind the sliding glass card.
             val direction = dismissState.dismissDirection
             val glow = when (direction) {
                 SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
-                SwipeToDismissBoxValue.EndToStart -> if (onDelete != null) MaterialTheme.colorScheme.error else null
+                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.primary
                 else -> null
             }
             if (glow != null) {
@@ -149,11 +149,11 @@ fun SwipeToAddNextContainer(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             if (toEnd) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = "Add next", tint = onGlow)
-                                Text("Play next", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
+                                Icon(Icons.Filled.QueueMusic, contentDescription = "Add to queue", tint = onGlow)
+                                Text("Add to queue", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
                             } else {
-                                Text("Delete", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = onGlow)
+                                Text("Play next", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
+                                Icon(Icons.Filled.PlayArrow, contentDescription = "Play next", tint = onGlow)
                             }
                         }
                     }

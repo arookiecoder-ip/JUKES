@@ -105,6 +105,11 @@ fun SearchHeader(
             label = "searchHeader"
         ) { isOpen ->
             if (isOpen) {
+                LaunchedEffect(Unit) {
+                    delay(120)
+                    focus.requestFocus()
+                    keyboard?.show()
+                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
                         haptic.click()

@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +38,7 @@ fun ArtistDetailScreen(
     onNavigateToPlaylist: (BrowseItem) -> Unit = {},
     onNavigateToArtist: (BrowseItem) -> Unit = { searchViewModel.loadArtistDetails(it) },
     onShowAllSongs: () -> Unit = {},
+    onShowAllReleases: (String) -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
     val state by searchViewModel.artistDetailState.collectAsStateWithLifecycle()
@@ -81,8 +83,8 @@ fun ArtistDetailScreen(
                 if (state.topTracks.isNotEmpty()) {
                     item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }
                     itemsIndexed(state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
-                        SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }) {
-                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "—:—", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
+                        SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
+                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "—:—", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track, durationLoading = (state.songsLoading || state.durationsLoading) && track.durationSec <= 0)
                         }
                     }
                     if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {
@@ -91,11 +93,16 @@ fun ArtistDetailScreen(
                         }
                     }
                 }
-                fun releases(title: String, releases: List<BrowseItem>) {
+                fun releases(title: String, releases: List<BrowseItem>, kind: String, hasMore: Boolean) {
                     if (releases.isEmpty()) return
                     item(key = title) {
                         Column {
-                            Text(title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                if (hasMore) IconButton(onClick = { onShowAllReleases(kind) }) {
+                                    Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowForward, "Show all $title")
+                                }
+                            }
                             Spacer(Modifier.height(12.dp))
                             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(releases, key = { it.id }) { item ->
@@ -106,9 +113,9 @@ fun ArtistDetailScreen(
                         }
                     }
                 }
-                releases("Albums", state.albums)
-                releases("Singles", state.singles)
-                releases("Playlists", state.playlists)
+                releases("Albums", state.albums, "albums", state.albumsHasMore)
+                releases("Singles", state.singles, "singles", state.singlesHasMore)
+                releases("Playlists", state.playlists, "playlists", state.playlists.size > 5)
                 if (state.related.isNotEmpty()) item(key = "related") {
                     Column {
                         Text("Related artists", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)

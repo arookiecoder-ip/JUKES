@@ -532,6 +532,7 @@ class MainActivity : ComponentActivity() {
                                 val searchViewModel =
                                     activityViewModelProvider[SearchViewModel::class.java]
                                 SearchScreen(
+                                    homeViewModel = homeViewModel,
                                     musicViewModel = musicViewModel,
                                     searchViewModel = searchViewModel,
                                     searchResetTrigger = searchResetTrigger,
@@ -609,6 +610,7 @@ class MainActivity : ComponentActivity() {
                                         navController.popBackStack()
                                     },
                                     onShowAllSongs = { navController.navigate("artist-songs/$artistId") },
+                                    onShowAllReleases = { kind -> navController.navigate("artist-releases/$artistId/$kind") },
                                     onNavigateToAlbum = { album ->
                                         activityViewModelProvider[AlbumDetailViewModel::class.java]
                                             .loadAlbumDetails(album)
@@ -616,6 +618,21 @@ class MainActivity : ComponentActivity() {
                                     },
                                     bottomPadding = bottomPadding
                                 )
+                            }
+                            composable("artist-releases/{artistId}/{kind}") { entry ->
+                                com.example.juke.ui.screens.ArtistReleasesScreen(
+                                    artistId = entry.arguments?.getString("artistId").orEmpty(),
+                                    kind = entry.arguments?.getString("kind").orEmpty(), music = musicViewModel,
+                                    onBack = { navController.popBackStack() }, bottomPadding = bottomPadding,
+                                    onOpen = { item ->
+                                        if (item.kind == "playlist") {
+                                            activityViewModelProvider[PlaylistDetailViewModel::class.java].loadPlaylistDetails(item)
+                                            navController.navigate("playlist/${item.id}")
+                                        } else {
+                                            activityViewModelProvider[AlbumDetailViewModel::class.java].loadAlbumDetails(item)
+                                            navController.navigate("album/${item.id}")
+                                        }
+                                    })
                             }
                             composable("artist-songs/{artistId}") { entry ->
                                 ArtistSongsScreen(

@@ -1044,7 +1044,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
         if (isAlexa) {
-            launchEcho { echo.queueAdd(tracks, next = false) }
+            launchEcho { echo.queueAdd(tracks, next = false); _messages.tryEmit("Added to queue") }
             return
         }
         val current = _uiState.value.currentTrack
@@ -1057,6 +1057,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val resolved = withContext(Dispatchers.IO) { resolveForPhone(tracks, -1) }
                 playbackManager.addToQueue(resolved)
+                _messages.tryEmit("Added to queue")
                 _uiState.update { it.copy(queue = it.queue + resolved) }
                 current.ytVideoId?.let { videoId ->
                     withContext(Dispatchers.IO) {
