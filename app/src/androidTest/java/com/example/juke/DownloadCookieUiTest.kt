@@ -21,9 +21,10 @@ class DownloadCookieUiTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun replacementIsAvailableWithValidOrInvalidCookies() {
-        val state = mutableStateOf(AccountUiState(status = AccountStatus(youtubeCookies = true)))
+        val state = mutableStateOf(AccountUiState(status = AccountStatus(youtubeCookies = true), checkingStatus = true))
         val account = AccountViewModel(InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application)
         compose.setContent { JUKETheme { Column(Modifier.verticalScroll(rememberScrollState())) { AccountStatusCard(state.value, account) } } }
+        compose.onNodeWithText("Test audio download").performScrollTo().assertIsEnabled()
         compose.onNodeWithText("Replace cookies").performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithText("Replace download cookies").assertIsDisplayed()
         compose.onNodeWithText("Test and save").assertIsNotEnabled()
@@ -39,6 +40,8 @@ class DownloadCookieUiTest {
         compose.setContent { JUKETheme { Column(Modifier.verticalScroll(rememberScrollState())) { AccountStatusCard(state.value, account) } } }
         compose.onNodeWithText("Replace cookies").performScrollTo().performClick()
         compose.onNodeWithTag("download-cookie-export").performTextInput("sample export")
+        compose.runOnIdle { state.value = state.value.copy(checkingStatus = true) }
+        compose.onNodeWithText("Test and save").assertIsEnabled()
         compose.runOnIdle { state.value = state.value.copy(cookieBusy = true) }
         compose.onNodeWithText("Test and save").assertIsNotEnabled()
         compose.onNodeWithText("Cancel").assertIsNotEnabled()

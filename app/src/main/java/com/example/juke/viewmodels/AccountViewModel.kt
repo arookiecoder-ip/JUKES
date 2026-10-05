@@ -210,7 +210,10 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun cookieAction(block: suspend () -> Unit) {
-        if (cookieJob?.isActive == true || _state.value.checkingStatus) return
+        if (cookieJob?.isActive == true) return
+        // An explicit cookie action takes precedence over the background account check.
+        statusJob?.cancel()
+        _state.update { it.copy(checkingStatus = false) }
         cookieJob = viewModelScope.launch {
             _state.update { it.copy(cookieBusy = true, cookieMessage = "Downloading an audio sample…") }
             try { block() }
