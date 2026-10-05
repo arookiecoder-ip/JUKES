@@ -72,3 +72,7 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
         sharedOutput = sharedPlaybackOutput(np)
     )
 }
+
+/** Mirrored phone metadata is never proof that an Echo handoff started. */
+internal fun EchoState.confirmedOnAlexa(videoId: String): Boolean = sharedOutput.mode != "phone" &&
+    confirmed && playing && track?.ytVideoId == videoId

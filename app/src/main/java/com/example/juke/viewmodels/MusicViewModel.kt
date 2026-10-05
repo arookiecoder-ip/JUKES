@@ -689,7 +689,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying) },
             restoreSource = {
                 com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
-                if (wasPlaying) playbackManager.togglePlayPause()
+                if (wasPlaying && !playbackManager.isPlayingFlow.value) playbackManager.togglePlayPause()
             },
             stopTarget = { echo.command("pause") },
             commit = { setOutputPreference(PlaybackOutput.ALEXA); updatePolling() }

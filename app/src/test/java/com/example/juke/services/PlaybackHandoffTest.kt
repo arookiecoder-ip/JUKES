@@ -8,6 +8,29 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class PlaybackHandoffTest {
+    @Test fun activePhoneHandoffExplicitlyResumesWithoutFreshPlayOrSeek() = runBlocking {
+        val events = mutableListOf<String>()
+        startTransferredAlexaQueue(true, { events += "paused cursor" },
+            { events += "web resume" }, { events += "paused seek" })
+        assertEquals(listOf("paused cursor", "web resume"), events)
+    }
+
+    @Test fun pausedPhoneHandoffNeverDispatchesPlay() = runBlocking {
+        val events = mutableListOf<String>()
+        startTransferredAlexaQueue(false, { events += "paused cursor" },
+            { events += "web resume" }, { events += "paused seek" })
+        assertEquals(listOf("paused cursor", "paused seek"), events)
+    }
+
+    @Test fun rejectedQueueInstallCannotResumeTheOldServerSong() = runBlocking {
+        var resumed = false
+        try {
+            startTransferredAlexaQueue(true, { error("ownership changed") },
+                { resumed = true }, {})
+            fail("Rejected shared queue must stop the handoff")
+        } catch (_: IllegalStateException) { assertEquals(false, resumed) }
+    }
+
     @Test fun outputIsCommittedOnlyAfterDestinationStarts() = runBlocking {
         val events = mutableListOf<String>()
         transferPlayback(
