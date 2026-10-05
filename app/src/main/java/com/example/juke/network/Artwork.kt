@@ -7,7 +7,7 @@ fun largeArtworkUrl(url: String): String {
         return url.replace(Regex("=w\\d+-h\\d+[^?]*$"), "=w1200-h1200-l90-rj")
     }
     if (host == "i.ytimg.com" || host.endsWith(".ytimg.com")) {
-        return url.replace(Regex("/(default|mqdefault|sddefault)\\.jpg(?=\\?|$)"), "/hqdefault.jpg")
+        return url.replace(Regex("/(default|mqdefault|sddefault|hqdefault)\\.jpg(?=\\?|$)"), "/maxresdefault.jpg")
     }
     return url
 }

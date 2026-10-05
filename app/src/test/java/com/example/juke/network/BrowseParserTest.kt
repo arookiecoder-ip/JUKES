@@ -82,7 +82,7 @@ class BrowseParserTest {
         assertEquals("large", track.image)
         assertEquals("https://lh3.googleusercontent.com/art=w1200-h1200-l90-rj", largeArtworkUrl("https://lh3.googleusercontent.com/art=w60-h60-l90-rj"))
         assertEquals("https://example.com/art?w=60&signature=abc", largeArtworkUrl("https://example.com/art?w=60&signature=abc"))
-        assertEquals("https://i.ytimg.com/vi/song/hqdefault.jpg", largeArtworkUrl("https://i.ytimg.com/vi/song/mqdefault.jpg"))
+        assertEquals("https://i.ytimg.com/vi/song/maxresdefault.jpg", largeArtworkUrl("https://i.ytimg.com/vi/song/mqdefault.jpg"))
     }
 
 }
