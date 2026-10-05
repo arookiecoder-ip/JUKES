@@ -163,7 +163,7 @@ jobs:
           script: |
             adb install apk/app-debug.apk
             adb install test-apk/app-debug-androidTest.apk
-            adb shell am instrument -w -e class com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            adb shell am instrument -w -e class com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
             cat ui-results.txt
             adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' ui-results.txt
