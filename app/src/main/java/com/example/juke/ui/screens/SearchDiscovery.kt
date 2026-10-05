@@ -89,7 +89,7 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
             val mood = selectedMood
             val data = if (mood == null) Backend.get("/api/explore/").objectOrEmpty()
                 else Backend.get("/api/explore/moods/", mapOf("params" to mood.raw.text("params"), "title" to mood.title)).objectOrEmpty()
-            val filtered = if (mood != null) JsonObject(data.filterKeys { it != "playlists" }) else
+            val filtered = if (mood != null) JsonObject(data.filterKeys { it != "playlists" || data.array("featured_playlists").isEmpty() }) else
                 JsonObject(data.filterKeys { it == if (mode == "moods") "moods_and_genres" else "new_releases" })
             page = BrowseParser.page(filtered, title)
         } catch (e: CancellationException) { throw e }

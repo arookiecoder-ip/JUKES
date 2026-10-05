@@ -149,6 +149,10 @@ fun SearchScreen(
         }
     }
 
+    LaunchedEffect(searchResetTrigger) {
+        if (searchResetTrigger > 0) { discovery = null; active = false }
+    }
+
     discovery?.let { mode ->
         SearchDiscoveryScreen(mode, { discovery = null }, musicViewModel, onNavigateToAlbum, onNavigateToPlaylist, bottomPadding)
         return

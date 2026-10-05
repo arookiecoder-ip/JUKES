@@ -323,6 +323,21 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private val outputPrefs by lazy { getSharedPreferences("music_settings_prefs", MODE_PRIVATE) }
+    private val outputListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "playback_output" && ::player.isInitialized) {
+            if (outputPrefs.getString(key, "PHONE") == "ALEXA") {
+                mainHandler.removeCallbacks(resumeAfterCall)
+                player.pause()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                getSystemService(NotificationManager::class.java).cancel(1)
+            } else {
+                if (player.isPlaying) reportDeviceListen()
+                mediaSession?.let { onUpdateNotification(it, player.isPlaying) }
+            }
+        }
+    }
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -720,6 +735,7 @@ class PlaybackService : MediaLibraryService() {
             .setShowPlayButtonIfPlaybackIsSuppressed(true)
             .build()
 
+        outputPrefs.registerOnSharedPreferenceChangeListener(outputListener)
         Log.d(TAG, "PlaybackService created")
 
         // Keep the notification heart in step with likes made anywhere (player, library, web).
@@ -746,6 +762,11 @@ class PlaybackService : MediaLibraryService() {
 
     @OptIn(UnstableApi::class)
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (outputPrefs.getString("playback_output", "PHONE") == "ALEXA") {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            getSystemService(NotificationManager::class.java).cancel(1)
+            return
+        }
         // On Android 12+ (API 31), starting a foreground service from the background is
         // restricted and throws ForegroundServiceStartNotAllowedException.
         //
@@ -792,6 +813,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        outputPrefs.unregisterOnSharedPreferenceChangeListener(outputListener)
         // Clean up pending resume operations
         mainHandler.removeCallbacks(resumeAfterCall)
 

@@ -75,6 +75,17 @@ class RemotePlaybackService : MediaSessionService() {
         echo.startPolling(foreground = false)
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
+        if (prefs.getString("playback_output", "PHONE") != "ALEXA") {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val serial = prefs.getString("echo_serial", "").orEmpty()
+        if (serial.isNotBlank() && serial != echo.serial.value) echo.select(serial)
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     private fun updateLike() {
         session?.setCustomLayout(listOf(CommandButton.Builder()
             .setDisplayName("Like").setIconResId(if (AccountRepository.isLiked(echo.state.value.track?.ytVideoId))
