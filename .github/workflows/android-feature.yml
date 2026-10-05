@@ -86,8 +86,8 @@ jobs:
           POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
           ALEXA_SESSION_BASE_URL=https://alexa.synthora.in
-          ALEXA_BASE_URL=${{ secrets.ALEXA_BASE_URL_STAGING }}
-          ALEXA_API_KEY=${{ secrets.ALEXA_API_KEY_STAGING }}
+          ALEXA_BASE_URL=https://alexa.synthora.in
+          ALEXA_API_KEY=${{ secrets.ALEXA_API_KEY }}
           EOF
 
       - name: Check account login is enabled
