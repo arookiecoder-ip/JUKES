@@ -1,7 +1,11 @@
 package com.example.juke.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -53,7 +57,7 @@ fun SearchLandingContent(history: List<String>, recommendations: List<Track>, lo
             }
         }
         recent(history.drop(5))
-        if (history.isEmpty()) {
+        if (history.size <= 5) {
             item { Text("Recommended for you", style = MaterialTheme.typography.titleLarge) }
             if (loading && recommendations.isEmpty()) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             items(recommendations, key = { "recommendation:${it.ytVideoId}" }) { track ->
@@ -99,14 +103,39 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
             error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = { retry++ }) { Text("Retry") } } }
             page?.shelves?.forEach { shelf ->
                 if (selectedMood != null) item { Text(shelf.title, style = MaterialTheme.typography.titleMedium) }
-                items(shelf.items.chunked(2)) { pair ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        pair.forEach { item ->
-                            when (item.kind) {
-                                "mood" -> OutlinedCard(onClick = { selectedMood = item }, modifier = Modifier.weight(1f), shape = RectangleShape) { Text(item.title, Modifier.padding(20.dp)) }
-                                "album" -> AlbumCard(item, { onOpenAlbum(item) }, onPlay = { music.playCollection(item) })
-                                "track" -> Column(Modifier.weight(1f)) { FlatTrackRow(item.image, item.title, item.subtitle, "", { music.playTrack(item.toTrack()) }, track = item.toTrack()) }
-                                else -> PlaylistCard(item, { onOpenPlaylist(item) }, onPlay = { music.playCollection(item) })
+                if (mode == "new_releases" || shelf.items.all { it.kind == "track" }) {
+                    items(shelf.items, key = { it.id }) { item ->
+                        val track = item.takeIf { it.kind == "track" }?.toTrack()
+                        FlatTrackRow(item.image, item.title, item.subtitle,
+                            if (item.durationMs > 0) "%d:%02d".format(item.durationMs / 60000, item.durationMs / 1000 % 60) else "",
+                            onClick = { when (item.kind) {
+                                "track" -> music.playTrack(requireNotNull(track))
+                                "album" -> onOpenAlbum(item)
+                                else -> onOpenPlaylist(item)
+                            } }, track = track, collection = item.takeIf { it.kind != "track" })
+                    }
+                } else if (shelf.items.all { it.kind == "mood" }) {
+                    items(shelf.items.chunked(2)) { pair ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            pair.forEach { item ->
+                                val accents = listOf(0xFFFF8C3A, 0xFFE80000, 0xFF8A3FFC, 0xFFFFE264, 0xFF00A928, 0xFF00A9D7)
+                                val accent = Color(accents[shelf.items.indexOf(item) % accents.size])
+                                Row(Modifier.weight(1f).heightIn(min = 52.dp).background(Color(0xFF2B2B2B))
+                                    .clickable { selectedMood = item }, verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.width(6.dp).height(52.dp).background(accent))
+                                    Text(item.title, Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    item {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            items(shelf.items, key = { it.id }) { item ->
+                                if (item.kind == "album") AlbumCard(item, { onOpenAlbum(item) }, onPlay = { music.playCollection(item) })
+                                else PlaylistCard(item, { onOpenPlaylist(item) }, onPlay = { music.playCollection(item) })
                             }
                         }
                     }

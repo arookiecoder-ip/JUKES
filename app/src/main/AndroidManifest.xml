@@ -41,6 +41,8 @@
             </intent-filter>
         </activity>
 
+        <service android:name=".services.RemotePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+
         <!-- Playback Service -->
         <service android:name=".services.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
             <intent-filter>

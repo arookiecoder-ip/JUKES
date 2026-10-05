@@ -35,7 +35,7 @@ fun FlatTrackRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     track: com.example.juke.models.Track? = null,
-    durationLoading: Boolean = false,
+    collection: com.example.juke.network.BrowseItem? = null,
     number: Int? = null
 ) {
     val menu = LocalMediaMenu.current
@@ -44,7 +44,7 @@ fun FlatTrackRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .combinedClickable(onClick = onClick, onLongClick = { track?.let { menu?.show(it) } }, onLongClickLabel = "Song options")
+                .combinedClickable(onClick = onClick, onLongClick = { track?.let { menu?.show(it) } ?: collection?.let { menu?.show(it) } }, onLongClickLabel = "Song options")
                 .heightIn(min = 48.dp)
                 .padding(horizontal = 4.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -80,16 +80,13 @@ fun FlatTrackRow(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            if (durationLoading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.dp)
-            else {
             Text(
-                duration.ifBlank { "—:—" },
+                duration,
                 textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier.width(48.dp).padding(end = 8.dp)
             )
-            }
         }
         HorizontalDivider(
             modifier = Modifier.padding(start = if (number != null) 48.dp else 60.dp),

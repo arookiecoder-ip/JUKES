@@ -36,12 +36,12 @@ object BrowseParser {
         val playlist = raw.text("playlistId", "playlist_id", "audioPlaylistId").ifBlank { play.text("playlistId") }
         val declared = raw.text("kind", "type", "resultType").lowercase()
         val kind = when {
-            video.isNotBlank() -> "track"
             browse.startsWith("MPRE") -> "album"
             browse.startsWith("VL") || browse.startsWith("RD") || browse.startsWith("PL") -> "playlist"
             browse.startsWith("UC") || declared == "artist" || hint == "artists" || hint == "related" -> "artist"
             raw.text("params").isNotBlank() -> "mood"
             declared in listOf("album", "single", "singles") || hint in listOf("albums", "singles", "new_releases") -> "album"
+            video.isNotBlank() -> "track"
             else -> "playlist"
         }
         val artists = raw.array("artists")
@@ -52,7 +52,7 @@ object BrowseParser {
         val clockDuration = raw.text("duration").split(":").mapNotNull { it.toLongOrNull() }.fold(0L) { seconds, part -> seconds * 60 + part } * 1000
         val duration = raw.number("duration_ms").takeIf { it > 0 } ?: (raw.number("duration_seconds").takeIf { it > 0 } ?: raw.number("durationSec")) * 1000
         val durationMs = duration.takeIf { it > 0 } ?: clockDuration
-        return BrowseItem(video.ifBlank { browse.ifBlank { playlist.ifBlank { raw.text("params") } } }, kind,
+        return BrowseItem(if (kind == "track") video else browse.ifBlank { playlist.ifBlank { raw.text("params") } }, kind,
             raw.text("title", "name").ifBlank { if (kind == "artist") raw.text("artist") else "" }.ifBlank { "Untitled" }, artist,
             listOf("image", "thumbnail", "thumbnail_url", "thumbnails", "images").firstNotNullOfOrNull { imageUrl(raw[it]).takeIf(String::isNotBlank) }.orEmpty(),
             video, playlist.ifBlank { if (kind == "playlist") browse.removePrefix("VL") else "" }, durationMs,
