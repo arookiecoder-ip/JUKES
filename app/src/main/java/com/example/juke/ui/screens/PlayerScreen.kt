@@ -326,8 +326,9 @@ fun PlayerScreen(
                     .safeDrawingPadding()
             ) {
                 val compact = maxHeight < 680.dp
+                val artworkHeight = maxHeight * 0.6f
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.fillMaxWidth().height(maxHeight * 0.6f)) {
+                    Box(Modifier.fillMaxWidth().height(artworkHeight)) {
                         PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
                             currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
                             isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
