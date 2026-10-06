@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -59,10 +60,11 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     LaunchedEffect(Unit) { if (currentIndex > 0) list.scrollToItem((currentIndex - 1).coerceAtLeast(0)) }
     val keys = remember(rows) {
         val occurrences = mutableMapOf<String, Int>()
+        val videoCounts = rows.groupingBy { it.ytVideoId ?: it.uuid }.eachCount()
         rows.map { track ->
             val occurrence = occurrences.getOrDefault(track.uuid, 0)
             occurrences[track.uuid] = occurrence + 1
-            "${track.uuid}:$occurrence"
+            "${track.uuid}:$occurrence:${videoCounts[track.ytVideoId ?: track.uuid]}"
         }
     }
     val byKey = remember(keys, rows) { keys.zip(rows).toMap() }
