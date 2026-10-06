@@ -32,12 +32,13 @@ data class QueueSongActions(val play: () -> Unit, val moveUp: (() -> Unit)? = nu
 data class ExtraSongOption(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val action: () -> Unit)
 
 class MediaMenuController {
+    var playerOnly by mutableStateOf(false)
     var track by mutableStateOf<Track?>(null)
     var item by mutableStateOf<BrowseItem?>(null)
     var extraOptions by mutableStateOf<List<ExtraSongOption>>(emptyList())
     var queueActions by mutableStateOf<QueueSongActions?>(null)
-    fun show(track: Track, queueActions: QueueSongActions? = null, extras: List<ExtraSongOption> = emptyList()) { item = null; this.track = track; this.queueActions = queueActions; extraOptions = extras }
-    fun show(item: BrowseItem, extras: List<ExtraSongOption> = emptyList()) { extraOptions = extras; track = null; queueActions = null; this.item = item }
+    fun show(track: Track, queueActions: QueueSongActions? = null, extras: List<ExtraSongOption> = emptyList(), playerOnly: Boolean = false) { this.playerOnly = playerOnly; item = null; this.track = track; this.queueActions = queueActions; extraOptions = extras }
+    fun show(item: BrowseItem, extras: List<ExtraSongOption> = emptyList()) { playerOnly = false; extraOptions = extras; track = null; queueActions = null; this.item = item }
     fun dismiss() { extraOptions = emptyList(); track = null; item = null; queueActions = null }
 }
 val LocalMediaMenu = staticCompositionLocalOf<MediaMenuController?> { null }
@@ -72,7 +73,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 MusicMenuHeader(track?.title ?: item!!.title, track?.artist ?: item?.subtitle.orEmpty(), track?.thumbnailUri ?: item?.image)
                 fun quick(run: () -> Unit) { menu.dismiss(); run() }
-                if (track != null) {
+                if (track != null && !menu.playerOnly) {
                     val liked = track.ytVideoId in AccountRepository.liked.value
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                         MusicQuickAction(Icons.Filled.ThumbUp, if (liked) "Unlike" else "Like", Modifier.weight(1f), selected = liked) { quick { music.toggleFavorite(track) } }
@@ -141,7 +142,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     action("Share") {
                         track.ytVideoId?.takeIf { it.isNotBlank() }?.let { share("Share ${track.title}", "https://music.youtube.com/watch?v=$it") }
                     }
-                    action("Save to Playlist") {
+                    if (!menu.playerOnly) action("Save to Playlist") {
                         saveTrack = track; playlists = null; playlistError = null
                         resolve {
                             try { playlists = library.editablePlaylists() }

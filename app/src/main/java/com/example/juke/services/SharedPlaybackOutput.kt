@@ -17,3 +17,6 @@ fun sharedPlaybackOutput(json: JsonObject) = SharedPlaybackOutput(json.text("pla
 internal fun canStartPhonePlayback(expectedToken: String, currentToken: String, relinquishing: Boolean,
     leaseUntil: Long, now: Long): Boolean = !relinquishing && expectedToken == currentToken &&
     (currentToken.isBlank() || now < leaseUntil)
+
+internal fun canContinueDownloadedOffline(online: Boolean, scheme: String?): Boolean =
+    !online && scheme in setOf("file", "content")

@@ -12,6 +12,7 @@ import com.example.juke.models.Track
 import com.example.juke.network.BrowseItem
 import com.example.juke.network.AlexaBackendApi
 import com.example.juke.network.NetworkFeedback
+import com.example.juke.network.text
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -121,10 +122,17 @@ class DownloadRepository private constructor(private val context: Context) {
     fun downloadCollection(item: BrowseItem, tracks: List<Track>) {
         val eligible = tracks.filter { it.ytVideoId?.matches(Regex("[A-Za-z0-9_-]{11}")) == true }
         check(eligible.isNotEmpty()) { "This collection has no downloadable songs" }
-        val collection = DownloadedCollection(item.id, item.kind, item.title, item.image, item.subtitle, eligible)
+        val collection = DownloadedCollection(item.id, item.kind, item.title, item.image, item.subtitle, eligible, item.raw.text("year"), item.raw.text("description"))
         savedCollections.removeAll { it.key == collection.key }; savedCollections += collection
         save(); retryCollection(collection)
         NetworkFeedback.notify("Downloading ${collection.title}")
+    }
+    fun updateCollectionDetails(item: BrowseItem) {
+        val index = savedCollections.indexOfFirst { it.id == item.id && it.kind == item.kind }
+        if (index < 0) return
+        savedCollections[index] = savedCollections[index].copy(title = item.title, image = item.image,
+            subtitle = item.subtitle, year = item.raw.text("year"), description = item.raw.text("description"))
+        save()
     }
     fun retryCollection(collection: DownloadedCollection) { enqueue(collection.tracks) }
     fun removeCollection(collection: DownloadedCollection) {

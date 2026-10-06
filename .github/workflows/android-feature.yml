@@ -10,6 +10,10 @@ on:
       - '.github/signing/debug-certificate.sha256'
   workflow_dispatch:
     inputs:
+      library_player_tests:
+        description: Run affected downloads, playlist, queue, ownership and rate-limit unit tests (no emulator)
+        type: boolean
+        default: false
       handoff_tests:
         description: Run only audio output handoff and ownership unit tests (no emulator)
         type: boolean
@@ -103,12 +107,16 @@ jobs:
         if: ${{ inputs.handoff_tests == true }}
         run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --no-daemon
 
+      - name: Check affected download, playlist and queue logic
+        if: ${{ inputs.library_player_tests == true }}
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.CollectionContentTest' --tests 'com.example.juke.network.RateLimitRetryTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.PhoneQueueRequestTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --no-daemon
+
       - name: Check browse, playback presentation and Echo snapshots
-        if: ${{ inputs.handoff_tests != true }}
+        if: ${{ inputs.handoff_tests != true && inputs.library_player_tests != true }}
         run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.PhoneQueueRequestTest' --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.network.DeviceAudioTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.network.SearchRankingTest' --tests 'com.example.juke.network.YoutubeLinkTest' --tests 'com.example.juke.utils.PlaybackTimeTest' --tests 'com.example.juke.utils.OfflineNavigationTest' --no-daemon
 
       - name: Upload handoff test results
-        if: ${{ always() && inputs.handoff_tests == true }}
+        if: ${{ always() && inputs.handoff_tests == true || inputs.library_player_tests == true }}
         uses: actions/upload-artifact@v4
         with:
           name: handoff-test-results

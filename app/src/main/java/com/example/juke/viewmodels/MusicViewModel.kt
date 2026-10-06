@@ -101,15 +101,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         android.content.Context.MODE_PRIVATE
     )
 
-    private val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
-    private val _playbackSpeed = MutableStateFlow(1f)
-    val playbackSpeed: StateFlow<Float> = _playbackSpeed
-    fun cyclePlaybackSpeed() {
-        val next = speeds[(speeds.indexOf(_playbackSpeed.value) + 1) % speeds.size]
-        _playbackSpeed.value = next
-        playbackManager.setPlaybackSpeed(next)
-    }
-
     private val audioPrefs = application.getSharedPreferences(
         "audio_effects_prefs",
         android.content.Context.MODE_PRIVATE
@@ -307,6 +298,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _queueLoadError.value = null
             try {
+                if (!com.example.juke.network.NetworkFeedback.online.value && !isAlexa) return@launch
                 if (isAlexa) echo.refresh(force = true, stateOnly = true)
                 else {
                     if (!sharedPhoneQueueReady) { synchronizePhoneQueue(); phoneQueueSyncJob?.join() }
@@ -335,6 +327,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         playbackManager.initialize()
+        viewModelScope.launch {
+            var previouslyOffline = false
+            com.example.juke.network.NetworkFeedback.online.collect { online ->
+                if (!online) { previouslyOffline = true; return@collect }
+                if (!previouslyOffline) return@collect
+                previouslyOffline = false
+                if (!signedIn || isAlexa || _isSwitchingOutput.value || _uiState.value.currentTrack == null) return@collect
+                val requestId = playbackRequestId
+                try {
+                    echo.refresh(stateOnly = true)
+                    if (requestId != playbackRequestId || !signedIn) return@collect
+                    val latest = echo.state.value
+                    if (latest.sharedOutput.mode == "alexa" && (latest.playing || latest.processing)) {
+                        adoptRemoteAlexa(latest.sharedOutput)
+                    } else {
+                        com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                        serverPlaybackChecked = true
+                        synchronizePhoneQueue()
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { _queueLoadError.value = "Connection restored, but the queue could not sync. Retry." }
+            }
+        }
 
         viewModelScope.launch {
             queueManager.alexaQueueWindow.collect { window ->
@@ -350,7 +365,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // (and the web remote) follow it, and pick up queue edits made elsewhere.
         viewModelScope.launch {
             while (isActive) {
-                delay(3_000)
+                delay(10_000)
                 if (!serverPlaybackChecked || com.example.juke.services.PhonePlaybackOwnership.token.isBlank()) continue
                 if (signedIn && !isAlexa && !_isSwitchingOutput.value && !sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true && com.example.juke.network.NetworkFeedback.online.value) {
                     synchronizePhoneQueue(); continue
@@ -475,6 +490,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * last choice is kept.
      */
     fun onSignedIn() {
+        collectionCache.clear()
+        downloads.collections.value.filter { it.title.isBlank() || it.title == "Untitled" }.forEach { refreshDownloadedDetails(it.key) }
         signedIn = true
         serverPlaybackChecked = false
         signInJob?.cancel()
@@ -506,6 +523,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onSignedOut() {
+        collectionCache.clear()
         serverPlaybackChecked = false
         com.example.juke.services.PhonePlaybackOwnership.forget()
         phoneQueueSyncJob?.cancel()
@@ -886,28 +904,43 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun collectionTracks(item: com.example.juke.network.BrowseItem): List<Track> {
-        com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
+    private val collectionCache = object : LinkedHashMap<String, com.example.juke.network.CollectionContent>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, com.example.juke.network.CollectionContent>?) = size > 12
+    }
+    private val collectionLoadMutex = kotlinx.coroutines.sync.Mutex()
+    private suspend fun collectionContent(item: BrowseItem): com.example.juke.network.CollectionContent = collectionLoadMutex.withLock {
+        val key = "${item.kind}:${item.id}"
+        collectionCache[key]?.takeIf { System.currentTimeMillis() - it.fetchedAtMs < 60_000 }?.let { return@withLock it }
         val path = if (item.kind == "album") "/api/album/${item.id}" else "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
-        val tracks = mutableListOf<Track>()
-        var offset = 0L
-        do {
-            val data = Backend.get(path, if (item.kind == "album") emptyMap() else mapOf("limit" to "100", "offset" to offset.toString())).objectOrEmpty()
-            tracks += data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }.filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value, item.image) }
-            if (item.kind == "album" || !data.flag("has_more")) break
-            val next = data.number("next_offset")
-            check(next > offset) { "Could not load the rest of this playlist" }
-            offset = next
-        } while (true)
-        return tracks
+        val data = Backend.get(path, if (item.kind == "album") emptyMap() else mapOf("playback" to "1", "limit" to "5000")).objectOrEmpty()
+        check(!data.flag("has_more")) { "This playlist exceeds the 5,000-song queue limit" }
+        val resolved = com.example.juke.network.resolvedCollectionItem(item, data)
+        val tracks = withContext(Dispatchers.Default) {
+            data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                .filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value, resolved.image) }
+        }
+        com.example.juke.network.CollectionContent(resolved, tracks).also { collectionCache[key] = it }
+    }
+    private suspend fun collectionTracks(item: BrowseItem): List<Track> {
+        com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
+        return collectionContent(item).tracks
     }
 
+    fun refreshDownloadedDetails(key: String) {
+        val saved = downloads.collections.value.firstOrNull { it.key == key } ?: return
+        if (!com.example.juke.network.NetworkFeedback.online.value) return
+        viewModelScope.launch {
+            try { downloads.updateCollectionDetails(collectionContent(saved.browseItem()).item) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Keep the saved metadata and offline songs if the provider is unavailable. */ }
+        }
+    }
     fun downloadCollection(item: com.example.juke.network.BrowseItem) {
         viewModelScope.launch {
             try {
-                val tracks = collectionTracks(item)
-                check(tracks.isNotEmpty()) { "This collection has no downloadable songs" }
-                downloads.downloadCollection(item, tracks)
+                val content = collectionContent(item)
+                check(content.tracks.isNotEmpty()) { "This collection has no downloadable songs" }
+                downloads.downloadCollection(content.item, content.tracks)
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
             catch (e: Exception) { _messages.tryEmit(e.message ?: "Couldn't download collection") }

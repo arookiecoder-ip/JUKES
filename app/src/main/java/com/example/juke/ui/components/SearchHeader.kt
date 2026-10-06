@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -67,12 +68,6 @@ fun SearchHeader(
     val haptic = rememberJukeHaptics()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
-    LaunchedEffect(open) {
-        if (open) {
-            try { focus.requestFocus() } catch (_: Exception) {}
-            keyboard?.show()
-        }
-    }
 
     // The field keeps its own selection so a re-tap can select the whole query for replacing.
     var field by remember { mutableStateOf(TextFieldValue(query, TextRange(query.length))) }
@@ -95,19 +90,16 @@ fun SearchHeader(
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .fillMaxWidth()
             .glassFloat(GlassShapes.Pill, GlassLevel.Regular)
-            .clickable { if (!open) onOpenChange(true) else { focus.requestFocus(); keyboard?.show() } }
+            .then(if (!open) Modifier.clickable { onOpenChange(true) } else Modifier)
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AnimatedContent(
-            targetState = open,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "searchHeader"
-        ) { isOpen ->
-            if (isOpen) {
+        run {
+            if (open) {
                 LaunchedEffect(Unit) {
-                    delay(120)
+                    androidx.compose.runtime.withFrameNanos { }
                     focus.requestFocus()
+                    delay(50)
                     keyboard?.show()
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -130,7 +122,7 @@ fun SearchHeader(
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                        modifier = Modifier.weight(1f).focusRequester(focus),
+                        modifier = Modifier.weight(1f).focusRequester(focus).onFocusChanged { if (it.isFocused) keyboard?.show() },
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (query.isEmpty()) {

@@ -45,7 +45,8 @@ fun FlatTrackRow(
     sharpArtwork: Boolean = false,
     showMore: Boolean = false,
     number: Int? = null,
-    onOptions: (() -> Unit)? = null
+    onOptions: (() -> Unit)? = null,
+    downloadStatus: (@Composable () -> Unit)? = null
 ) {
     val menu = LocalMediaMenu.current
     val context = LocalContext.current
@@ -92,7 +93,7 @@ fun FlatTrackRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            DownloadedBadge(track?.ytVideoId)
+            if (downloadStatus != null) downloadStatus() else DownloadedBadge(track?.ytVideoId)
             Spacer(Modifier.width(8.dp))
             Text(
                 duration,

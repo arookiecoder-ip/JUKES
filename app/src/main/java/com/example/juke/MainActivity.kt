@@ -150,6 +150,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        @Suppress("DEPRECATION")
+        run {
+            val icon = checkNotNull(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.music_box_pwa))
+            val bitmap = android.graphics.Bitmap.createBitmap(192, 192, android.graphics.Bitmap.Config.ARGB_8888)
+            icon.setBounds(0, 0, 192, 192)
+            icon.draw(android.graphics.Canvas(bitmap))
+            setTaskDescription(android.app.ActivityManager.TaskDescription(getString(R.string.app_name), bitmap, android.graphics.Color.rgb(10, 10, 10)))
+        }
 
         enableEdgeToEdge()
         com.example.juke.ui.theme.GlassPrefs.solid =
