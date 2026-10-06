@@ -66,6 +66,8 @@ class EchoController(
     private val pollLock = Mutex()
     private var lastVolumeRefresh = 0L
     private var likedVersion: Long? = null
+    private var mutationEpoch = 0L
+    private var refreshedAt = 0L
 
     // Volume slider: a drag is debounced, and server echoes are ignored for a grace window so
     // a stale poll can't snap the slider back (same rules as the web remote).
@@ -140,9 +142,14 @@ class EchoController(
     /** One now-playing poll (and a volume read every 15 s). */
     suspend fun refresh(force: Boolean = false, stateOnly: Boolean = false) {
         val serial = _serial.value.ifBlank { return }
+        if (!force && SystemClock.elapsedRealtime() - refreshedAt < 200) return
         val np = pollLock.withLock {
+            val epoch = mutationEpoch
             Backend.get("/alexa/now_playing/", mapOf("serial" to serial)).objectOrEmpty().also {
-                if (serial == _serial.value) apply(it)
+                if (serial == _serial.value && epoch == mutationEpoch) {
+                    apply(it)
+                    refreshedAt = SystemClock.elapsedRealtime()
+                }
             }
         }
         if (serial != _serial.value) return
@@ -178,7 +185,10 @@ class EchoController(
         _serial.value.ifBlank { throw IllegalStateException("Choose an Echo device first") }
 
     private suspend fun send(path: String, body: JsonObject) {
-        Backend.post(path, body)
+        mutationEpoch++
+        refreshedAt = 0
+        try { Backend.post(path, body) }
+        finally { mutationEpoch++; refreshedAt = 0 }
     }
 
     suspend fun command(action: String, refreshAfter: Boolean = true, expectedPhoneToken: String? = null) {

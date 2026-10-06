@@ -86,7 +86,8 @@ data class MusicUiState(
     val isQueueOperationInProgress: Boolean = false,
     val isShuffleEnabled: Boolean = false,
     val repeatMode: Int = androidx.media3.common.Player.REPEAT_MODE_OFF,
-    val extractedColors: ExtractedColors? = null
+    val extractedColors: ExtractedColors? = null,
+    val phase: com.example.juke.services.PlaybackPhase = com.example.juke.services.PlaybackPhase.IDLE
 )
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
@@ -184,7 +185,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var playbackRequestId = 0L
 
     val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
-        withPendingPlayback(state.copy(isLoading = state.isLoading || busy), pending)
+        val presented = withPendingPlayback(state.copy(isLoading = state.isLoading || busy), pending)
+        presented.copy(phase = com.example.juke.services.playbackPhase(presented.currentTrack != null,
+            _isSwitchingOutput.value, pending != null || _echoRequests.value > 0,
+            presented.isLoading, presented.isPlaying, presented.error != null))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
 
     private fun Track.withLike(liked: Set<String>) =
@@ -217,7 +221,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var hasStartedDeferredStartupWork = false
 
     fun saveLyricsOffset(track: Track, offsetMs: Long) {
-        if (track.uuid.startsWith(ECHO_PREFIX)) {
+        if (isAlexa) {
             val videoId = track.ytVideoId ?: return
             _echoLyrics.update { it + (videoId to (it[videoId] ?: track).copy(lyricsOffsetMs = offsetMs)) }
             return
@@ -258,7 +262,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (romanizedSyncedLyrics.isNullOrBlank() && romanizedPlainLyrics.isNullOrBlank()) {
             return
         }
-        if (track.uuid.startsWith(ECHO_PREFIX)) {
+        if (isAlexa) {
             val videoId = track.ytVideoId ?: return
             _echoLyrics.update {
                 val base = it[videoId] ?: track
@@ -689,7 +693,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         try { transferPlayback(
             pauseSource = { if (wasPlaying) echo.command("pause", refreshAfter = false) },
             startTarget = {
-                phoneSetQueue(queue.map { it.copy(uuid = java.util.UUID.randomUUID().toString()) }, index,
+                phoneSetQueue(queue, index,
                     positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
                 playbackManager.awaitReady()
             },
@@ -1504,7 +1508,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshLyrics(track: Track) {
         if (lyricsRefreshJobs[track.uuid]?.isActive == true) return
-        val isEcho = track.uuid.startsWith(ECHO_PREFIX)
+        val isEcho = isAlexa
         lyricsRefreshJobs[track.uuid] = viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {

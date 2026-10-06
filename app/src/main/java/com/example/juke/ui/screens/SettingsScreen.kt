@@ -64,6 +64,8 @@ fun SettingsScreen(
     val bass by music.bassLevel.collectAsStateWithLifecycle()
     val miniLyrics by music.isMiniPlayerLyricsEnabled.collectAsStateWithLifecycle()
     val settingsPrefs = remember { context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE) }
+    var mobilePrefetch by remember { mutableStateOf(settingsPrefs.getBoolean("prefetch_mobile_data", false)) }
+    var cacheMb by remember { mutableIntStateOf(settingsPrefs.getInt("stream_cache_mb", 256)) }
     var hapticsEnabled by remember { mutableStateOf(settingsPrefs.getBoolean("haptics_enabled", true)) }
     val echoDevices by music.echo.devices.collectAsStateWithLifecycle()
     val amazonConnected by music.echo.amazonConnected.collectAsStateWithLifecycle()
@@ -108,6 +110,23 @@ fun SettingsScreen(
                 }
             } }
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { JamSettings(jam) } }
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Preload on mobile data", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Switch(mobilePrefetch, { mobilePrefetch = it; settingsPrefs.edit().putBoolean("prefetch_mobile_data", it).apply() })
+                    }
+                    Text("Stream cache", fontWeight = FontWeight.SemiBold)
+                    Row {
+                        listOf(128, 256, 512, 1024).forEach { size ->
+                            androidx.compose.material3.TextButton(onClick = { cacheMb = size; settingsPrefs.edit().putInt("stream_cache_mb", size).apply() }) {
+                                Text("${size} MB", color = if (cacheMb == size) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    Text("Cache size applies after restarting the app.", style = MaterialTheme.typography.bodySmall)
+                }
+            } }
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Alexa", fontWeight = FontWeight.SemiBold)

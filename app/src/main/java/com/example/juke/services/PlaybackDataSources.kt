@@ -10,7 +10,7 @@ import com.example.juke.network.Backend
 /** The production audio pipeline is shared with the native playback regression tests. */
 @UnstableApi
 fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = Backend.audioBaseUrl,
-    apiKey: String = Backend.apiKey, transferListener: TransferListener? = null): DataSource.Factory {
+    apiKey: String = Backend.apiKey, transferListener: TransferListener? = null, prefetch: Boolean = false): DataSource.Factory {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(com.example.juke.network.DEVICE_AUDIO_READ_TIMEOUT_MS)
@@ -21,7 +21,7 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
             if (com.example.juke.network.isBackendAudioRequest(audioBaseUrl, spec.uri.toString())) {
                 val credential = if (apiKey.isNotBlank()) "X-Api-Key" to apiKey else
                     kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) { com.example.juke.network.AudioCredentials.header() }
-                spec.withAdditionalHeaders(mapOf(credential))
+                spec.withAdditionalHeaders(mapOf(credential) + if (prefetch) mapOf("X-MusicBox-Prefetch" to "1") else emptyMap())
             } else spec
         }
         val upstreamDataSourceFactory =
