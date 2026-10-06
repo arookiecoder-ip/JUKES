@@ -87,6 +87,15 @@ class PlaybackService : MediaLibraryService() {
     private val TAG = "PlaybackService"
 
     companion object {
+        private var activeService = java.lang.ref.WeakReference<PlaybackService>(null)
+
+        /** Pause the actual service player before acknowledging an app-initiated handoff. */
+        internal suspend fun pausePhoneForHandoff() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+            val service = checkNotNull(activeService.get()) { "Phone playback service is unavailable." }
+            service.player.pause()
+            check(!service.player.playWhenReady && !service.player.isPlaying) { "Phone playback has not paused." }
+        }
+
         /** Audio prefs that decide whether offloaded (battery saver) playback can engage. */
         private val OFFLOAD_KEYS = setOf(
             "battery_saver_playback", "skip_silence_enabled", "booster_enabled", "normalization_enabled"
@@ -648,6 +657,7 @@ class PlaybackService : MediaLibraryService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        activeService = java.lang.ref.WeakReference(this)
 
         // Create notification channel for Android 8+
         // IMPORTANT: Must be created before Media3 initializes to avoid notification conflicts
@@ -920,6 +930,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        if (activeService.get() === this) activeService.clear()
         outputPrefs.unregisterOnSharedPreferenceChangeListener(outputListener)
         // Clean up pending resume operations
         mainHandler.removeCallbacks(resumeAfterCall)
