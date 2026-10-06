@@ -15,6 +15,8 @@ object PlaybackCoordinator {
     private val _signedOut = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val signedOut = _signedOut.asSharedFlow()
 
+    fun phone(context: Context): PlaybackManager = PlaybackManager.getInstance(context.applicationContext)
+
     fun echo(context: Context): EchoController = controller ?: EchoController(scope,
         context.applicationContext.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE),
         onError = { _errors.tryEmit(it) }, onSignedOut = {

@@ -26,7 +26,8 @@ data class EchoState(
     val volume: Int? = null,
     val confirmed: Boolean = false,
     val processing: Boolean = false,
-    val sharedOutput: SharedPlaybackOutput = SharedPlaybackOutput()
+    val sharedOutput: SharedPlaybackOutput = SharedPlaybackOutput(),
+    val queueVersion: Long = -1
 ) {
     /** Live position: the server anchor plus the time since, while playing (like the web progress bar). */
     fun livePosition(now: Long = SystemClock.elapsedRealtime()): Long {
@@ -37,8 +38,8 @@ data class EchoState(
 }
 
 /** Decode the shared web-remote snapshot without turning unknown fields into real values. */
-internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, preserveVolume: Boolean): EchoState {
-    val queue = np.array("queue").mapIndexedNotNull { i, raw ->
+internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, preserveVolume: Boolean, previousQueue: List<Track> = emptyList()): EchoState {
+    val queue = if (np["queue"] == null) previousQueue else np.array("queue").mapIndexedNotNull { i, raw ->
         val item = BrowseParser.item(raw.objectOrEmpty())
         item.takeIf { it.videoId.isNotBlank() }?.toTrack()?.copy(uuid = raw.objectOrEmpty().text("entry_id").ifBlank { "echo:$i:${item.videoId}" })
     }
@@ -69,7 +70,8 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
         volume = if (preserveVolume) previousVolume else volume ?: previousVolume,
         confirmed = np.flag("playback_confirmed"),
         processing = np.flag("playback_processing"),
-        sharedOutput = sharedPlaybackOutput(np)
+        sharedOutput = sharedPlaybackOutput(np),
+        queueVersion = np.number("queue_version")
     )
 }
 

@@ -26,7 +26,7 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
         val wanted = urls.distinct().filter { Uri.parse(it).scheme in listOf("https", "http") }.take(policy.tracks).toSet()
         (work.keys - wanted).forEach { key -> work.remove(key)?.let { obsolete ->
             obsolete.writer.cancel(); obsolete.job.cancel()
-            scope.launch(Dispatchers.IO) { runCatching { obsolete.source.close() } }
+            scope.launch(Dispatchers.IO + NonCancellable) { runCatching { obsolete.source.close() } }
         } }
         completed.retainAll(wanted)
         wanted.filter { it !in work && it !in completed }.forEach { url ->
