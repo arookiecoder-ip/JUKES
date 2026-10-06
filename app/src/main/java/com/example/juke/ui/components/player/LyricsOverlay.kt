@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.example.juke.ui.components.player
 
 import com.example.juke.ui.theme.GlassCard
