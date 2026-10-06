@@ -30,3 +30,7 @@ internal suspend fun transferPlayback(
         throw failure
     }
 }
+
+/** A failed older switch must never restart over a newer explicit phone play. */
+internal fun shouldRestorePhoneSource(originalToken: String, currentToken: String): Boolean =
+    currentToken.isBlank() || currentToken == originalToken

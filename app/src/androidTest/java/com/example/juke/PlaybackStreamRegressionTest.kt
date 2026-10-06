@@ -86,6 +86,8 @@ class PlaybackStreamRegressionTest {
                 val manager = PlaybackManager.getInstance(context)
                 try {
                     instrumentation.runOnMainSync {
+                        // This transport fixture bypasses account/ownership claims and never controls Echo.
+                        com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
                         manager.setQueue(listOf(Track(uuid = "online-regression-${UUID.randomUUID()}",
                             title = "Online playback regression", artist = "", durationSec = 240,
                             localUri = deviceAudioUrl(Backend.audioBaseUrl, "Yq4tcnH4bxg"), isStream = true)))
@@ -116,7 +118,10 @@ class PlaybackStreamRegressionTest {
                 val tracks = (0 until 2_000).map { Track("large-$it", "Song $it", "Artist", durationSec = 4,
                     localUri = audio.toURI().toString(), isStream = false) }
                 try {
-                    instrumentation.runOnMainSync { manager.setQueue(tracks, 100, playWhenReady = false) }
+                    instrumentation.runOnMainSync {
+                        com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
+                        manager.setQueue(tracks, 100, playWhenReady = false)
+                    }
                     awaitQueue(controller, 2_000, tracks[100].uuid)
                     instrumentation.runOnMainSync { manager.toggleShuffle() }
                     awaitQueue(controller, 2_000, tracks[100].uuid) { player ->

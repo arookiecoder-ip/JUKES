@@ -31,6 +31,19 @@ class PlaybackHandoffTest {
         } catch (_: IllegalStateException) { assertEquals(false, resumed) }
     }
 
+    @Test fun failedOlderSwitchDoesNotRestoreOverANewerPhoneSong() = runBlocking {
+        var currentToken = "original"
+        var restored = false
+        try {
+            transferPlayback({}, { currentToken = "new-song"; error("superseded") },
+                { if (shouldRestorePhoneSource("original", currentToken)) restored = true }, {}, {})
+            fail("Switch must fail")
+        } catch (_: IllegalStateException) { assertEquals(false, restored) }
+        assertEquals("new-song", currentToken)
+        assertEquals(true, shouldRestorePhoneSource("original", ""))
+        assertEquals(true, shouldRestorePhoneSource("original", "original"))
+    }
+
     @Test fun outputIsCommittedOnlyAfterDestinationStarts() = runBlocking {
         val events = mutableListOf<String>()
         transferPlayback(

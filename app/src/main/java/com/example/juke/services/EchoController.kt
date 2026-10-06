@@ -180,8 +180,13 @@ class EchoController(
         Backend.post(path, body)
     }
 
-    suspend fun command(action: String, refreshAfter: Boolean = true) {
-        send("/alexa/command/", buildJsonObject { put("serial", requireSerial()); put("action", action) })
+    suspend fun command(action: String, refreshAfter: Boolean = true, expectedPhoneToken: String? = null) {
+        send("/alexa/command/", buildJsonObject {
+            put("serial", requireSerial()); put("action", action)
+            if (expectedPhoneToken != null) {
+                put("output_owner", PhonePlaybackOwnership.ownerId); put("output_token", expectedPhoneToken)
+            }
+        })
         // Show the change at once; the next poll confirms it.
         if (action == "play" || action == "pause") {
             _state.update { it.copy(playing = action == "play", positionMs = it.livePosition(), anchoredAt = SystemClock.elapsedRealtime()) }
@@ -189,8 +194,13 @@ class EchoController(
         if (refreshAfter) refreshSoon()
     }
 
-    suspend fun seek(positionMs: Long, refreshAfter: Boolean = true) {
-        send("/alexa/seek/", buildJsonObject { put("serial", requireSerial()); put("position_ms", positionMs) })
+    suspend fun seek(positionMs: Long, refreshAfter: Boolean = true, expectedPhoneToken: String? = null) {
+        send("/alexa/seek/", buildJsonObject {
+            put("serial", requireSerial()); put("position_ms", positionMs)
+            if (expectedPhoneToken != null) {
+                put("output_owner", PhonePlaybackOwnership.ownerId); put("output_token", expectedPhoneToken)
+            }
+        })
         _state.update { it.copy(positionMs = positionMs, anchoredAt = SystemClock.elapsedRealtime()) }
         if (refreshAfter) refreshSoon()
     }
@@ -237,7 +247,7 @@ class EchoController(
     }
 
     /** Install the paused shared cursor, then use the same Resume path as the web player. */
-    suspend fun transferQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean) {
+    suspend fun transferQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean, expectedPhoneToken: String) {
         val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
         val selected = tracks.getOrNull(index)
         require(playable.isNotEmpty()) { "Nothing to play" }
@@ -245,12 +255,13 @@ class EchoController(
         val videoId = requireNotNull(playable[targetIndex].ytVideoId)
         startTransferredAlexaQueue(playing,
             installPaused = {
+                check(PhonePlaybackOwnership.permitsPlayback(expectedPhoneToken)) { "A newer phone play superseded this switch." }
                 AlexaBackendApi.updateQueue("start", videoId, playable.map(AlexaBackendApi::backendTrack),
                     playing = false, positionMs = positionMs.coerceAtLeast(0), queueIndex = targetIndex,
                     buffering = false)
             },
-            resume = { command("play", refreshAfter = false) },
-            keepPaused = { seek(positionMs, refreshAfter = false) })
+            resume = { command("play", refreshAfter = false, expectedPhoneToken = expectedPhoneToken) },
+            keepPaused = { seek(positionMs, refreshAfter = false, expectedPhoneToken = expectedPhoneToken) })
         if (playing) {
             check(awaitPlaying(videoId)) {
                 "The Echo did not confirm playback. Playback stayed on the original device."
