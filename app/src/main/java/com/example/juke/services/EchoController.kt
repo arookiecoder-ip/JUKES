@@ -145,7 +145,7 @@ class EchoController(
         if (!force && SystemClock.elapsedRealtime() - refreshedAt < 200) return
         val np = pollLock.withLock {
             val epoch = mutationEpoch
-            Backend.get("/alexa/now_playing/", mapOf("serial" to serial)).objectOrEmpty().also {
+            Backend.get("/alexa/now_playing/", mapOf("serial" to serial, "queue_version" to _state.value.queueVersion.toString())).objectOrEmpty().also {
                 if (serial == _serial.value && epoch == mutationEpoch) {
                     apply(it)
                     refreshedAt = SystemClock.elapsedRealtime()
@@ -178,7 +178,7 @@ class EchoController(
 
     private fun apply(np: JsonObject) {
         val now = SystemClock.elapsedRealtime()
-        _state.update { old -> parseEchoSnapshot(np, now, old.volume, now < volumeGraceUntil) }
+        _state.update { old -> parseEchoSnapshot(np, now, old.volume, now < volumeGraceUntil, old.queue) }
     }
 
     private fun requireSerial(): String =

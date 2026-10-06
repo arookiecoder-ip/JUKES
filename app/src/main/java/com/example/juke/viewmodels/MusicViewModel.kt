@@ -94,7 +94,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = MusicDatabase.getDatabase(application)
     private val trackDao = database.trackDao()
-    val playbackManager = PlaybackManager.getInstance(application)
+    val playbackManager = com.example.juke.services.PlaybackCoordinator.phone(application)
     private val queueManager = QueueManager.getInstance(application)
     val recStatus = queueManager.recStatus
 
@@ -1173,6 +1173,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * remote see the same songs.
      */
     private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true) {
+        downloads.awaitReady()
         _uiState.update { it.copy(isLoading = true, error = null) }
         var startupClaim = ""
         try {

@@ -20,6 +20,8 @@ internal suspend fun transferPlayback(
     targetTimeoutMs: Long = 40_000,
     recoveryTimeoutMs: Long = 8_000
 ) {
+    val startedAt = System.nanoTime()
+    var failed = false
     try {
         pauseSource()
         val started = kotlinx.coroutines.withTimeoutOrNull(targetTimeoutMs) {
@@ -29,11 +31,14 @@ internal suspend fun transferPlayback(
         started.getOrThrow()
         commit()
     } catch (failure: Exception) {
+        failed = true
         withContext(NonCancellable) {
             runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { stopTarget() } }.exceptionOrNull()?.let(failure::addSuppressed)
             runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { restoreSource() } }.exceptionOrNull()?.let(failure::addSuppressed)
         }
         throw failure
+    } finally {
+        PlaybackDiagnostics.record(PlaybackDiagnostics.Stage.HANDOFF, (System.nanoTime() - startedAt) / 1_000_000, failed)
     }
 }
 

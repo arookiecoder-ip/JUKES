@@ -11,11 +11,15 @@ data class DownloadMigration(@PrimaryKey val id: Int = 1)
 interface DownloadManifestDao {
     @Query("SELECT * FROM download_manifest") suspend fun read(): List<DownloadManifestRow>
     @Query("SELECT COUNT(*) FROM download_migration") suspend fun migrated(): Int
-    @Query("DELETE FROM download_manifest") suspend fun clear()
+    @Query("DELETE FROM download_manifest WHERE kind = :kind AND `key` = :key") suspend fun remove(kind: String, key: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(rows: List<DownloadManifestRow>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun markMigrated(row: DownloadMigration)
     @Transaction suspend fun replace(rows: List<DownloadManifestRow>) {
-        clear(); insert(rows); markMigrated(DownloadMigration())
+        val existing = read().associateBy { it.kind to it.key }
+        val wanted = rows.associateBy { it.kind to it.key }
+        (existing.keys - wanted.keys).forEach { remove(it.first, it.second) }
+        insert(rows.filter { existing[it.kind to it.key] != it })
+        markMigrated(DownloadMigration())
     }
 }
 

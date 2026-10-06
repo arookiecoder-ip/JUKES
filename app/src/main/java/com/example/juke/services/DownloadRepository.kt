@@ -47,6 +47,8 @@ class DownloadRepository private constructor(private val context: Context) {
     private val dao = com.example.juke.database.DownloadManifestDatabase.get(context).manifests()
     private val snapshots = kotlinx.coroutines.channels.Channel<List<com.example.juke.database.DownloadManifestRow>>(kotlinx.coroutines.channels.Channel.CONFLATED)
     private var initialized = false
+    private val ready = CompletableDeferred<Unit>()
+    suspend fun awaitReady() { ready.await() }
     private val unavailable = mutableMapOf<String, com.example.juke.database.DownloadManifestRow>()
     @Volatile private var completedByVideo = completed.map { it.track }.associateBy { it.ytVideoId }
     private val _tracks = MutableStateFlow(completed.map { it.track })
@@ -91,6 +93,7 @@ class DownloadRepository private constructor(private val context: Context) {
             } } catch (e: CancellationException) { throw e }
             catch (_: Exception) {
                 NetworkFeedback.notify("Couldn't load downloads. Check device storage and restart the app.")
+                ready.complete(Unit)
                 return@launch
             }
             rows.filter { it.kind == "pending" }.forEach { runCatching { json.decodeFromString<DownloadEntry>(it.payload) }.getOrNull()?.let(pending::add) }
@@ -115,6 +118,7 @@ class DownloadRepository private constructor(private val context: Context) {
             val retained = (pending + completed).mapNotNull { it.track.ytVideoId }.toSet()
             queued.keys.removeAll(retained)
             initialized = true
+            ready.complete(Unit)
             batchTotal = pending.size + queued.size
             save(); publishStatus(); pump(); poll()
             if (_status.value.active > 0) DownloadService.start(context)

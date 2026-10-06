@@ -163,6 +163,7 @@ object Backend {
 
     private suspend fun performCall(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?, audio: Boolean = false): JsonElement {
         require(path.startsWith("/") && !path.startsWith("//"))
+        val requestStarted = System.nanoTime()
         val response = client.request((if (audio) audioBaseUrl else baseUrl) + path) {
             this.method = method
             if (audio && apiKey.isNotBlank()) header("X-Api-Key", apiKey)
@@ -180,6 +181,8 @@ object Backend {
         val text = response.bodyAsText()
         val parsed = runCatching { Json.parseToJsonElement(text) }.getOrNull()
         val code = response.status.value
+        com.example.juke.services.PlaybackDiagnostics.record(com.example.juke.services.PlaybackDiagnostics.Stage.SERVER_REQUEST,
+            (System.nanoTime() - requestStarted) / 1_000_000, code !in 200..299)
         if (code == 401) {
             if (audio) throw BackendHttpException(code, "The audio server needs its owner login or a valid API key.")
             throw BackendAuthException(errorMessage(parsed) ?: "Your session has ended. Sign in again.", path, code)

@@ -47,4 +47,16 @@ class EchoSnapshotTest {
         assertEquals(0, state.index)
     }
 
+    @Test fun stableQueueIdsSurviveReorderAndSlimSnapshots() {
+        val first = snapshot("""{"video_id":"song-a","queue_index":0,"queue_version":5,"queue":[{"video_id":"song-a","entry_id":"first"},{"video_id":"song-a","entry_id":"second"}]}""")
+        assertEquals(listOf("first", "second"), first.queue.map { it.uuid })
+        val slim = parseEchoSnapshot(Json.parseToJsonElement("""{"video_id":"song-a","queue_index":1,"queue_version":5}""") as JsonObject,
+            2_000, null, false, first.queue)
+        assertEquals(first.queue, slim.queue)
+        assertEquals("second", slim.track?.uuid)
+        assertEquals(5L, slim.queueVersion)
+        val empty = parseEchoSnapshot(Json.parseToJsonElement("""{"queue":[]}""") as JsonObject,
+            2_000, null, false, first.queue)
+        assertTrue(empty.queue.isEmpty())
+    }
 }

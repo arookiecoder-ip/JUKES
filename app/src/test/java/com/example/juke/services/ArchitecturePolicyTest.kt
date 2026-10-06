@@ -19,4 +19,20 @@ class ArchitecturePolicyTest {
         assertEquals(5, preloadPolicy(true, false, false, false).tracks)
         assertEquals(2L * 1024 * 1024, preloadPolicy(true, false, false, false).bytesPerTrack)
     }
+    @Test fun `playback phases preserve real buffering without treating paused metadata as loading`() {
+        assertEquals(PlaybackPhase.PAUSED, playbackPhase(true, false, false, false, false, false))
+        assertEquals(PlaybackPhase.BUFFERING, playbackPhase(true, false, false, true, false, false))
+        assertEquals(PlaybackPhase.SWITCHING, playbackPhase(true, true, true, true, false, false))
+        assertEquals(PlaybackPhase.FAILED, playbackPhase(true, false, false, true, false, true))
+        assertEquals(PlaybackPhase.PLAYING, playbackPhase(true, false, false, false, true, false))
+    }
+    @Test fun `diagnostics only retain bounded aggregate measurements`() {
+        val before = PlaybackDiagnostics.snapshot()[PlaybackDiagnostics.Stage.RECOVERY]?.count ?: 0
+        PlaybackDiagnostics.record(PlaybackDiagnostics.Stage.RECOVERY, -5, true)
+        val recorded = PlaybackDiagnostics.snapshot().getValue(PlaybackDiagnostics.Stage.RECOVERY)
+        assertEquals(before + 1, recorded.count)
+        assertTrue(recorded.failures > 0)
+        assertTrue(recorded.totalMs >= 0)
+        assertTrue(PlaybackDiagnostics.snapshot().size <= PlaybackDiagnostics.Stage.entries.size)
+    }
 }
