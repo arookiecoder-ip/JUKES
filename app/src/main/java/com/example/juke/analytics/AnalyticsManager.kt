@@ -9,8 +9,12 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.telephony.TelephonyManager
-import android.util.Log
+import com.example.juke.utils.SafeLog as Log
+import androidx.core.content.edit
+import com.example.juke.BuildConfig
 import com.posthog.PostHog
+import com.posthog.android.PostHogAndroid
+import com.posthog.android.PostHogAndroidConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,7 +25,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.TimeZone
 import java.util.UUID
-import androidx.core.content.edit
 
 class AnalyticsManager private constructor(private val context: Context) {
 
@@ -40,41 +43,67 @@ class AnalyticsManager private constructor(private val context: Context) {
         @Volatile
         private var instance: AnalyticsManager? = null
 
+        @Volatile
+        private var isPostHogInitialized = false
+
         fun initialize(context: Context) {
-            if (instance == null) {
-                synchronized(this) {
-                    if (instance == null) {
-                        instance = AnalyticsManager(context.applicationContext)
-                    }
-                }
+            getInstance(context)
+        }
+
+        fun getInstance(context: Context): AnalyticsManager {
+            val appContext = context.applicationContext
+            ensurePostHogInitialized(appContext)
+
+            return instance ?: synchronized(this) {
+                instance ?: AnalyticsManager(appContext).also { instance = it }
             }
         }
 
         fun getInstance(): AnalyticsManager {
             return instance ?: throw IllegalStateException("AnalyticsManager not initialized")
         }
+
+        fun getIfInitialized(): AnalyticsManager? = instance
+
+        private fun ensurePostHogInitialized(context: Context) {
+            if (isPostHogInitialized) return
+
+            synchronized(this) {
+                if (isPostHogInitialized) return
+
+                val config = PostHogAndroidConfig(
+                    apiKey = BuildConfig.POSTHOG_API_KEY,
+                    host = BuildConfig.POSTHOG_HOST
+                )
+                PostHogAndroid.setup(context, config)
+                isPostHogInitialized = true
+            }
+        }
     }
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val eventQueue = mutableListOf<AnalyticsEvent>()
     private val mutex = Mutex()
-    
+
     // User tracking
     private val userId: String = prefs.getString(KEY_USER_ID, null) ?: generateAndStoreUserId()
     private val isNewUser: Boolean = prefs.getBoolean(KEY_IS_NEW_USER, false)
-    
+
     // Session tracking
     private var sessionStartTime: Long = 0
     private val songsPlayedInOrder = mutableListOf<SongPlay>()
     private var isAppFromBackground = false
-    
+
     // Network monitoring
-    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+    private val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val telephonyManager =
+        context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
     private var isOnline = false
-    
+
     // Device information (cached)
     private val deviceInfo = DeviceInfo(
         manufacturer = Build.MANUFACTURER,
@@ -103,15 +132,15 @@ class AnalyticsManager private constructor(private val context: Context) {
         Log.d(TAG, "Generated new user ID: $newUserId (new installation)")
         return newUserId
     }
-    
+
     private fun getDeviceTimezone(): String {
         return TimeZone.getDefault().id
     }
-    
+
     private fun getNetworkInfo(): NetworkInfo {
         val activeNetwork = connectivityManager.activeNetwork
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
-        
+
         val isWifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ?: false
         val isCellular = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ?: false
         val networkCarrier = if (isCellular) {
@@ -119,7 +148,7 @@ class AnalyticsManager private constructor(private val context: Context) {
         } else {
             "N/A"
         }
-        
+
         return NetworkInfo(
             carrier = networkCarrier,
             cellular = isCellular,
@@ -162,25 +191,27 @@ class AnalyticsManager private constructor(private val context: Context) {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
 
-        connectivityManager.registerNetworkCallback(networkRequest, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                Log.d(TAG, "✓ Network connection detected")
-                isOnline = true
-                // Automatically sync all stored events when device comes online
-                syncEvents()
-            }
+        connectivityManager.registerNetworkCallback(
+            networkRequest,
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    Log.d(TAG, "✓ Network connection detected")
+                    isOnline = true
+                    // Automatically sync all stored events when device comes online
+                    syncEvents()
+                }
 
-            override fun onLost(network: Network) {
-                Log.d(TAG, "✗ Network connection lost - events will be stored locally")
-                isOnline = false
-            }
-        })
+                override fun onLost(network: Network) {
+                    Log.d(TAG, "✗ Network connection lost - events will be stored locally")
+                    isOnline = false
+                }
+            })
 
         // Check initial state
         val activeNetwork = connectivityManager.activeNetwork
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
         isOnline = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        
+
         if (isOnline) {
             Log.d(TAG, "AnalyticsManager initialized - Device ONLINE")
         } else {
@@ -191,7 +222,7 @@ class AnalyticsManager private constructor(private val context: Context) {
     private fun startSession() {
         sessionStartTime = System.currentTimeMillis()
         prefs.edit { putLong(KEY_SESSION_START, sessionStartTime) }
-        
+
         val networkInfo = getNetworkInfo()
         val properties = mutableMapOf<String, Any>(
             EventProperty.USER_ID to userId,
@@ -210,14 +241,14 @@ class AnalyticsManager private constructor(private val context: Context) {
             "network_cellular" to networkInfo.cellular,
             "network_wifi" to networkInfo.wifi
         )
-        
+
         trackEvent(EventType.SESSION_START, properties)
-        
+
         // Mark as not new user after first session
         if (isNewUser) {
             prefs.edit { putBoolean(KEY_IS_NEW_USER, false) }
         }
-        
+
         // Next session will be from background
         isAppFromBackground = true
     }
@@ -225,12 +256,14 @@ class AnalyticsManager private constructor(private val context: Context) {
     fun endSession() {
         val sessionLength = System.currentTimeMillis() - sessionStartTime
         val sessionLengthSeconds = sessionLength / 1000
-        
-        trackEvent(EventType.SESSION_END, mapOf(
-            EventProperty.USER_ID to userId,
-            EventProperty.SESSION_LENGTH to sessionLength,
-            "duration_seconds" to sessionLengthSeconds
-        ))
+
+        trackEvent(
+            EventType.SESSION_END, mapOf(
+                EventProperty.USER_ID to userId,
+                EventProperty.SESSION_LENGTH to sessionLength,
+                "duration_seconds" to sessionLengthSeconds
+            )
+        )
         syncEvents()
     }
 
@@ -245,7 +278,7 @@ class AnalyticsManager private constructor(private val context: Context) {
         positionInQueue: Int = 0
     ) {
         Log.d(TAG, "🎵 trackSongPlayed called: '$songTitle' by $songArtist (ID: $songId)")
-        
+
         val songPlay = SongPlay(
             songId = songId,
             songTitle = songTitle,
@@ -256,14 +289,16 @@ class AnalyticsManager private constructor(private val context: Context) {
         )
         songsPlayedInOrder.add(songPlay)
 
-        trackEvent(EventType.SONG_PLAYED, mapOf(
-            EventProperty.USER_ID to userId,
-            EventProperty.SONG_ID to songId,
-            EventProperty.SONG_TITLE to songTitle,
-            EventProperty.SONG_ARTIST to songArtist,
-            EventProperty.SONG_DURATION to songDuration,
-            EventProperty.POSITION_IN_QUEUE to positionInQueue
-        ))
+        trackEvent(
+            EventType.SONG_PLAYED, mapOf(
+                EventProperty.USER_ID to userId,
+                EventProperty.SONG_ID to songId,
+                EventProperty.SONG_TITLE to songTitle,
+                EventProperty.SONG_ARTIST to songArtist,
+                EventProperty.SONG_DURATION to songDuration,
+                EventProperty.POSITION_IN_QUEUE to positionInQueue
+            )
+        )
 
         // Update total songs played
         val totalSongs = prefs.getInt(KEY_TOTAL_SONGS_PLAYED, 0) + 1
@@ -282,23 +317,28 @@ class AnalyticsManager private constructor(private val context: Context) {
         val eventType = if (isCompleted) EventType.SONG_COMPLETED else EventType.SONG_SKIPPED
         val icon = if (isCompleted) "✓" else "⏭"
         val status = if (isCompleted) "COMPLETED" else "SKIPPED"
-        
-        Log.d(TAG, "$icon SONG $status: '$songId' (${completionPercentage}% - ${playDuration/1000}s/${songDuration/1000}s)")
 
-        trackEvent(eventType, mapOf(
-            EventProperty.USER_ID to userId,
-            EventProperty.SONG_ID to songId,
-            EventProperty.PLAY_DURATION to playDuration,
-            EventProperty.SONG_DURATION to songDuration,
-            EventProperty.COMPLETION_PERCENTAGE to completionPercentage,
-            "skipped" to isSkipped,
-            "duration_seconds" to (playDuration / 1000)
-        ))
+        Log.d(
+            TAG,
+            "$icon SONG $status: '$songId' (${completionPercentage}% - ${playDuration / 1000}s/${songDuration / 1000}s)"
+        )
+
+        trackEvent(
+            eventType, mapOf(
+                EventProperty.USER_ID to userId,
+                EventProperty.SONG_ID to songId,
+                EventProperty.PLAY_DURATION to playDuration,
+                EventProperty.SONG_DURATION to songDuration,
+                EventProperty.COMPLETION_PERCENTAGE to completionPercentage,
+                "skipped" to isSkipped,
+                "duration_seconds" to (playDuration / 1000)
+            )
+        )
 
         // Update total listening time
         val totalListeningTime = prefs.getLong(KEY_TOTAL_LISTENING_TIME, 0) + playDuration
         prefs.edit { putLong(KEY_TOTAL_LISTENING_TIME, totalListeningTime) }
-        Log.d(TAG, "⏱ Total listening time: ${totalListeningTime/1000/60} minutes")
+        Log.d(TAG, "⏱ Total listening time: ${totalListeningTime / 1000 / 60} minutes")
     }
 
     /**
@@ -306,10 +346,12 @@ class AnalyticsManager private constructor(private val context: Context) {
      */
     fun trackSearchQuery(searchTerm: String) {
         Log.d(TAG, "🔍 SEARCH QUERY: '$searchTerm'")
-        trackEvent(EventType.SEARCH_QUERY, mapOf(
-            EventProperty.USER_ID to userId,
-            EventProperty.SEARCH_TERM to searchTerm
-        ))
+        trackEvent(
+            EventType.SEARCH_QUERY, mapOf(
+                EventProperty.USER_ID to userId,
+                EventProperty.SEARCH_TERM to searchTerm
+            )
+        )
     }
 
     /**
@@ -317,9 +359,11 @@ class AnalyticsManager private constructor(private val context: Context) {
      */
     fun trackAppOpened() {
         Log.d(TAG, "📱 APP OPENED - User: ${userId.take(8)}...")
-        trackEvent(EventType.APP_OPENED, mapOf(
-            EventProperty.USER_ID to userId
-        ))
+        trackEvent(
+            EventType.APP_OPENED, mapOf(
+                EventProperty.USER_ID to userId
+            )
+        )
     }
 
     /**
@@ -327,9 +371,11 @@ class AnalyticsManager private constructor(private val context: Context) {
      */
     fun trackAppClosed() {
         Log.d(TAG, "📱 APP CLOSED - Syncing events before exit")
-        trackEvent(EventType.APP_CLOSED, mapOf(
-            EventProperty.USER_ID to userId
-        ))
+        trackEvent(
+            EventType.APP_CLOSED, mapOf(
+                EventProperty.USER_ID to userId
+            )
+        )
         syncEvents()
     }
 
@@ -341,17 +387,17 @@ class AnalyticsManager private constructor(private val context: Context) {
             mutex.withLock {
                 // Convert all property values to strings for serialization
                 val stringProperties = properties.mapValues { it.value.toString() }
-                
+
                 val event = AnalyticsEvent(
                     eventName = eventName,
                     properties = stringProperties
                 )
-                
+
                 // Always add to queue and persist
                 eventQueue.add(event)
                 savePendingEvents()
                 Log.d(TAG, "Event tracked: $eventName (Queue size: ${eventQueue.size})")
-                
+
                 // If online, immediately sync to PostHog
                 if (isOnline) {
                     Log.d(TAG, "Device online - syncing events immediately")
@@ -393,7 +439,7 @@ class AnalyticsManager private constructor(private val context: Context) {
                             // Convert string properties back to appropriate types for PostHog
                             val properties = event.properties.toMutableMap<String, Any>()
                             properties["timestamp"] = event.timestamp
-                            
+
                             PostHog.capture(
                                 event = event.eventName,
                                 properties = properties
@@ -408,7 +454,7 @@ class AnalyticsManager private constructor(private val context: Context) {
                     // Clear synced events to free up storage space
                     eventQueue.clear()
                     prefs.edit { remove(KEY_PENDING_EVENTS) }
-                    
+
                     Log.d(TAG, "Sync complete - Success: $successCount, Failed: $failCount")
                     Log.d(TAG, "Cleared ${eventsToSync.size} sent events from storage")
 

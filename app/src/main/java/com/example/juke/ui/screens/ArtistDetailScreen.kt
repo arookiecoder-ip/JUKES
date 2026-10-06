@@ -1,38 +1,21 @@
 package com.example.juke.ui.screens
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import com.example.juke.ui.components.stableStatusBarsPadding
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,15 +24,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.juke.models.SpotifyAlbum
-import com.example.juke.models.SpotifyImage
-import com.example.juke.models.SpotifyTrack
-import com.example.juke.ui.components.SwipeToAddNextContainer
+import com.example.juke.network.BrowseItem
+import com.example.juke.ui.components.*
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.SearchViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,328 +38,98 @@ fun ArtistDetailScreen(
     searchViewModel: SearchViewModel = viewModel(),
     musicViewModel: MusicViewModel = viewModel(),
     onNavigateBack: () -> Unit,
-    onNavigateToAlbum: (SpotifyAlbum) -> Unit = {},
+    onNavigateToAlbum: (BrowseItem) -> Unit = {},
+    onNavigateToPlaylist: (BrowseItem) -> Unit = {},
+    onNavigateToArtist: (BrowseItem) -> Unit = { searchViewModel.loadArtistDetails(it) },
+    onShowAllSongs: () -> Unit = {},
+    onShowAllReleases: (String) -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
-    val uiState by searchViewModel.artistDetailState.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    if (uiState.artist == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        return
-    }
-
-    val artist = uiState.artist!!
-
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(artist.name) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                }
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { paddingValues ->
-        if (uiState.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
+    val state by searchViewModel.artistDetailState.collectAsStateWithLifecycle()
+    val artist = state.artist
+    var expandedDescription by remember(artist?.id) { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        when {
+            state.error != null && (artist == null || state.topTracks.isEmpty()) -> {
+                ConnectionErrorState(state.error.orEmpty(), {
+                    artist?.let { searchViewModel.loadArtistDetails(it) }
+                }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(
-                    start = 20.dp,
-                    top = 16.dp,
-                    end = 20.dp,
-                    bottom = 16.dp + bottomPadding
-                ),
+            state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
+            else -> LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp + bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Artist Header
-                item {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        AsyncImage(
-                            model = bestImageUrl(artist.images) ?: artist.images.firstOrNull()?.url
-                            ?: "",
-                            contentDescription = artist.name,
-                            modifier = Modifier
-                                .size(200.dp)
-                                .clip(RoundedCornerShape(16.dp)),
-                            contentScale = ContentScale.Crop
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = artist.name,
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-
-                        if (artist.followers != null) {
-                            Text(
-                                text = "${formatNumber(artist.followers.total)} followers",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                item(key = "hero") {
+                    DetailHero(state.imageUrl, artist = true) {
+                    Column(Modifier.fillMaxWidth().heightIn(min = 380.dp).padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.Bottom) {
+                        Text(artist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                        if (state.subscribers.isNotBlank()) Text(state.subscribers + if (state.subscribers.contains("subscriber", true)) "" else " subscribers", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.description.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(state.description, maxLines = if (expandedDescription) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                            if (state.description.length > 150) TextButton(onClick = { expandedDescription = !expandedDescription }) { Text(if (expandedDescription) "Less" else "More") }
                         }
-
-                        if (artist.genres.isNotEmpty()) {
-                            Text(
-                                text = artist.genres.joinToString(" • "),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Button(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.random()) }) { Icon(Icons.Default.Shuffle, "Shuffle artist songs") }
+                            OutlinedButton(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.first()) }) { Icon(Icons.Default.Radio, "Artist radio") }
+                            TextButton(enabled = state.isSubscribed != null && !state.subscriptionBusy, onClick = searchViewModel::toggleSubscription) {
+                                if (state.subscriptionBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Text(if (state.isSubscribed == true) "Subscribed" else "Subscribe")
+                            }
+                        }
+                    }
+                    }
+                }
+                state.error?.let { error -> item { Text(error, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error) } }
+                if (state.topTracks.isNotEmpty()) {
+                    item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }
+                    itemsIndexed(state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
+                        SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
+                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.startRadio(track) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
+                        }
+                    }
+                    if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {
+                        TextButton(onClick = onShowAllSongs, modifier = Modifier.padding(horizontal = 12.dp)) {
+                            Text("Show all songs")
                         }
                     }
                 }
-
-                // Top Tracks Section
-                if (uiState.topTracks.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Top Tracks",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-
-                    val topTracksSubset = uiState.topTracks.take(10)
-                    items(topTracksSubset) { track ->
-                        SwipeToAddNextContainer(
-                            onAddNext = {
-                                scope.launch {
-                                    musicViewModel.queueSpotifyTrackNext(track)
+                fun releases(title: String, releases: List<BrowseItem>, kind: String, hasMore: Boolean) {
+                    if (releases.isEmpty()) return
+                    item(key = title) {
+                        Column {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                IconButton(onClick = { onShowAllReleases(kind) }) {
+                                    Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowForward, "Show all $title")
                                 }
                             }
-                        ) {
-                            TrackItem(
-                                track = track,
-                                onClick = {
-                                    scope.launch {
-                                        // Queue this track and all tracks below it
-                                        musicViewModel.setQueueFromSpotifyTracks(
-                                            topTracksSubset,
-                                            topTracksSubset.indexOf(track)
-                                        )
-                                    }
+                            Spacer(Modifier.height(12.dp))
+                            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(releases, key = { it.id }) { item ->
+                                    if (item.kind == "playlist") PlaylistCard(item, onClick = { onNavigateToPlaylist(item) }, onPlay = { musicViewModel.playCollection(item) })
+                                    else AlbumCard(item, onClick = { onNavigateToAlbum(item) }, onPlay = { musicViewModel.playCollection(item) })
                                 }
-                            )
+                            }
                         }
                     }
                 }
-
-                // Albums Section (2x2 grid)
-                if (uiState.albums.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Albums",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-
-                    val albumRows = uiState.albums.chunked(2)
-                    items(albumRows) { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            for (album in row) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                ) {
-                                    AlbumItem(
-                                        album = album,
-                                        onClick = { onNavigateToAlbum(album) }
-                                    )
-                                }
-                            }
-
-                            if (row.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
+                releases("Albums", state.albums, "albums", state.albumsHasMore)
+                releases("Singles", state.singles, "singles", state.singlesHasMore)
+                releases("Playlists", state.playlists, "playlists", state.playlists.size > 5)
+                if (state.related.isNotEmpty()) item(key = "related") {
+                    Column {
+                        Text("Related artists", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(12.dp))
+                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(state.related, key = { it.id }) { related -> ArtistCard(related, onClick = { onNavigateToArtist(related) }) }
                         }
                     }
                 }
             }
         }
+        DetailBackButton(onNavigateBack, Modifier.align(Alignment.TopStart))
     }
-}
-
-@Composable
-private fun TrackItem(
-    track: SpotifyTrack,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Card(
-                modifier = Modifier.size(72.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                AsyncImage(
-                    model = bestImageUrl(track.album.images) ?: track.album.images.lastOrNull()?.url
-                    ?: "",
-                    contentDescription = track.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = track.name,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Text(
-                    text = track.artists.joinToString(", ") { it.name },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Text(
-                    text = track.album.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Text(
-                    text = formatDuration(track.durationMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AlbumItem(
-    album: SpotifyAlbum,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        onClick = onClick,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-        ) {
-            AsyncImage(
-                model = bestImageUrl(album.images) ?: album.images.lastOrNull()?.url ?: "",
-                contentDescription = album.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
-                contentScale = ContentScale.Crop
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = album.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "${
-                        album.albumType?.replaceFirstChar {
-                            if (it.isLowerCase()) it.titlecase(
-                                java.util.Locale.getDefault()
-                            ) else it.toString()
-                        } ?: "Album"
-                    } • ${album.releaseDate?.take(4) ?: ""} • ${album.totalTracks ?: 0} tracks",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-private fun formatNumber(num: Int): String {
-    return when {
-        num >= 1_000_000 -> "${num / 1_000_000}M"
-        num >= 1_000 -> "${num / 1_000}K"
-        else -> num.toString()
-    }
-}
-
-private fun formatDuration(durationMs: Int): String {
-    val totalSeconds = durationMs / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
-}
-
-// Helper to pick best available image (prefer 640x640)
-private fun bestImageUrl(images: List<SpotifyImage>?): String? {
-    if (images.isNullOrEmpty()) return null
-    images.find { (it.height == 640 || it.width == 640) }?.let { return it.url }
-    return images.maxByOrNull { (it.height ?: 0) * (it.width ?: 0) }?.url
 }

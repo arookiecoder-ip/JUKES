@@ -1,0 +1,19 @@
+name: Android CI
+
+on:
+  push:
+    branches: [beta, main]
+  pull_request:
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.head_ref != 'feat/alexa-backend'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sh ./gradlew test assembleDebug --stacktrace

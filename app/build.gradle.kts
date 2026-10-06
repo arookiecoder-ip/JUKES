@@ -1,3 +1,4 @@
+import java.io.File
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -17,12 +18,12 @@ android {
         applicationId = "com.example.juke"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "2.0.0-stable"
+        versionCode = 52
+        versionName = "2.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Load Spotify credentials from local.properties
+        // Load backend and analytics configuration from local.properties
         val properties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
@@ -31,29 +32,67 @@ android {
 
         buildConfigField(
             "String",
-            "SPOTIFY_CLIENT_ID",
-            "\"${properties.getProperty("SPOTIFY_CLIENT_ID", "")}\""
+            "POSTHOG_API_KEY",
+            "\"${properties.getProperty("POSTHOG_API_KEY", "")}\""
         )
         buildConfigField(
             "String",
-            "SPOTIFY_CLIENT_SECRET",
-            "\"${properties.getProperty("SPOTIFY_CLIENT_SECRET", "")}\""
+            "POSTHOG_HOST",
+            "\"${properties.getProperty("POSTHOG_HOST", "")}\""
+        )
+        // Account sessions need a server with web login enabled. Audio can use a separate keyed server.
+        buildConfigField(
+            "String",
+            "ALEXA_SESSION_BASE_URL",
+            "\"${properties.getProperty("ALEXA_SESSION_BASE_URL", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "ALEXA_BASE_URL",
+            "\"${properties.getProperty("ALEXA_BASE_URL", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "ALEXA_API_KEY",
+            "\"\""
         )
     }
 
+    androidResources {
+        // Strips all languages except English
+        localeFilters += "en"
+    }
+
     signingConfigs {
-        getByName("debug")
+        // Keep the installed app's identity when moving from beta/debug to release.
+        create("release") {
+            System.getenv("MUSIC_BOX_SIGNING_STORE")?.takeIf { it.isNotBlank() }?.let { path ->
+                storeFile = file(path)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+        getByName("debug") {
+            System.getenv("MUSIC_BOX_SIGNING_STORE")?.takeIf { it.isNotBlank() }?.let { path ->
+                storeFile = file(path)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -65,6 +104,22 @@ android {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
     }
+    packaging {
+        resources {
+            // Build metadata the app never reads at runtime.
+            excludes += setOf(
+                "META-INF/*.version",
+                "META-INF/*.kotlin_module",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            )
+        }
+    }
+    dependenciesInfo {
+        // Play-only dependency report; this APK is side-loaded from GitHub.
+        includeInApk = false
+        includeInBundle = false
+    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -72,8 +127,10 @@ android {
 }
 
 dependencies {
+    implementation("com.google.zxing:core:3.5.3")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
@@ -94,7 +151,7 @@ dependencies {
 
     // Ktor
     implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.logging)
     implementation(libs.ktor.serialization.kotlinx.json)
@@ -109,21 +166,39 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.datasource)
 
     // Coil
     implementation(libs.coil.compose)
+    implementation(libs.haze)
 
     // Gson
     implementation(libs.gson)
 
     // PostHog
-    implementation("com.posthog:posthog-android:3.32.+")
+    implementation("com.posthog:posthog-android:3.40.2")
 
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation(libs.junit)
+    testImplementation(libs.ktor.client.mock)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+
+// Release builds must never silently fall back to a new runner/debug key.
+val verifyReleaseSigning by tasks.registering {
+    doLast {
+        val signingStore = System.getenv("MUSIC_BOX_SIGNING_STORE")
+        check(!signingStore.isNullOrBlank() && File(signingStore).isFile) {
+            "Release signing requires the preserved Music Box key via MUSIC_BOX_SIGNING_STORE. Use the stable-release Actions workflow."
+        }
+    }
+}
+tasks.matching { it.name == "validateSigningRelease" }.configureEach {
+    dependsOn(verifyReleaseSigning)
 }

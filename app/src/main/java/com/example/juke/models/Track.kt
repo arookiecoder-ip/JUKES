@@ -16,42 +16,29 @@ data class Track(
     val ytVideoId: String? = null,
     val syncedLyrics: String? = null,
     val plainLyrics: String? = null,
+    val romanizedSyncedLyrics: String? = null,
+    val romanizedPlainLyrics: String? = null,
     val isFavourite: Boolean = false,
     val playCount: Int = 0,
     val lastPlayedAt: String? = null,
-    val downloadedAt: Long? = null,
-    val spotifyId: String? = null,
-    val albumSpotifyId: String? = null,
-    val artistSpotifyIds: List<String>? = null,
-    val isStream: Boolean = false
+    val albumId: String? = null,
+    val artistId: String? = null,
+    val isStream: Boolean = false,
+    val lyricsOffsetMs: Long = 0L,
+    val artists: List<ArtistCredit> = emptyList()
 )
 
-/**
- * Spotdown song search result from Spotify.
- */
-@Serializable
-data class SpotdownSong(
-    val title: String,
-    val artist: String,
-    val album: String = "",
-    val thumbnail: String,
-    val url: String,
-    val duration: String,
-    val cached: Boolean = false,
-    val spotifyId: String? = null,
-    val albumSpotifyId: String? = null,
-    val artistSpotifyIds: List<String>? = null
-)
-
-/**
- * Spotdown check download response.
- */
-@Serializable
-data class SpotdownCheckResponse(
-    val cached: Boolean = false,
-    val success: Boolean = true,
-    val message: String? = null
-)
+fun Track.withUpdatedLyrics(
+    syncedLyrics: String?,
+    plainLyrics: String?
+): Track {
+    return copy(
+        syncedLyrics = syncedLyrics,
+        plainLyrics = plainLyrics,
+        romanizedSyncedLyrics = if (this.syncedLyrics == syncedLyrics) romanizedSyncedLyrics else null,
+        romanizedPlainLyrics = if (this.plainLyrics == plainLyrics) romanizedPlainLyrics else null
+    )
+}
 
 /**
  * Lyrics result from LRCLib API.
@@ -69,3 +56,12 @@ data class LRCLibResult(
     val syncedLyrics: String?
 )
 
+
+@Serializable
+data class ArtistCredit(val name: String, val id: String? = null)
+
+/** Prefer the account's individual credits; fall back to the displayed artist string. */
+fun Track.artistCredits(): List<ArtistCredit> = artists.filter { it.name.isNotBlank() }.ifEmpty {
+    artist.split(Regex("\\s*(?:,| & | feat\\.? | ft\\.? | featuring )\\s*", RegexOption.IGNORE_CASE))
+        .filter { it.isNotBlank() }.mapIndexed { index, name -> ArtistCredit(name.trim(), if (index == 0) artistId else null) }
+}.distinctBy { it.id ?: it.name.lowercase() }

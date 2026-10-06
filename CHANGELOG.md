@@ -2,18 +2,183 @@
 
 ## Changelog
 
+## [2.4.0] - 2026-10-06
+
+### Added
+
+- Shared phone/Alexa playback and queue ownership with fenced handoffs, lease deadlines, and queue-identity preservation.
+- Update-compatible signed stable release: minified/resource-shrunk, non-debuggable, pinned signing certificate, and SHA-256 checksums.
+- In-app update channel pointed at MusicBox-APP: stable ignores prereleases, beta can upgrade to stable, releases without an APK are skipped.
+- Release-only logging policy (errors only) and stable-APK verification script gating publishing.
+
+See full release notes: [v2.4.0-RELEASE_NOTES.md](docs/v2.4.0-RELEASE_NOTES.md)
+
+## [2.3.5-beta] - 2026-10-04
+
+### Added
+
+- Power Tools (locked until the version line is tapped 7 times): preferred audio source, repeat threshold, mini-player gestures, diagnostics and JSON export.
+- Queue tools (shuffle upcoming, sort A–Z, clear played, save as playlist) and a Search tab re-tap that selects the query.
+
+### Fixed
+
+- Player backdrop reaches the bottom edge; Power Tools list scrolls.
+- 30-second previews and wrong-length audio are rejected: fetched length is verified against Spotify and the source is switched and remembered.
+
+See full release notes: [v2.3.5-beta-RELEASE_NOTES.md](docs/v2.3.5-beta-RELEASE_NOTES.md)
+
+## [2.3.4-beta] - 2026-10-04
+
+### Added
+
+- Liquid glass UI revamp with redesigned player, search, and library screens; reserve-based recommendations.
+- In-pipeline volume/bass boost with stable volume AGC, edge-only skip silence, playback speed, and queue status.
+- Call handling via audio focus and a shared audio controller.
+- Resumable Spotify playlist imports that survive app close and network loss.
+- Repeat-aware recommendations (daily plays), reseeding from recent songs when a radio runs dry, and offline recommendations scored from play statistics.
+
+### Fixed
+
+- Forward seeking while a track is still streaming now switches to the completed local file at the requested position.
+- Crashes opening Search and during playback with idle audio processors; tab navigation returns to the tab root.
+
+See full release notes: [v2.3.4-beta-RELEASE_NOTES.md](docs/v2.3.4-beta-RELEASE_NOTES.md)
+
+## [2.3.2-beta] - 2026-04-27
+
+### Added
+
+- Three-stage lyrics fallback chain: LRCLib primary lookup with YouTube Music lyrics and YouTube captions fallbacks.
+- Search UX upgrade with YouTube Music autocomplete, debounced typing suggestions, and submit-only full Spotify metadata searches.
+- Search tab multi-tap behavior in `MainActivity` (single tap navigate, double tap reset-and-focus, triple tap focus-without-clear).
+- Mini-player lyrics intelligence: music-symbol filtering and adaptive gap threshold fallback.
+
+### Fixed
+
+- Spotmate queue responses (`queued`/`processing`) now trigger typed queue handling instead of hard-failing convert requests.
+- Playback/download resilience improved through immediate provider fallback and deferred Spotmate task polling recovery.
+- Search keyboard handling refined with scroll-to-dismiss and reliable delayed focus triggers.
+
+See full release notes: [v2.3.2-beta-RELEASE_NOTES.md](v2.3.2-beta-RELEASE_NOTES.md)
+
+## [2.3.1-beta] - 2026-04-15
+
+### Added
+
+- Ensemble Recommendation Engine improvements (robust seed pool, parallel network intersections, offline fallback scoring).
+- Streaming playback & download resilience (seamless stream promotion, optimized source routing, async lyrics and YouTube ID hydration).
+- UI & UX polish: bottom action pill, mini-player redesign, animated play/pause transition, Material 3 player menu refresh, Search/Home/AudioSettings M3 updates.
+- Haptics engine upgrade with semantic haptics and `VIBRATE` permission.
+
+### Fixed
+
+- Queue race condition and duplication resolved via atomic `replaceMediaItem()` swaps.
+- LRU streaming stability fixes (eviction protection, redundant download prevention).
+- Duplicate stream request avoidance and related stability improvements.
+
+See full release notes: [v2.3.1-beta-RELEASE_NOTES.md](v2.3.1-beta-RELEASE_NOTES.md)
+
+## [2.3.0-beta] - 2026-04-12
+ 
+### Added
+ 
+- **LRU Streaming Cache**: Implemented a 15-file LRU disk cache for streaming playback. Temporary stream files are automatically evicted as the limit is reached, optimizing storage usage.
+- **Dual Download Sources**: Integrated "Gamepvz" as a secondary download source alongside "Spotmate". Includes load-balanced source selection and automatic fallback on errors or duration mismatches.
+- **Stream/DB Decoupling**: Streaming tracks are no longer persisted to the database by default, keeping the user's library clean and focused on permanent downloads.
+ 
+### Fixed
+ 
+- **Lyrics Auto-Scroll**: Fixed a bug where synced lyrics wouldn't scroll to the active line when toggled on during paused playback.
+- **Library Bloat**: Updated library queries to filter out streaming tracks, ensuring an organized view across the app.
+- **Startup Cleanup**: Added a background process to purge legacy stale stream entries from the persistent database.
+ 
+### See full release notes
+ 
+[v2.3.0-beta-RELEASE_NOTES.md](v2.3.0-beta-RELEASE_NOTES.md)
+ 
+---
+
+## [2.2.0-beta] - 2026-03-18
+
+### Added
+
+- **Stream Playback Caching**: Integrated ExoPlayer `SimpleCache` with a 256MB LRU disk cache. Seeking back to already-buffered parts of a stream is now instant and doesn't require re-fetching from the network.
+- **Artist Blacklist UI**:
+  - Added "Blacklist Artist" option to the Player Screen more options menu.
+  - Added a dedicated Blacklist toggle button on the Artist Detail screen.
+  - Added a "Blacklisted Artists" management section in Audio Settings.
+
+### Fixed
+
+- **Radio Mode Pause**: Optimized `startRadio` to surgically trim the playback queue using `removeMediaItem` instead of resetting the entire player. This prevents the noticeable audio drop when starting radio mode.
+- **Foreground Service Crash**: Added robust exception handling for `ForegroundServiceStartNotAllowedException` when the app is in the background on Android 12+.
+- **Shuffle Logic**: Fixed a bug where the shuffle toggle failed to correctly update the playback queue or track sequencing.
+- **Search Screen Crash**: Resolved `IllegalArgumentException` in the search results list caused by duplicate keys in `LazyColumn`.
+- **Stream Seek Crash**: Fixed `MalformedURLException` (no protocol) when playing local files through the new `CacheDataSource` by using `DefaultDataSource` as the upstream factory.
+
+### See full release notes
+
+[v2.2.0-beta-RELEASE_NOTES.md](v2.2.0-beta-RELEASE_NOTES.md)
+
+---
+
+## [2.1.1-beta] - 2026-03-03
+
+### Fixed
+
+- Swipe-to-Add-Next firing multiple times per gesture
+- Player pausing/freezing on 403 HTTP error
+
+### See full release notes
+
+[v2.1.1-beta-RELEASE_NOTES.md](v2.1.1-beta-RELEASE_NOTES.md)
+
+---
+
+## [2.1.0-beta] - 2026-03-02
+
+### Added
+
+- **Secure API Key via Cloudflare KV**: Spotdown API key is no longer bundled in the APK. Fetched at runtime from a Cloudflare Worker backed by KV storage. Key can be rotated without an app update.
+- **Referer Header for Spotdown**: All Spotdown download/check requests now include `Referer: https://spotdown.org/` as required by the API.
+- **Automatic Download Fallback**: Spotdown ↔ Spotmate auto-fallback on any error or duration mismatch exceeding 10%. Silent, no user action required.
+- **Emergency Update Dialogs**: Update checker now distinguishes emergency (`hotfix`/`critical`/`emergency` tags) from normal updates — red themed, non-dismissible for emergencies.
+- **Scrollable Update Changelog**: Release notes inside the update dialog are now fully scrollable.
+- **Fully Responsive Player Screen**: `BoxWithConstraints` used to scale all player elements (artwork, icons, spacers, typography) based on 3 device height breakpoints — compact, normal, and large/tablet.
+- **HomeScreen Settings Button Fix**: `Modifier.weight(1f)` on greeting column prevents the settings button from being pushed off-screen by long greetings.
+
+### Fixed
+
+- Spotdown API 403 due to missing Referer and API key headers
+- Download silently failing when Spotdown rejected request
+- Duration mismatch not triggering download source fallback
+- Update dialog text unreadable on dynamic dark/light themes
+- Emergency updates dismissible (should be forced)
+- Player album art overflowing into controls on small-screen phones
+- Lyrics close button displaced due to wrong `statusBarsPadding` in clipped lyrics frame
+- Player controls using fixed sizes regardless of device screen size
+
+### See full release notes
+
+[v2.1.0-beta-RELEASE_NOTES.md](v2.1.0-beta-RELEASE_NOTES.md)
+
+---
+
 ## [2.0.0-stable] - 2026-02-20
 
 ### Overview
+
 **First Major Stable Release** - JUKE v2.0.0-stable consolidates all features from v1.0.0 through v1.0.8-beta into a production-ready, battle-tested music streaming application.
 
 ### Status: Production Ready
+
 - ✅ Proven stability through 8 beta releases
 - ✅ Zero breaking changes from v1.0.x
 - ✅ Seamless upgrade path for all users
 - ✅ Complete feature parity with v1.0.8-beta
 
 ### Key Achievements
+
 - **50+ Features**: Comprehensive music streaming platform
 - **4 API Integrations**: Spotify, YouTube Music, Spotdown, LRCLib
 - **Zero Crashes**: < 0.1% crash rate from beta testing
@@ -25,8 +190,8 @@
 
 ## [1.0.8-beta] - 2026-02-18
 
+### See full release notes
 
-### See full release notes:
 [release-v1.0.8-beta.md](release-v1.0.8-beta.md)
 
 ---
