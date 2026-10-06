@@ -105,12 +105,20 @@ class RemotePlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Only remove the remote controls; never send a pause to Alexa.
         getSharedPreferences("music_settings_prefs", MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
+        echo.stopPolling()
+        remote.snapshot = EchoState()
+        remote.refresh()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(1002)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
+        echo.stopPolling()
+        remote.snapshot = EchoState()
+        remote.refresh()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(1002)
         echo.clear()
         session?.let { removeSession(it); it.release() }; remote.release(); scope.cancel()
         super.onDestroy()
@@ -130,7 +138,7 @@ class RemotePlaybackService : MediaSessionService() {
                 MediaItemData.Builder("$i:${song.ytVideoId ?: song.uuid}")
                     .setMediaItem(MediaItem.Builder().setMediaId(song.ytVideoId ?: song.uuid)
                         .setMediaMetadata(MediaMetadata.Builder().setTitle(song.title).setArtist(song.artist)
-                            .apply { song.thumbnailUri?.takeIf(String::isNotBlank)?.let { setArtworkUri(com.example.juke.network.largeArtworkUrl(it).toUri()) } }.build()).build())
+                            .apply { com.example.juke.network.artworkCandidates(song.thumbnailUri.orEmpty(), song.ytVideoId, true).firstOrNull()?.takeIf(String::isNotBlank)?.let { setArtworkUri(it.toUri()) } }.build()).build())
                     .setDurationUs(if (duration > 0) duration * 1000 else C.TIME_UNSET).build()
             }
             return State.Builder().setAvailableCommands(Player.Commands.Builder().addAll(
