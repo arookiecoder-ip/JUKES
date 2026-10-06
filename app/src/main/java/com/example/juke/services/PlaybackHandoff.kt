@@ -40,3 +40,7 @@ internal suspend fun transferPlayback(
 /** A failed older switch must never restart over a newer explicit phone play. */
 internal fun shouldRestorePhoneSource(originalToken: String, currentToken: String): Boolean =
     currentToken.isBlank() || currentToken == originalToken
+
+/** In-flight phone reports cannot apply inside a handoff or after a replacement lease. */
+internal fun canApplyPhoneOwnershipPoll(capturedToken: String, currentToken: String, handoff: Boolean): Boolean =
+    capturedToken.isNotBlank() && capturedToken == currentToken && !handoff

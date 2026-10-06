@@ -8,6 +8,18 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class PlaybackHandoffTest {
+    @Test fun oldPhoneReportsStayBlockedAcrossAlexaPhoneAlexaRoundTrip() {
+        assertEquals(false, canApplyPhoneOwnershipPoll("first-phone", "first-phone", true))
+        assertEquals(false, canApplyPhoneOwnershipPoll("first-phone", "", false))
+        assertEquals(false, canApplyPhoneOwnershipPoll("first-phone", "second-phone", false))
+        assertEquals(true, canApplyPhoneOwnershipPoll("second-phone", "second-phone", false))
+        assertEquals(false, canApplyPhoneOwnershipPoll("second-phone", "second-phone", true))
+    }
+
+    @Test fun emptyLeaseCannotPublishEvenOutsideHandoff() {
+        assertEquals(false, canApplyPhoneOwnershipPoll("", "", false))
+    }
+
     @Test fun activePhoneHandoffExplicitlyResumesWithoutFreshPlayOrSeek() = runBlocking {
         val events = mutableListOf<String>()
         startTransferredAlexaQueue(true, { events += "paused cursor" },
