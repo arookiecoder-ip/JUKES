@@ -111,8 +111,8 @@ class PlaybackService : MediaLibraryService() {
          * embedded byte arrays for every MediaItem. The session bitmap loader can resolve the URI
          * lazily when artwork is actually needed for the active item/notification.
          */
-        internal fun applyArtwork(metadataBuilder: MediaMetadata.Builder, thumbnailUri: String?) {
-            thumbnailUri?.takeIf { it.isNotEmpty() }?.let { uriString ->
+        internal fun applyArtwork(metadataBuilder: MediaMetadata.Builder, thumbnailUri: String?, videoId: String? = null) {
+            (thumbnailUri?.takeIf { it.isNotEmpty() } ?: com.example.juke.network.artworkCandidates("", videoId, true).firstOrNull())?.takeIf { it.isNotEmpty() }?.let { uriString ->
                 try {
                     val artworkUri = when {
                         uriString.startsWith("http", ignoreCase = true) -> com.example.juke.network.largeArtworkUrl(uriString).toUri()
@@ -420,7 +420,7 @@ class PlaybackService : MediaLibraryService() {
             .setTitle(track.title)
             .setArtist(track.artist)
 
-        applyArtwork(metadataBuilder, track.thumbnailUri)
+        applyArtwork(metadataBuilder, track.thumbnailUri, track.ytVideoId)
 
         return MediaItem.Builder()
             .setMediaId(track.uuid)
@@ -1309,7 +1309,7 @@ class PlaybackService : MediaLibraryService() {
                 .setIsBrowsable(false)
                 .setIsPlayable(true)
 
-            applyArtwork(metadataBuilder, track.thumbnailUri)
+            applyArtwork(metadataBuilder, track.thumbnailUri, track.ytVideoId)
 
             return MediaItem.Builder()
                 .setMediaId(track.uuid)
@@ -1440,7 +1440,7 @@ class PlaybackManager private constructor(private val context: Context) {
             .setTitle(track.title)
             .setArtist(track.artist)
 
-        PlaybackService.applyArtwork(metadataBuilder, track.thumbnailUri)
+        PlaybackService.applyArtwork(metadataBuilder, track.thumbnailUri, track.ytVideoId)
 
         return MediaItem.Builder()
             .setMediaId(track.uuid)
