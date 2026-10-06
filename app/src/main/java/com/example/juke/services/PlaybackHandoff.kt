@@ -16,16 +16,22 @@ internal suspend fun transferPlayback(
     startTarget: suspend () -> Unit,
     restoreSource: suspend () -> Unit,
     stopTarget: suspend () -> Unit,
-    commit: () -> Unit
+    commit: () -> Unit,
+    targetTimeoutMs: Long = 40_000,
+    recoveryTimeoutMs: Long = 8_000
 ) {
     try {
         pauseSource()
-        startTarget()
+        try {
+            kotlinx.coroutines.withTimeout(targetTimeoutMs) { startTarget() }
+        } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+            throw IllegalStateException("Alexa did not respond. The switch was cancelled; please retry.", timeout)
+        }
         commit()
     } catch (failure: Exception) {
         withContext(NonCancellable) {
-            runCatching { stopTarget() }.exceptionOrNull()?.let(failure::addSuppressed)
-            runCatching { restoreSource() }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { stopTarget() } }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { restoreSource() } }.exceptionOrNull()?.let(failure::addSuppressed)
         }
         throw failure
     }

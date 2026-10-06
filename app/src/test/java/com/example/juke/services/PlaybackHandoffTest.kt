@@ -96,4 +96,29 @@ class PlaybackHandoffTest {
         }
         assertEquals(true, restored)
     }
+    @Test fun hungTargetIsCancelledAndPhoneRecoveryStillRuns() = runBlocking {
+        var restored = false
+        try {
+            transferPlayback({}, { kotlinx.coroutines.awaitCancellation() }, { restored = true }, {}, {},
+                targetTimeoutMs = 20, recoveryTimeoutMs = 20)
+            fail("Hung handoff must finish")
+        } catch (_: IllegalStateException) { assertEquals(true, restored) }
+    }
+
+    @Test fun hungEchoCleanupCannotBlockPhoneRecovery() = runBlocking {
+        var restored = false
+        try {
+            transferPlayback({}, { error("Silent Echo") }, { restored = true },
+                { kotlinx.coroutines.awaitCancellation() }, {}, targetTimeoutMs = 20, recoveryTimeoutMs = 20)
+            fail("Failed handoff must finish")
+        } catch (_: IllegalStateException) { assertEquals(true, restored) }
+    }
+
+    @Test fun hungPhoneRecoveryCannotKeepOutputSwitchLocked() = runBlocking {
+        try {
+            transferPlayback({}, { error("Silent Echo") }, { kotlinx.coroutines.awaitCancellation() }, {}, {},
+                targetTimeoutMs = 20, recoveryTimeoutMs = 20)
+            fail("Recovery must finish")
+        } catch (error: IllegalStateException) { assertEquals(1, error.suppressed.size) }
+    }
 }
