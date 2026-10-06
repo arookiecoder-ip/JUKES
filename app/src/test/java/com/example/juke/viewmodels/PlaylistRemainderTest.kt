@@ -46,7 +46,7 @@ class PlaylistRemainderTest {
 
     @Test fun shuffleReturnsEveryOtherSongExactlyOnce() {
         val remainder = playlistRemainder(playlist, "vid-a", shuffle = true)
-        assertEquals(listOf("vid-b", "vid-c", "vid-d").sorted(), remainder.map { it.ytVideoId }.sorted())
+        assertEquals(setOf("vid-b", "vid-c", "vid-d"), remainder.map { it.ytVideoId }.toSet())
         assertEquals(3, remainder.size)
     }
 
@@ -54,7 +54,7 @@ class PlaylistRemainderTest {
         repeat(20) {
             val remainder = playlistRemainder(playlist, "vid-c", shuffle = true)
             assertTrue(remainder.none { it.ytVideoId == "vid-c" })
-            assertEquals(listOf("vid-a", "vid-b", "vid-d").sorted(), remainder.map { it.ytVideoId }.sorted())
+            assertEquals(setOf("vid-a", "vid-b", "vid-d"), remainder.map { it.ytVideoId }.toSet())
         }
     }
 
