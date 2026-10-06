@@ -1,0 +1,33 @@
+name: Export signing key backup (one-off, delete after use)
+
+# Temporary workflow: pulls the preserved signing key out of the
+# branch-scoped Actions cache, encrypts it with a transport password
+# known only to the owner, and uploads the ciphertext as an artifact.
+# The raw key never appears in logs or artifacts.
+# Delete this file (and the run + artifact + KEY_EXPORT_PASSWORD secret)
+# once ANDROID_DEBUG_KEYSTORE_BASE64 is set and proven with a green build.
+on: workflow_dispatch
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore preserved signing key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/music-box-debug.keystore
+          key: music-box-debug-signing-v1
+
+      - name: Encrypt keystore with transport password
+        run: |
+          test -f ~/.android/music-box-debug.keystore || { echo "signing cache miss"; exit 1; }
+          test -n "${{ secrets.KEY_EXPORT_PASSWORD }}" || { echo "KEY_EXPORT_PASSWORD secret is not set"; exit 1; }
+          openssl enc -aes-256-cbc -pbkdf2 -in ~/.android/music-box-debug.keystore -out keystore.enc -pass "pass:${{ secrets.KEY_EXPORT_PASSWORD }}"
+          shred -u ~/.android/music-box-debug.keystore 2>/dev/null || rm -f ~/.android/music-box-debug.keystore
+          ls -la keystore.enc
+
+      - name: Upload encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: keystore-backup-enc
+          path: keystore.enc
