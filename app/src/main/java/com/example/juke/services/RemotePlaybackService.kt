@@ -46,7 +46,7 @@ class RemotePlaybackService : MediaSessionService() {
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
-            .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.music_box_pwa) })
+            .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) })
         session = MediaSession.Builder(this, remote).setId("alexa")
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
