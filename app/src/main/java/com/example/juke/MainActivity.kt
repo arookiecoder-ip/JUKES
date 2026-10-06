@@ -446,7 +446,7 @@ class MainActivity : ComponentActivity() {
                 val onNavigate: (Screen) -> Unit = { screen ->
                     val wasDetail = isDetailRoute(currentRoute)
                     if (wasDetail) {
-                        if (screen == Screen.Search) searchResetTrigger++
+                        if (screen == Screen.Search) { searchResetTrigger++; searchFocusTrigger++ }
                         activityViewModelProvider[SearchViewModel::class.java].clearArtistDetail()
                         activityViewModelProvider[AlbumDetailViewModel::class.java].clearAlbumDetail()
                         activityViewModelProvider[PlaylistDetailViewModel::class.java].clearPlaylistDetail()
