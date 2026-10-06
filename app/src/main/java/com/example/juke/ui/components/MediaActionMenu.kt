@@ -94,8 +94,6 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                 @Composable fun action(label: String, run: () -> Unit) {
                     val icon = when (label) {
                         "Play", "Play now" -> Icons.Filled.PlayArrow
-                        "Move up" -> Icons.Filled.ArrowUpward
-                        "Move down" -> Icons.Filled.ArrowDownward
                         "Like", "Unlike" -> Icons.Filled.ThumbUp
                         "Play next" -> Icons.Filled.SkipNext
                         "Add to queue" -> Icons.Filled.QueueMusic
