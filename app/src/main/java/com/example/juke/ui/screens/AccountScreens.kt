@@ -417,19 +417,9 @@ fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
                 onAction = {}
             )
             Text("Audio server: ${Backend.audioBaseUrl}", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                TextButton(onClick = account::testDownloadCookies, enabled = !state.cookieBusy) { Text("Test audio download") }
-                TextButton(onClick = { showCookies = true }, enabled = !state.cookieBusy) { Text("Replace cookies") }
-            }
-            if (status != null) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = account::refreshStatus, enabled = !state.checkingStatus) {
-                        Text(if (state.checkingStatus) "Checking…" else "Check again")
-                    }
-                }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(modifier = Modifier.weight(1f), onClick = { account.refreshStatus(checkAudio = true) }, enabled = !state.checkingStatus && !state.cookieBusy) { Text(if (state.checkingStatus) "Checking…" else "Check again") }
+                TextButton(modifier = Modifier.weight(1f), onClick = { showCookies = true }, enabled = !state.cookieBusy && !state.checkingStatus) { Text("Replace cookies") }
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.ui.graphics.asImageBitmap
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -21,14 +22,16 @@ fun JamSettings(jam: JamViewModel = viewModel()) {
     val context = LocalContext.current
     val share = rememberShareAction()
     var confirmEnd by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { jam.refresh() }
     Column(Modifier.padding(16.dp)) {
-        Text("Jam", style = MaterialTheme.typography.titleMedium)
+        Text("Jam", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Text("Invite friends to the shared Alexa queue with a web app link.", style = MaterialTheme.typography.bodyMedium)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = jam::refresh) { Text("Retry") } }
         if (state.active) {
-            Text(state.url, Modifier.padding(top = 8.dp))
+            Text("Your Jam is live", Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.primary)
+            OutlinedButton(onClick = { showQr = true }, enabled = state.url.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Show QR code") }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(enabled = !state.busy && state.url.isNotBlank(), onClick = { share("Join my Music Box Jam", state.url) }) { Text("Share link") }
                 TextButton(enabled = state.url.isNotBlank(), onClick = {
@@ -37,7 +40,18 @@ fun JamSettings(jam: JamViewModel = viewModel()) {
                 }) { Text("Copy") }
                 TextButton(enabled = !state.busy, onClick = { confirmEnd = true }) { Text("End Jam") }
             }
-        } else Button(enabled = !state.busy, onClick = jam::start) { Text("Start Jam") }
+        } else Button(enabled = !state.busy, onClick = jam::start, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)) { Text("Start Jam") }
+    }
+    if (showQr && state.url.isNotBlank()) {
+        val bitmap = remember(state.url) {
+            val matrix = com.google.zxing.MultiFormatWriter().encode(state.url, com.google.zxing.BarcodeFormat.QR_CODE, 512, 512)
+            android.graphics.Bitmap.createBitmap(512, 512, android.graphics.Bitmap.Config.ARGB_8888).apply {
+                setPixels(IntArray(512 * 512) { i -> if (matrix[i % 512, i / 512]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }, 0, 512, 0, 0, 512, 512)
+            }
+        }
+        GlassAlertDialog(onDismissRequest = { showQr = false }, title = { Text("Join this Jam") },
+            text = { androidx.compose.foundation.Image(bitmap.asImageBitmap(), "Scan to join this Jam", Modifier.fillMaxWidth().aspectRatio(1f)) },
+            confirmButton = { TextButton(onClick = { showQr = false }) { Text("Done") } })
     }
     if (confirmEnd) GlassAlertDialog(onDismissRequest = { confirmEnd = false }, title = { Text("End this Jam?") },
         text = { Text("The shared link will stop working for everyone in this Jam.") },

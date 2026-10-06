@@ -156,7 +156,7 @@ fun SearchScreen(
     LaunchedEffect(searchResetTrigger) {
         if (searchResetTrigger != previousResetTrigger) {
             previousResetTrigger = searchResetTrigger
-            leaveDiscovery(); searchViewModel.resetToDiscovery(); selectedFilter = "All"; active = false
+            leaveDiscovery(); searchViewModel.resetToDiscovery(); selectedFilter = "All"; active = true
         }
     }
 
@@ -172,7 +172,7 @@ fun SearchScreen(
                 .padding(bottom = paddingValues.calculateBottomPadding())
         ) {
             SearchHeader(
-                title = "Search",
+                title = uiState.query.ifBlank { "Search" },
                 query = uiState.query,
                 onQueryChange = { query ->
                     searchViewModel.updateQuery(query)

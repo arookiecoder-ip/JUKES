@@ -163,7 +163,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Check Amazon and YouTube on the server (the YouTube cookie check takes a few seconds). */
-    fun refreshStatus() {
+    fun refreshStatus(checkAudio: Boolean = false) {
         if (cookieJob?.isActive == true) return
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
@@ -179,7 +179,11 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     youtubeReconnectRequired = profile.flag("youtube_browser_reconnect_required")
                 )
                 _state.update { it.copy(status = status) }
-                // Audio download probes run only when explicitly requested, never at startup.
+                if (checkAudio) {
+                    val result = downloadCookies.check()
+                    _state.update { it.copy(status = (it.status ?: AccountStatus()).copy(youtubeCookies = result.valid), cookieMessage = result.message) }
+                }
+                // Audio probes remain explicit, never on startup.
                 // Everything is connected: carry on into the app without a tap.
                 if (_state.value.status?.allConnected == true && _state.value.showAccountCheck) {
                     delay(1_200)

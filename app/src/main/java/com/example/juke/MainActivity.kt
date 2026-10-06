@@ -458,7 +458,7 @@ class MainActivity : ComponentActivity() {
 
                     if (navController.currentDestination?.route == screen.route) {
                         // Already on Search: select the query and open the keyboard for typing.
-                        if (!wasDetail && screen == Screen.Search) searchResetTrigger++
+                        if (!wasDetail && screen == Screen.Search) { searchResetTrigger++; searchFocusTrigger++ }
                     } else {
                         navController.navigate(screen.route) {
                             popUpTo(navController.graph.findStartDestination().id) {

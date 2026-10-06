@@ -69,7 +69,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
         }
     }
     if (track != null || item != null) {
-        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = menu::dismiss, shape = RectangleShape, containerColor = MaterialTheme.colorScheme.surface) {
+        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = menu::dismiss, shape = RectangleShape, containerColor = MaterialTheme.colorScheme.surface, dragHandle = { Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = Alignment.Center) { Box(Modifier.size(32.dp, 3.dp).background(MaterialTheme.colorScheme.onSurfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(2.dp))) } }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 MusicMenuHeader(track?.title ?: item!!.title, track?.artist ?: item?.subtitle.orEmpty(), track?.thumbnailUri ?: item?.image)
                 fun quick(run: () -> Unit) { menu.dismiss(); run() }
@@ -117,8 +117,6 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     queueActions?.let { actions ->
                         action("Play now", actions.play)
                         actions.select?.let { action("Select", it) }
-                        actions.moveUp?.let { action("Move up", it) }
-                        actions.moveDown?.let { action("Move down", it) }
                     }
                     action("Go to artist") {
                         resolve {

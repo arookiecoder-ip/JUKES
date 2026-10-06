@@ -94,53 +94,46 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item(key = "haptic-settings") { HapticSettingsCard() }
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Alexa", fontWeight = FontWeight.SemiBold)
-                    Text(when { amazonConnected == false -> "Connect your Amazon account"; echoDevices.isEmpty() -> "No Echo devices found";
-                        else -> echoDevices.joinToString("\n") { "${it.name} · ${if (it.online) "Online" else "Offline"}" } })
-                    androidx.compose.material3.TextButton(onClick = music::refreshDevices) { Text("Refresh devices") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Haptic feedback", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Switch(hapticsEnabled, { hapticsEnabled = it; settingsPrefs.edit().putBoolean("haptics_enabled", it).apply() })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Mini-player lyrics", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Switch(miniLyrics, music::toggleMiniPlayerLyrics)
+                    }
                 }
             } }
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { JamSettings() } }
-            item { Box(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { AccountStatusCard(state, account) } }
-            item {
-                GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Volume and bass boost", fontWeight = FontWeight.SemiBold)
-                                Text("For playback on this phone", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Switch(checked = boostEnabled, onCheckedChange = music::toggleVolumeBooster)
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Alexa", fontWeight = FontWeight.SemiBold)
+                    if (amazonConnected == false) Text("Connect your Amazon account")
+                    else if (echoDevices.isEmpty()) Text("No Echo devices found")
+                    echoDevices.forEach { device ->
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            Text(device.name, Modifier.weight(1f))
+                            Text(if (device.online) "Online" else "Offline", color = if (device.online) androidx.compose.ui.graphics.Color(0xFF66BB6A) else MaterialTheme.colorScheme.error)
                         }
-                        Text("Volume boost · $volume%")
-                        androidx.compose.material3.Slider(value = volume.toFloat(), onValueChange = { music.setVolumeBoosterLevel(it.toInt()) }, valueRange = 0f..100f, enabled = boostEnabled)
-                        Text("Bass boost · $bass%")
-                        androidx.compose.material3.Slider(value = bass.toFloat(), onValueChange = { music.setBassLevel(it.toInt()) }, valueRange = 0f..100f, enabled = boostEnabled)
                     }
                 }
-            }
-            item {
-                GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Mini-player lyrics", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Switch(checked = miniLyrics, onCheckedChange = music::toggleMiniPlayerLyrics)
+            } }
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Volume and bass boost", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Switch(boostEnabled, music::toggleVolumeBooster)
                     }
+                    Text("For playback on this phone", style = MaterialTheme.typography.bodySmall)
+                    Text("Volume boost · $volume%")
+                    com.example.juke.ui.components.player.ExpandableTrackSlider(volume / 100f, "Volume boost", { music.setVolumeBoosterLevel((it * 100).toInt()) }, enabled = boostEnabled, onValueChange = { music.setVolumeBoosterLevel((it * 100).toInt()) })
+                    Text("Bass boost · $bass%")
+                    com.example.juke.ui.components.player.ExpandableTrackSlider(bass / 100f, "Bass boost", { music.setBassLevel((it * 100).toInt()) }, enabled = boostEnabled, onValueChange = { music.setBassLevel((it * 100).toInt()) })
                 }
-            }
-
-            item {
-                GlassButton(
-                    onClick = {
-                        haptic.confirm()
-                        confirmSignOut = true
-                    },
-                    modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)
-                ) { Text("Sign out") }
-            }
-
+            } }
+            item { Box(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { AccountStatusCard(state, account) } }
 
             if (powerUnlocked) {
                 item {
@@ -205,6 +198,11 @@ fun SettingsScreen(
                     }) { Text("⭐ Star on GitHub") }
                 }
             }
+            item { androidx.compose.material3.Button(
+                onClick = { haptic.confirm(); confirmSignOut = true },
+                modifier = Modifier.fillMaxWidth(), shape = RectangleShape,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
+            ) { Text("Sign out") } }
         }
     }
 }
