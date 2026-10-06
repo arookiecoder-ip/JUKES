@@ -2,7 +2,7 @@ package com.example.juke.services
 
 import android.media.AudioManager
 import android.media.audiofx.Visualizer
-import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.juke.utils.SafeLog as Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +43,7 @@ fun waveformPeakDeviation(waveform: ByteArray): Int {
 class SilentPlaybackWatchdog(
     private val scope: CoroutineScope,
     private val audioManager: AudioManager,
-    private val player: Player,
+    private val player: ExoPlayer,
     /** True while a sound check is meaningful (phone output, no call, volume up). */
     private val eligible: () -> Boolean,
     /** (trackId, firstStrike): recover in place on the first strike, toast on the second. */
