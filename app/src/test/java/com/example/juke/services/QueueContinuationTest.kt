@@ -16,4 +16,11 @@ class QueueContinuationTest {
         assertFalse(canApplyQueueContinuation(listOf("a"), listOf("a"), "old", "new", true))
         assertFalse(canApplyQueueContinuation(listOf("a"), listOf("a"), "epoch", "epoch", false))
     }
+    @Test fun exhaustedQueueContinuesWithoutSkippingNativeAutoAdvanceOrOverridingPause() {
+        assertTrue(shouldAdvanceExhaustedQueue(true, 9, 9, true, true))
+        assertFalse(shouldAdvanceExhaustedQueue(true, 9, 10, true, true))
+        assertFalse(shouldAdvanceExhaustedQueue(true, 9, 9, false, true))
+        assertFalse(shouldAdvanceExhaustedQueue(false, 9, 9, true, true))
+        assertFalse(shouldAdvanceExhaustedQueue(true, 9, 9, true, false))
+    }
 }

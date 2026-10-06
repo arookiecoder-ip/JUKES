@@ -541,14 +541,16 @@ class PlaybackService : MediaLibraryService() {
                 val now = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
                 if (!canApplyQueueContinuation(before, now, claim, PhonePlaybackOwnership.token,
                         PhonePlaybackOwnership.permitsPlayback(claim))) return@launch
-                lastContinuationSeed = seedKey
-                if (tracks.isEmpty()) return@launch
+                if (tracks.isEmpty()) { lastContinuationSeed = seedKey; return@launch }
+                if (oldTracks.size != before.size) return@launch
                 withContext(Dispatchers.IO) { database.trackDao().insertTracks(tracks.map { it.toEntity() }) }
                 if (!canApplyQueueContinuation(before, (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId },
                         claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.permitsPlayback(claim))) return@launch
-                val ended = player.playbackState == Player.STATE_ENDED && player.playWhenReady
+                val ended = player.playbackState == Player.STATE_ENDED
+                val previousIndex = player.currentMediaItemIndex
+                lastContinuationSeed = seedKey
                 player.addMediaItems(tracks.mapNotNull(::createValidatedMediaItem))
-                if (ended && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
+                if (shouldAdvanceExhaustedQueue(ended, previousIndex, player.currentMediaItemIndex, player.playWhenReady, player.hasNextMediaItem())) { player.seekToNextMediaItem(); player.prepare(); player.play() }
                 val index = player.currentMediaItemIndex
                 val all = oldTracks + tracks
                 val selected = all.getOrNull(index) ?: return@launch
@@ -556,6 +558,8 @@ class PlaybackService : MediaLibraryService() {
                     all.map(com.example.juke.network.AlexaBackendApi::backendTrack), player.isPlaying,
                     player.currentPosition.coerceAtLeast(0), index, player.playbackState == Player.STATE_BUFFERING,
                     expectedToken = claim)
+            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                continuationRetryAt = android.os.SystemClock.elapsedRealtime() + 30_000
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) {
                 continuationRetryAt = android.os.SystemClock.elapsedRealtime() + 30_000
