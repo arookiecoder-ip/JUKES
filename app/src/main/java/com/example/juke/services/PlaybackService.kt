@@ -282,7 +282,7 @@ class PlaybackService : MediaLibraryService() {
         if (!::player.isInitialized) return
         val connected = getSystemService(android.net.ConnectivityManager::class.java).activeNetwork != null &&
             com.example.juke.network.NetworkFeedback.online.value
-        upcomingPreloader?.update(if (connected && player.playWhenReady && !PhonePlaybackOwnership.localHandoff)
+        upcomingPreloader?.update(if (connected && player.playbackState == Player.STATE_READY && player.playWhenReady && !PhonePlaybackOwnership.localHandoff)
             upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
     }
 
