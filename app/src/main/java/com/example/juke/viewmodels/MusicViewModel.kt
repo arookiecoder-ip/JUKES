@@ -1894,9 +1894,15 @@ internal fun withPendingPlayback(state: MusicUiState, pending: Track?): MusicUiS
  */
 fun playlistRemainder(all: List<Track>, selectedVideoId: String, shuffle: Boolean): List<Track> {
     val index = all.indexOfFirst { it.ytVideoId == selectedVideoId }
-    val rest = if (index < 0) all.filter { it.ytVideoId != selectedVideoId }
+    if (shuffle) {
+        // Shuffled Up Next is every other song in random order; only the
+        // playing occurrence itself is excluded.
+        val rest = if (index < 0) all.filter { it.ytVideoId != selectedVideoId }
+            else all.filterIndexed { i, _ -> i != index }
+        return rest.shuffled()
+    }
+    return if (index < 0) all.filter { it.ytVideoId != selectedVideoId }
         else all.drop(index + 1)
-    return if (shuffle) rest.shuffled() else rest
 }
 
 internal fun reconcilePhonePlayback(state: MusicUiState, queue: List<Track>, currentId: String): MusicUiState {
