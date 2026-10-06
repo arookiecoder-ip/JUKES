@@ -22,6 +22,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.io.File
 
+private data class DownloadResult(val status: Int, val bytes: Long, val total: Long, val reason: Int)
 @Serializable private data class DownloadEntry(val id: Long, val track: Track)
 data class DownloadStatus(val active: Int = 0, val total: Int = 0, val completed: Int = 0,
     val failed: Int = 0, val title: String = "", val percent: Int = -1)
@@ -93,7 +94,15 @@ class DownloadRepository private constructor(private val context: Context) {
         save(); publishStatus(); DownloadService.start(context); pump()
         return true
     }
+    private val rateLimitAttempts = mutableMapOf<String, Int>()
+    private var cooldownUntil = 0L
+    private var cooldownJob: Job? = null
     private fun pump() {
+        val remaining = cooldownUntil - android.os.SystemClock.elapsedRealtime()
+        if (remaining > 0) {
+            if (cooldownJob?.isActive != true) cooldownJob = scope.launch { delay(remaining); cooldownJob = null; pump() }
+            return
+        }
         val slots = (3 - pending.size - starting.size).coerceAtLeast(0)
         queued.filterKeys { it !in starting }.entries.take(slots).forEach { (video, track) ->
             starting += video
@@ -144,7 +153,7 @@ class DownloadRepository private constructor(private val context: Context) {
     fun removeAll(tracks: List<Track>) {
         val videos = tracks.mapNotNull { it.ytVideoId }.toSet()
         // Collection membership deliberately survives deletion, so re-download rejoins its collection.
-        videos.forEach(queued::remove)
+        videos.forEach { queued.remove(it); rateLimitAttempts.remove(it) }
         scope.launch {
             val entries = (pending + completed).filter { it.track.ytVideoId in videos }
             pending.removeAll(entries.toSet()); completed.removeAll(entries.toSet())
@@ -181,25 +190,36 @@ class DownloadRepository private constructor(private val context: Context) {
                 for (entry in pending.toList()) {
                     val result = withContext(Dispatchers.IO) {
                         manager.query(DownloadManager.Query().setFilterById(entry.id)).use { cursor ->
-                            if (!cursor.moveToFirst()) Triple(DownloadManager.STATUS_FAILED, 0L, 0L)
-                            else Triple(cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
+                            if (!cursor.moveToFirst()) DownloadResult(DownloadManager.STATUS_FAILED, 0L, 0L, 0)
+                            else DownloadResult(cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
                                 cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
-                                cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)))
+                                cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
+                                cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)))
                         }
                     }
                     if (entry !in pending) continue
-                    val (status, bytes, total) = result
+                    val (status, bytes, total, reason) = result
                     when (status) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
-                            pending.remove(entry); changed = true
+                            pending.remove(entry); entry.track.ytVideoId?.let { rateLimitAttempts.remove(it) }; changed = true
                             if (file(entry.track)?.let { it.exists() && it.length() > 0 } == true) {
                                 completed.removeAll { it.track.ytVideoId == entry.track.ytVideoId }; completed += entry; batchCompleted++
                             } else { batchFailed++; NetworkFeedback.notify("Couldn't save ${entry.track.title}. Please download it again.") }
                         }
                         DownloadManager.STATUS_FAILED -> {
-                            pending.remove(entry); batchFailed++; changed = true
+                            pending.remove(entry); changed = true
+                            val video = entry.track.ytVideoId.orEmpty()
+                            val attempts = rateLimitAttempts[video] ?: 0
+                            if (com.example.juke.network.shouldRetryRateLimitedDownload(reason, attempts)) {
+                                rateLimitAttempts[video] = attempts + 1
+                                queued[video] = entry.track.copy(localUri = null, isStream = true)
+                                cooldownUntil = android.os.SystemClock.elapsedRealtime() + 60_000
+                                NetworkFeedback.notify("Downloads paused briefly by the server. They will retry automatically.")
+                            } else {
+                                rateLimitAttempts.remove(video); batchFailed++
+                                NetworkFeedback.notify("Couldn't download ${entry.track.title}. Check your connection and try again.")
+                            }
                             withContext(Dispatchers.IO) { manager.remove(entry.id); file(entry.track)?.delete() }
-                            NetworkFeedback.notify("Couldn't download ${entry.track.title}. Check your connection and try again.")
                         }
                         else -> percentages[entry.track.ytVideoId.orEmpty()] = if (total > 0) (bytes * 100 / total).toInt().coerceIn(0, 100) else -1
                     }

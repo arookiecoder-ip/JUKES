@@ -443,6 +443,11 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         recoveryAttempts[trackId] = attempt
+        val claim = PhonePlaybackOwnership.token
+        val httpFailure = generateSequence<Throwable>(player.playerError) { it.cause }
+            .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()
+        val retryAfter = httpFailure?.headerFields?.entries?.firstOrNull { it.key.equals("Retry-After", true) }?.value?.firstOrNull()
+        val retryDelay = com.example.juke.network.audioRetryDelay(httpFailure?.responseCode, retryAfter, attempt)
         val position = player.currentPosition.coerceAtLeast(0)
         recoveryShouldResume = manual || player.playWhenReady
         streamRecoveryJob = serviceScope.launch {
@@ -452,11 +457,11 @@ class PlaybackService : MediaLibraryService() {
                 val local = DownloadRepository.get(applicationContext).localTrack(track)
                 val refreshed = if (local != null) local else {
                     val video = track.ytVideoId ?: return@launch
-                    if (!manual) delay(attempt * 1_000L)
+                    if (!manual || httpFailure?.responseCode == 429) delay(retryDelay)
                     val url = withContext(Dispatchers.IO) { AlexaBackendApi.getStreamUrl(video) }
                     track.copy(localUri = url, isStream = true)
                 }
-                if (player.currentMediaItem?.mediaId != trackId ||
+                if (player.currentMediaItem?.mediaId != trackId || !PhonePlaybackOwnership.permitsPlayback(claim) ||
                     outputPrefs.getString("playback_output", "PHONE") == "ALEXA") return@launch
                 withContext(Dispatchers.IO) {
                     database.trackDao().insertTrack(refreshed.toEntity())
