@@ -16,7 +16,7 @@ import com.example.juke.models.ArtistCredit
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtistPickerSheet(artists: List<ArtistCredit>, onDismiss: () -> Unit, onArtist: (ArtistCredit) -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(containerColor = com.example.juke.ui.theme.glassSheetColor(), onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Artists", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
