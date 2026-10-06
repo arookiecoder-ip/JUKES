@@ -36,7 +36,7 @@ class SharedQueueTest {
         org.junit.Assert.assertEquals(0, queueIndexAfterMove(0, 2, 4))
     }
     @Test fun queueOccurrencesKeepIdentityAndNewDuplicatesDoNotReuseIt() {
-        val track = com.example.juke.models.Track(uuid = "one", title = "Song", artist = "Artist", ytVideoId = "song")
+        val track = com.example.juke.models.Track(uuid = "one", title = "Song", artist = "Artist", durationSec = 180, ytVideoId = "song")
         val queue = stableQueueEntries(listOf(track, track))
         assertEquals("one", queue[0].uuid)
         assertNotEquals(queue[0].uuid, queue[1].uuid)
