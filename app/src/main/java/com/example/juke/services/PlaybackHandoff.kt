@@ -22,11 +22,11 @@ internal suspend fun transferPlayback(
 ) {
     try {
         pauseSource()
-        try {
-            kotlinx.coroutines.withTimeout(targetTimeoutMs) { startTarget() }
-        } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
-            throw IllegalStateException("Alexa did not respond. The switch was cancelled; please retry.", timeout)
-        }
+        val started = kotlinx.coroutines.withTimeoutOrNull(targetTimeoutMs) {
+            // Return failures across the coroutine boundary before throwing, preserving their identity.
+            runCatching { startTarget() }
+        } ?: throw IllegalStateException("Playback destination did not respond. The switch was cancelled; please retry.")
+        started.getOrThrow()
         commit()
     } catch (failure: Exception) {
         withContext(NonCancellable) {
