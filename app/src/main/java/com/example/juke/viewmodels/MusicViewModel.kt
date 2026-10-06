@@ -330,7 +330,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         playbackManager.initialize()
         viewModelScope.launch {
             com.example.juke.services.PhonePlaybackOwnership.queueNeedsSync.collect {
-                if (!isAlexa && !_isSwitchingOutput.value && signedIn) synchronizePhoneQueue()
+                if (!isAlexa && !_isSwitchingOutput.value && signedIn && phoneQueueSyncJob?.isActive != true) synchronizePhoneQueue()
             }
         }
         viewModelScope.launch {
