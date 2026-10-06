@@ -17,8 +17,8 @@ android {
         applicationId = "com.example.juke"
         minSdk = 26
         targetSdk = 36
-        versionCode = 51
-        versionName = "2.3.37-beta"
+        versionCode = 52
+        versionName = "2.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -63,6 +63,15 @@ android {
     }
 
     signingConfigs {
+        // Keep the installed app's identity when moving from beta/debug to release.
+        create("release") {
+            System.getenv("MUSIC_BOX_SIGNING_STORE")?.takeIf { it.isNotBlank() }?.let { path ->
+                storeFile = file(path)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         getByName("debug") {
             System.getenv("MUSIC_BOX_SIGNING_STORE")?.takeIf { it.isNotBlank() }?.let { path ->
                 storeFile = file(path)
@@ -75,13 +84,14 @@ android {
 
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -176,4 +186,18 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+
+// Release builds must never silently fall back to a new runner/debug key.
+val verifyReleaseSigning by tasks.registering {
+    doLast {
+        val signingStore = System.getenv("MUSIC_BOX_SIGNING_STORE")
+        check(!signingStore.isNullOrBlank() && file(signingStore).isFile) {
+            "Release signing requires the preserved Music Box key via MUSIC_BOX_SIGNING_STORE. Use the stable-release Actions workflow."
+        }
+    }
+}
+tasks.matching { it.name == "validateSigningRelease" }.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
