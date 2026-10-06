@@ -231,10 +231,11 @@ private fun HomeHeader(
             Text("Music Box", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
 
-        androidx.compose.material3.IconButton(
-            onClick = onSettingsClick,
-            modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, androidx.compose.ui.graphics.RectangleShape)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(44.dp).clip(androidx.compose.ui.graphics.RectangleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh, androidx.compose.ui.graphics.RectangleShape)
                 .then(Modifier.border(1.dp, if (jamActive) Color(0xFF66BB6A) else MaterialTheme.colorScheme.outlineVariant, androidx.compose.ui.graphics.RectangleShape))
+                .clickable(role = Role.Button, onClick = onSettingsClick)
         ) {
             Icon(Icons.Filled.Person, contentDescription = "Profile", modifier = Modifier.size(24.dp))
         }

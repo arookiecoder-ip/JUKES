@@ -46,6 +46,8 @@ import com.example.juke.ui.theme.ExtractedColors
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -691,7 +693,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val index = state.index.takeIf { it in queue.indices } ?: 0
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
-            pauseSource = { if (wasPlaying) echo.command("pause", refreshAfter = false) },
+            // The ownership claim below performs and confirms the Echo pause.
+            // Sending a separate pause first caused two serial Amazon requests.
+            pauseSource = { },
             startTarget = {
                 phoneSetQueue(queue, index,
                     positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
@@ -705,8 +709,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun movePhoneToEcho() {
         val phone = _uiState.value
-        val wasPlaying = playbackManager.shouldResumeAfterTrackChange()
-        val position = playbackManager.getCurrentPosition()
+        var wasPlaying = playbackManager.shouldResumeAfterTrackChange()
+        var position = playbackManager.getCurrentPosition()
         val track = phone.currentTrack
         if (track == null) {
             echo.refresh(force = true)
@@ -717,7 +721,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val originalClaim = com.example.juke.services.PhonePlaybackOwnership.token
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
-            pauseSource = { com.example.juke.services.PlaybackService.pausePhoneForHandoff() },
+            pauseSource = {
+                val snapshot = com.example.juke.services.PlaybackService.pausePhoneForHandoff()
+                wasPlaying = snapshot.first
+                position = snapshot.second
+            },
             startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying, originalClaim) },
             restoreSource = {
                 if (signedIn && com.example.juke.services.shouldRestorePhoneSource(originalClaim,
@@ -1183,12 +1191,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             phoneQueueSyncJob = com.example.juke.services.DeviceQueueStartup.start(
                 scope = viewModelScope,
                 prepare = {
-                    if (com.example.juke.network.NetworkFeedback.online.value) {
-                        com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
-                        serverPlaybackChecked = true
-                    } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
-                    startupClaim = com.example.juke.services.PhonePlaybackOwnership.token
-                    withContext(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
+                    coroutineScope {
+                        val playable = async(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
+                        if (com.example.juke.network.NetworkFeedback.online.value) {
+                            com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                            serverPlaybackChecked = true
+                        } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
+                        startupClaim = com.example.juke.services.PhonePlaybackOwnership.token
+                        playable.await()
+                    }
                 },
                 play = { playable ->
                     if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(startupClaim))

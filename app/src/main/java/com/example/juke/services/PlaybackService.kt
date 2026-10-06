@@ -93,8 +93,10 @@ class PlaybackService : MediaLibraryService() {
         /** Pause the actual service player before acknowledging an app-initiated handoff. */
         internal suspend fun pausePhoneForHandoff() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
             val service = checkNotNull(activeService.get()) { "Phone playback service is unavailable." }
+            val snapshot = service.player.playWhenReady to service.player.currentPosition
             service.player.pause()
             check(!service.player.playWhenReady && !service.player.isPlaying) { "Phone playback has not paused." }
+            snapshot
         }
 
         /** Audio prefs that decide whether offloaded (battery saver) playback can engage. */
