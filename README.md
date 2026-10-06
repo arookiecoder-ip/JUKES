@@ -494,7 +494,7 @@ This project is licensed under the AGPL v3 - see the [LICENSE](LICENSE) file for
 
 ## 📞 Support
 
-For issues, questions, or feature requests, please [open an issue](https://github.com/rajeet-04/JUKES/issues).
+For issues, questions, or feature requests, please [open an issue](https://github.com/arookiecoder-ip/MusicBox-APP/issues).
 
 ## 🗺️ Roadmap
 
@@ -519,7 +519,7 @@ For issues, questions, or feature requests, please [open an issue](https://githu
 
 ## 👥 Contributors
 
-Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a PR.
+Contributions are welcome! Please open a pull request against `feat/alexa-backend` with a clear description of the change.
 
 ---
 
@@ -527,11 +527,11 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 
 **Made with ❤️ using Kotlin and Jetpack Compose**
 
-[⬆ Back to Top](#juke-music-player)
+[⬆ Back to Top](#music-box)
 
 **MADE WITH ❤️ BY MEEK**
 
-[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/rajeet-04/JUKES)
-[![Release](https://img.shields.io/badge/Release-v2.3.2--beta-blue?style=for-the-badge)](https://github.com/rajeet-04/JUKES/releases/tag/v2.3.2-beta)
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/arookiecoder-ip/MusicBox-APP)
+[![Release](https://img.shields.io/badge/Release-v2.4.0-green?style=for-the-badge)](https://github.com/arookiecoder-ip/MusicBox-APP/releases/tag/v2.4.0)
 
 </div>
