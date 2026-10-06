@@ -178,13 +178,21 @@ class MainActivity : ComponentActivity() {
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner, musicViewModel) {
                 val observer = LifecycleEventObserver { _, _ ->
-                    musicViewModel.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+                    val foreground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                    musicViewModel.setForeground(foreground)
+                    com.example.juke.network.NetworkFeedback.setForeground(
+                        lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                    )
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 musicViewModel.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+                com.example.juke.network.NetworkFeedback.setForeground(
+                    lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                )
                 onDispose {
                     lifecycleOwner.lifecycle.removeObserver(observer)
                     musicViewModel.setForeground(false)
+                    com.example.juke.network.NetworkFeedback.setForeground(false)
                 }
             }
             val account: AccountViewModel = viewModel()
@@ -209,13 +217,26 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { libraryViewModel.signedOut.collect { account.sessionEnded() } }
                 LaunchedEffect(Unit) { searchViewModel.signedOut.collect { account.sessionEnded() } }
                 LaunchedEffect(Unit) {
-                    com.example.juke.network.NetworkFeedback.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+                    com.example.juke.network.NetworkFeedback.messages.collect {
+                        // Never toast while minimized: collectors stay alive in background.
+                        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                            Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
                 LaunchedEffect(Unit) {
-                    libraryViewModel.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+                    libraryViewModel.messages.collect {
+                        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                            Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
                 LaunchedEffect(Unit) {
-                    musicViewModel.messages.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+                    musicViewModel.messages.collect {
+                        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                            Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
                 LaunchedEffect(Unit) {
                     account.accountsChanged.collect {
@@ -280,7 +301,9 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(updateDownloadState) {
                     val errorMessage =
                         (updateDownloadState as? UpdateDownloadState.Error)?.message ?: return@LaunchedEffect
-                    Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    }
                     UpdateManager.clearDownloadState()
                 }
 
