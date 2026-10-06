@@ -20,7 +20,7 @@ import coil.compose.AsyncImage
 
 @Composable
 fun MusicMenuHeader(title: String, subtitle: String, artwork: String?) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             if (!artwork.isNullOrBlank()) AsyncImage(artwork, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else Icon(Icons.Filled.MusicNote, null, Modifier.size(32.dp))

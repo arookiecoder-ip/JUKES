@@ -72,9 +72,13 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     var initialTop by remember { mutableFloatStateOf(0f) }
     fun updateTarget() {
         val key = draggedKey ?: return
-        val target = list.layoutInfo.visibleItemsInfo.filter { it.index < order.size }
-            .minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - dragCenter) }?.index ?: return
         val from = order.indexOf(key)
+        val neighbor = list.layoutInfo.visibleItemsInfo.firstOrNull {
+            it.key != key && it.index < order.size &&
+                ((it.index > from && dragCenter > it.offset + it.size / 2f) ||
+                 (it.index < from && dragCenter < it.offset + it.size / 2f))
+        } ?: return
+        val target = neighbor.index
         if (from >= 0 && from != target) order = order.toMutableList().apply { add(target, removeAt(from)) }
     }
     LaunchedEffect(keys) { draggedKey = null; order = keys }
@@ -149,7 +153,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 }
                 SwipeToDismissBox(dismiss, enableDismissFromStartToEnd = false,
                     enableDismissFromEndToStart = editable && !active && !dragging,
-                    modifier = (if (dragging) Modifier else Modifier.animateItem()).testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset }.shadow(if (dragging) 8.dp else 0.dp),
+                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = if (dragging) null else androidx.compose.animation.core.spring()).testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset }.shadow(if (dragging) 8.dp else 0.dp),
                     backgroundContent = {
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
                             Icon(Icons.Default.Delete, "Remove from queue", tint = MaterialTheme.colorScheme.onErrorContainer)
@@ -158,8 +162,6 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                     fun songOptions() {
                         menu?.show(track, QueueSongActions(
                             play = { onPlayTrack(track) },
-                            moveUp = if (editable && index > 0) ({ onMoveTrack(index, index - 1) }) else null,
-                            moveDown = if (editable && index < queue.lastIndex) ({ onMoveTrack(index, index + 1) }) else null,
                             remove = if (editable && !active) ({ onRemoveTrack(track.uuid) }) else null
                         ))
                     }
@@ -184,7 +186,7 @@ private fun QueueWebRow(track: Track, number: Int, active: Boolean, lifted: Bool
             drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 1.dp.toPx())
         }.combinedClickable(onClick = onPlay, onLongClick = onLongClick, onLongClickLabel = "Song options").padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.DragIndicator, "Drag to reorder ${track.title}", grip, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        Box(grip, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragHandle, "Drag to reorder ${track.title}", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) }
         Text("$number", Modifier.width(20.dp), style = MaterialTheme.typography.labelSmall, color = if (active) accent else MaterialTheme.colorScheme.onSurfaceVariant)
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             AsyncImage(track.thumbnailUri, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

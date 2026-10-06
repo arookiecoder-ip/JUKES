@@ -75,6 +75,7 @@ fun SearchHeader(
         if (field.text != query) field = TextFieldValue(query, TextRange(query.length))
     }
     var handledSelectAll by remember { mutableIntStateOf(selectAllTrigger) }
+    var explicitOpen by remember { mutableStateOf(false) }
     LaunchedEffect(selectAllTrigger, open) {
         if (open && selectAllTrigger != handledSelectAll) {
             handledSelectAll = selectAllTrigger
@@ -90,17 +91,19 @@ fun SearchHeader(
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .fillMaxWidth()
             .glassFloat(GlassShapes.Pill, GlassLevel.Regular)
-            .then(if (!open) Modifier.clickable { onOpenChange(true) } else Modifier)
+            .then(if (!open) Modifier.clickable { explicitOpen = true; onOpenChange(true) } else Modifier)
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         run {
             if (open) {
-                LaunchedEffect(Unit) {
+                LaunchedEffect(explicitOpen) {
+                    if (!explicitOpen) return@LaunchedEffect
                     androidx.compose.runtime.withFrameNanos { }
                     focus.requestFocus()
                     delay(50)
                     keyboard?.show()
+                    explicitOpen = false
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
@@ -151,7 +154,7 @@ fun SearchHeader(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f).padding(start = 14.dp)
                     )
-                    IconButton(onClick = { haptic.click(); onOpenChange(true) }) {
+                    IconButton(onClick = { haptic.click(); explicitOpen = true; onOpenChange(true) }) {
                         Icon(Icons.Default.Search, "Search")
                     }
                     actions()

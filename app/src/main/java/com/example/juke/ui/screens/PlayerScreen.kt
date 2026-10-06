@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import androidx.compose.material.icons.filled.Radio
+
 import com.example.juke.ui.components.GlassAlertDialog
 import androidx.compose.material3.ModalBottomSheet
 import com.example.juke.ui.components.GlassIconButton
@@ -386,7 +388,7 @@ fun PlayerScreen(
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                             PlayerAction(icon = rememberVectorPainter(if (currentTrack.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp),
                                 label = if (currentTrack.isFavourite) "Unlike" else "Like", active = currentTrack.isFavourite, iconSize = 24.dp) { musicViewModel.toggleFavorite(currentTrack) }
-                            PlayerAction(icon = painterResource(R.drawable.baseline_mix), label = "Mix", iconSize = 24.dp) { musicViewModel.startRadio() }
+                            PlayerAction(icon = rememberVectorPainter(androidx.compose.material.icons.Icons.Filled.Radio), label = "Radio", iconSize = 24.dp) { musicViewModel.startRadio() }
                             PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = if (isAlexa) "Alexa" else "Phone", active = isAlexa, iconSize = 24.dp) { showOutputSheet = true }
                             PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
