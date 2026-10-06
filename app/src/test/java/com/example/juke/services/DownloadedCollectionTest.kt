@@ -47,4 +47,10 @@ class DownloadedCollectionTest {
         assertEquals("PL123", collection.browseItem().playlistId)
         assertEquals("playlist:VLPL123", collection.key)
     }
+    @Test fun legacyDownloadsRestoreAndNewAlbumDetailsSurvivePersistence() {
+        val legacy = Json.decodeFromString<DownloadedCollection>("""{"id":"MPRE123","kind":"album","title":"Album","image":"","subtitle":"Artist","tracks":[]}""")
+        assertEquals("", legacy.year)
+        val complete = legacy.copy(year = "2026", description = "Details")
+        assertEquals(complete, Json.decodeFromString<DownloadedCollection>(Json.encodeToString(complete)))
+    }
 }

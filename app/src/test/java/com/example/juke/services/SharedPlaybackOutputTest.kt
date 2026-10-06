@@ -52,4 +52,11 @@ class SharedPlaybackOutputTest {
         assertTrue(canStartPhonePlayback("", "", false, 0, 100)) // Explicit offline playback.
         assertFalse(canStartPhonePlayback("", "new", false, 1000, 100)) // Older offline preparation.
     }
+    @org.junit.Test fun offlineDownloadsKeepPlayingButNetworkStreamsStillRequireALease() {
+        org.junit.Assert.assertTrue(canContinueDownloadedOffline(false, "file"))
+        org.junit.Assert.assertTrue(canContinueDownloadedOffline(false, "content"))
+        org.junit.Assert.assertFalse(canContinueDownloadedOffline(false, "https"))
+        org.junit.Assert.assertFalse(canContinueDownloadedOffline(true, "file"))
+        org.junit.Assert.assertFalse(canContinueDownloadedOffline(false, null))
+    }
 }

@@ -64,7 +64,6 @@ import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.Lyrics
-import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.DropdownMenu
@@ -201,7 +200,6 @@ fun PlayerScreen(
     val currentTrack = uiState.currentTrack
     var showQueue by remember { mutableStateOf(false) }
     LaunchedEffect(showQueue) { if (showQueue) musicViewModel.refreshQueue() }
-    val playbackSpeed by musicViewModel.playbackSpeed.collectAsStateWithLifecycle()
     var showLyrics by remember { mutableStateOf(false) }
     var showArtists by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
@@ -368,8 +366,6 @@ fun PlayerScreen(
                             isRomanizedLyricsEnabled = romanizeLyrics,
                             showMenuOption = true,
                             isAlbumAvailable = currentTrack.albumId != null,
-                            playbackSpeed = playbackSpeed,
-                            onCycleSpeed = { musicViewModel.cyclePlaybackSpeed() },
                             track = currentTrack,
                             onAddToPlaylist = { showAddToPlaylistDialog = currentTrack },
                             onToggleLyrics = { showLyrics = !showLyrics },
@@ -431,7 +427,6 @@ fun PlayerScreen(
             Box(Modifier.fillMaxWidth().height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.75f)) {
             QueueBottomSheetContent(
                 statusText = when {
-                    rec.resolving > 0 -> "Finding next songs… (${rec.resolving})"
                     rec.reserve > 0 -> "${rec.reserve} more songs ready from the radio"
                     else -> null
                 },
@@ -521,7 +516,7 @@ fun PlayerHeader(
     onDismiss: () -> Unit, onShowSleepTimer: () -> Unit, onNavigateToAlbum: () -> Unit,
     onRefreshLyrics: () -> Unit, onToggleRomanizedLyrics: () -> Unit,
     isRomanizedLyricsEnabled: Boolean, showMenuOption: Boolean, isAlbumAvailable: Boolean,
-    playbackSpeed: Float = 1f, onCycleSpeed: () -> Unit = {}, track: Track? = null,
+    track: Track? = null,
     onAddToPlaylist: () -> Unit = {}, onToggleLyrics: () -> Unit = {}, showLyrics: Boolean = false
 ) {
     val mediaMenu = com.example.juke.ui.components.LocalMediaMenu.current
@@ -534,12 +529,11 @@ fun PlayerHeader(
             if (track != null && mediaMenu != null) {
                 val extras = listOf(
                     com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Lyrics, "Lyrics", onToggleLyrics),
-                    com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Speed, "Speed ${playbackSpeed}×", onCycleSpeed),
                     com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Timer, "Sleep timer", onShowSleepTimer),
                     com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Refresh, "Refresh lyrics", onRefreshLyrics),
                     com.example.juke.ui.components.ExtraSongOption(Icons.Outlined.Translate, if (isRomanizedLyricsEnabled) "Romanized lyrics: On" else "Romanized lyrics: Off", onToggleRomanizedLyrics)
                 )
-                mediaMenu.show(track, extras = extras)
+                mediaMenu.show(track, extras = extras, playerOnly = true)
             } else showMenu = true
         }) { Icon(Icons.Default.MoreVert, "Song options") }
         else Spacer(Modifier.size(48.dp))
@@ -552,7 +546,6 @@ fun PlayerHeader(
                 fun run(action: () -> Unit) { showMenu = false; action() }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics") { run(onToggleLyrics) }
                 if (isAlbumAvailable) com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Album, "Go to album") { run(onNavigateToAlbum) }
-                com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Speed, "Speed ${playbackSpeed}×") { run(onCycleSpeed) }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Timer, "Sleep timer") { run(onShowSleepTimer) }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Refresh, "Refresh lyrics") { run(onRefreshLyrics) }
                 com.example.juke.ui.components.MusicMenuOption(Icons.Outlined.Translate, if (isRomanizedLyricsEnabled) "Romanized lyrics: On" else "Romanized lyrics: Off") { run(onToggleRomanizedLyrics) }

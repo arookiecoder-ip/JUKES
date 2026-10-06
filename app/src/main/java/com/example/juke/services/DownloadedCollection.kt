@@ -8,7 +8,8 @@ import kotlinx.serialization.json.JsonObject
 /** An offline copy keeps its account collection identity and original track ordering. */
 @Serializable
 data class DownloadedCollection(val id: String, val kind: String, val title: String,
-    val image: String, val subtitle: String, val tracks: List<Track>) {
+    val image: String, val subtitle: String, val tracks: List<Track>,
+    val year: String = "", val description: String = "") {
     val key get() = "$kind:$id"
     fun available(downloaded: List<Track>): List<Track> {
         val byVideo = downloaded.associateBy { it.ytVideoId }

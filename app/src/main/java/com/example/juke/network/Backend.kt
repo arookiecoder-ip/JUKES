@@ -37,7 +37,7 @@ class BackendAuthException(
     val endpoint: String? = null,
     val statusCode: Int = 401
 ) : Exception(message)
-class BackendHttpException(val statusCode: Int, message: String) : IllegalStateException(message)
+class BackendHttpException(val statusCode: Int, message: String, val retryAfterMs: Long? = null) : IllegalStateException(message)
 
 /** Result of the first login step. */
 sealed interface LoginStep {
@@ -141,7 +141,12 @@ object Backend {
             NetworkFeedback.notify("Taking longer than usual to load. Please wait…")
         }
         try {
-            performCall(method, path, query, body)
+            try { performCall(method, path, query, body) }
+            catch (error: BackendHttpException) {
+                if (method != HttpMethod.Get || error.statusCode != 429 || error.retryAfterMs == null) throw error
+                delay(error.retryAfterMs)
+                performCall(method, path, query, body) // Only read-only requests are retried, once.
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -194,7 +199,7 @@ object Backend {
                 else -> errorMessage(parsed) ?: "Request failed ($code). Please try again."
             }
             if (code >= 500 || code == 408 || code == 429) NetworkFeedback.notify(message)
-            throw BackendHttpException(code, message)
+            throw BackendHttpException(code, message, if (code == 429) rateLimitReadRetryDelay(response.headers[HttpHeaders.RetryAfter]) else null)
         }
         return parsed ?: throw IllegalStateException("The server returned an unreadable response. Please try again.")
     }

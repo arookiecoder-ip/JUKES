@@ -1,4 +1,4 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/pwa_icon_background"/>
-    <foreground android:drawable="@drawable/music_box_pwa"/>
+    <foreground android:drawable="@drawable/music_box_icon_foreground"/>
 </adaptive-icon>

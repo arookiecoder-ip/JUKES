@@ -752,6 +752,10 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 delay(250)
+                if (canContinueDownloadedOffline(com.example.juke.network.NetworkFeedback.online.value, player.currentMediaItem?.localConfiguration?.uri?.scheme) && PhonePlaybackOwnership.token.isNotBlank()) {
+                    // An inaccessible server cannot renew a lease; completed downloads still play offline.
+                    PhonePlaybackOwnership.forget(allowOffline = true)
+                }
                 if (PhonePlaybackOwnership.token.isNotBlank() && player.playWhenReady &&
                     android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) player.pause()
             }
@@ -1698,9 +1702,6 @@ class PlaybackManager private constructor(private val context: Context) {
         return false
     }
 
-    fun setPlaybackSpeed(speed: Float) {
-        controller?.setPlaybackSpeed(speed)
-    }
 
     fun togglePlayPause() {
         controller?.let {
