@@ -683,24 +683,28 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             updatePolling()
             return
         }
+        val originalClaim = com.example.juke.services.PhonePlaybackOwnership.token
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
             pauseSource = { playbackManager.pause() },
-            startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying) },
+            startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying, originalClaim) },
             restoreSource = {
-                com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
-                if (wasPlaying && !playbackManager.isPlayingFlow.value) playbackManager.togglePlayPause()
+                if (signedIn && com.example.juke.services.shouldRestorePhoneSource(originalClaim,
+                        com.example.juke.services.PhonePlaybackOwnership.token)) {
+                    com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                    if (wasPlaying && !playbackManager.shouldResumeAfterTrackChange()) playbackManager.togglePlayPause()
+                }
             },
             stopTarget = { echo.command("pause") },
             commit = { setOutputPreference(PlaybackOutput.ALEXA); updatePolling() }
         ) } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
 
-    private suspend fun moveQueueToEcho(queue: List<Track>, index: Int, track: Track, positionMs: Long, play: Boolean) {
+    private suspend fun moveQueueToEcho(queue: List<Track>, index: Int, track: Track, positionMs: Long, play: Boolean, expectedPhoneToken: String) {
         val items = queue.ifEmpty { listOf(track) }
         val start = index.takeIf { it in items.indices && items[it].ytVideoId == track.ytVideoId }
             ?: items.indexOfFirst { it.ytVideoId == track.ytVideoId }.coerceAtLeast(0)
-        echo.transferQueue(items, start, positionMs, play)
+        echo.transferQueue(items, start, positionMs, play, expectedPhoneToken)
     }
 
     // ---------- Colors ----------
