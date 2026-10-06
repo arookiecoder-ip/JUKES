@@ -33,8 +33,7 @@ JUKES/
 ├── settings.gradle.kts
 ├── gradle.properties
 ├── local.properties
-├── docs/
-└── spotdown-kv-worker/         # Cloudflare Workers script
+└── docs/
 ```
 
 ## Directory Purposes
@@ -175,15 +174,9 @@ JUKES/
 
 **`docs/`**
 - Purpose: Project documentation (architecture, setup, release notes)
-- Contains: Release notes (`unreleased.md`, `CHANGELOG.md`), system docs (`FEATURES.md`, `AGENTS.md`)
+- Contains: Release notes (`unreleased.md`, `CHANGELOG.md`)
 - Generated: No (manually maintained)
 - Committed: Yes
-
-**`spotdown-kv-worker/`**
-- Purpose: Cloudflare Workers script for Spotdown API (separate deployment)
-- Generated: No (manual development)
-- Committed: Yes (but deployed separately to Cloudflare)
-- Note: Not part of Android build process
 
 **`app/build/`**
 - Purpose: Build output (compiled classes, packaged APKs)
