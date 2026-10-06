@@ -376,7 +376,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         // (and the web remote) follow it, and pick up queue edits made elsewhere.
         viewModelScope.launch {
             while (isActive) {
-                delay(10_000)
+                delay(if (isForeground) 10_000 else 30_000)
                 if (!serverPlaybackChecked || com.example.juke.services.PhonePlaybackOwnership.token.isBlank()) continue
                 if (signedIn && !isAlexa && !_isSwitchingOutput.value && !sharedPhoneQueueReady && phoneQueueSyncJob?.isActive != true && com.example.juke.network.NetworkFeedback.online.value) {
                     synchronizePhoneQueue(); continue
@@ -1226,7 +1226,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun resolveForPhone(tracks: List<Track>, startIndex: Int): List<Track> =
-        tracks.mapIndexed { i, track ->
+        com.example.juke.services.stableQueueEntries(tracks, if (startIndex < 0) _uiState.value.queue.map { it.uuid }.toSet() else emptySet()).mapIndexed { i, track ->
             val videoId = requireNotNull(track.ytVideoId) { "${track.title} can't be played" }
             downloads.localTrack(track) ?: run {
                 val url = if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.audioUrl(videoId)

@@ -18,3 +18,12 @@ fun queueIndexAfterMove(current: Int, from: Int, to: Int): Int = when {
     from > current && to <= current -> current + 1
     else -> current
 }
+
+/** Occurrences retain IDs across transfers; adding the same saved song creates a new occurrence. */
+fun stableQueueEntries(tracks: List<com.example.juke.models.Track>, reservedIds: Set<String> = emptySet()): List<com.example.juke.models.Track> {
+    val seen = reservedIds.toMutableSet()
+    return tracks.map { track ->
+        if (track.uuid.isNotBlank() && seen.add(track.uuid)) track
+        else track.copy(uuid = java.util.UUID.randomUUID().toString()).also { seen.add(it.uuid) }
+    }
+}

@@ -92,7 +92,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                                 kotlinx.coroutines.withTimeoutOrNull(1_500) {
                                     com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
                                         player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
-                                        buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim)
+                                        buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim, currentEntryId = current.uuid)
                                 }
                             }
                         }
