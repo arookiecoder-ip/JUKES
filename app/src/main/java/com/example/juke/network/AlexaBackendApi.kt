@@ -75,7 +75,8 @@ object AlexaBackendApi {
         @SerialName("queue_index") val queueIndex: Int? = null,
         @SerialName("output_owner") val outputOwner: String? = null,
         @SerialName("output_token") val outputToken: String? = null,
-        val buffering: Boolean = false
+        val buffering: Boolean = false,
+        @SerialName("command_id") val commandId: String = UUID.randomUUID().toString()
     )
 
     fun thumbnailUrl(raw: JsonElement?): String? {

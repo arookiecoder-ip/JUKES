@@ -49,6 +49,7 @@ class RemotePlaybackService : MediaSessionService() {
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
             .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) })
         session = MediaSession.Builder(this, remote).setId("alexa")
+            .setBitmapLoader(SharedArtworkBitmapLoader(this, scope))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setCallback(object : MediaSession.Callback {
@@ -140,7 +141,7 @@ class RemotePlaybackService : MediaSessionService() {
                 MediaItemData.Builder("$i:${song.ytVideoId ?: song.uuid}")
                     .setMediaItem(MediaItem.Builder().setMediaId(song.ytVideoId ?: song.uuid)
                         .setMediaMetadata(MediaMetadata.Builder().setTitle(song.title).setArtist(song.artist)
-                            .apply { com.example.juke.network.artworkCandidates(song.thumbnailUri.orEmpty(), song.ytVideoId, true).firstOrNull()?.takeIf(String::isNotBlank)?.let { setArtworkUri(it.toUri()) } }.build()).build())
+                            .apply { com.example.juke.network.artworkCandidates(song.thumbnailUri.orEmpty(), song.ytVideoId, true).firstOrNull()?.takeIf(String::isNotBlank)?.let { com.example.juke.network.ArtworkRepository.register(it, song.ytVideoId); setArtworkUri(it.toUri()) } }.build()).build())
                     .setDurationUs(if (duration > 0) duration * 1000 else C.TIME_UNSET).build()
             }
             return State.Builder().setAvailableCommands(Player.Commands.Builder().addAll(

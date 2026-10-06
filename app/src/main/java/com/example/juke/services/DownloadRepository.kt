@@ -47,6 +47,7 @@ class DownloadRepository private constructor(private val context: Context) {
     private val dao = com.example.juke.database.DownloadManifestDatabase.get(context).manifests()
     private val snapshots = kotlinx.coroutines.channels.Channel<List<com.example.juke.database.DownloadManifestRow>>(kotlinx.coroutines.channels.Channel.CONFLATED)
     private var initialized = false
+    private val unavailable = mutableMapOf<String, com.example.juke.database.DownloadManifestRow>()
     @Volatile private var completedByVideo = completed.map { it.track }.associateBy { it.ytVideoId }
     private val _tracks = MutableStateFlow(completed.map { it.track })
     val tracks = _tracks.asStateFlow()
@@ -70,7 +71,7 @@ class DownloadRepository private constructor(private val context: Context) {
             }
         }, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
         scope.launch {
-            val rows = withContext(Dispatchers.IO) {
+            val rows = try { withContext(Dispatchers.IO) {
                 if (dao.migrated() == 0) {
                     val legacy = mutableListOf<com.example.juke.database.DownloadManifestRow>()
                     for (kind in listOf("pending", "completed")) readEntries(kind).forEach {
@@ -87,12 +88,18 @@ class DownloadRepository private constructor(private val context: Context) {
                     prefs.edit().clear().apply()
                 }
                 dao.read()
+            } } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                NetworkFeedback.notify("Couldn't load downloads. Check device storage and restart the app.")
+                return@launch
             }
             rows.filter { it.kind == "pending" }.forEach { runCatching { json.decodeFromString<DownloadEntry>(it.payload) }.getOrNull()?.let(pending::add) }
+            rows.filter { it.kind == "unavailable" }.forEach { unavailable[it.key] = it }
             rows.filter { it.kind == "completed" }.forEach { row ->
-                runCatching { json.decodeFromString<DownloadEntry>(row.payload) }.getOrNull()?.takeIf {
-                    file(it.track)?.let { f -> f.exists() && f.length() > 0 } == true
-                }?.let(completed::add)
+                runCatching { json.decodeFromString<DownloadEntry>(row.payload) }.getOrNull()?.let { entry ->
+                    if (file(entry.track)?.let { f -> f.exists() && f.length() > 0 } == true) completed += entry
+                    else unavailable[row.key] = manifest("unavailable", row.key, "missing", row.payload)
+                }
             }
             rows.filter { it.kind == "queued" }.forEach { row ->
                 runCatching { json.decodeFromString<Track>(row.payload) }.getOrNull()?.let { queued.putIfAbsent(it.ytVideoId.orEmpty(), it) }
@@ -105,6 +112,8 @@ class DownloadRepository private constructor(private val context: Context) {
                     if (savedCollections.none { it.key == collection.key }) savedCollections += collection.copy(tracks = members)
                 }
             }
+            val retained = (pending + completed).mapNotNull { it.track.ytVideoId }.toSet()
+            queued.keys.removeAll(retained)
             initialized = true
             batchTotal = pending.size + queued.size
             save(); publishStatus(); pump(); poll()
@@ -132,7 +141,7 @@ class DownloadRepository private constructor(private val context: Context) {
             it.ytVideoId !in queued && it.ytVideoId !in pendingIds && localTrack(it) == null }.distinctBy { it.ytVideoId }
         if (additions.isEmpty()) return false
         if (_status.value.active == 0) { batchTotal = 0; batchCompleted = 0; batchFailed = 0 }
-        additions.forEach { queued[requireNotNull(it.ytVideoId)] = it }; batchTotal += additions.size
+        additions.forEach { unavailable.remove(it.ytVideoId); queued[requireNotNull(it.ytVideoId)] = it }; batchTotal += additions.size
         save(); publishStatus(); DownloadService.start(context); pump()
         return true
     }
@@ -198,7 +207,7 @@ class DownloadRepository private constructor(private val context: Context) {
     fun removeAll(tracks: List<Track>) {
         val videos = tracks.mapNotNull { it.ytVideoId }.toSet()
         // Collection membership deliberately survives deletion, so re-download rejoins its collection.
-        videos.forEach { queued.remove(it); rateLimitAttempts.remove(it) }
+        videos.forEach { queued.remove(it); unavailable.remove(it); rateLimitAttempts.remove(it) }
         scope.launch {
             val entries = (pending + completed).filter { it.track.ytVideoId in videos }
             pending.removeAll(entries.toSet()); completed.removeAll(entries.toSet())
@@ -213,7 +222,7 @@ class DownloadRepository private constructor(private val context: Context) {
             val rows = pending.map { manifest("pending", it.track.ytVideoId.orEmpty(), "downloading", json.encodeToString(it)) } +
                 completed.map { manifest("completed", it.track.ytVideoId.orEmpty(), "complete", json.encodeToString(it)) } +
                 queued.values.map { manifest("queued", it.ytVideoId.orEmpty(), "queued", json.encodeToString(it)) } +
-                savedCollections.flatMap(::collectionRows)
+                savedCollections.flatMap(::collectionRows) + unavailable.values
             snapshots.trySend(rows)
         }
         _collections.value = savedCollections.toList(); _tracks.value = completed.map { it.track }
@@ -258,8 +267,10 @@ class DownloadRepository private constructor(private val context: Context) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
                             pending.remove(entry); entry.track.ytVideoId?.let { rateLimitAttempts.remove(it) }; changed = true
                             if (file(entry.track)?.let { it.exists() && it.length() > 0 } == true) {
-                                completed.removeAll { it.track.ytVideoId == entry.track.ytVideoId }; completed += entry; batchCompleted++
-                            } else { batchFailed++; NetworkFeedback.notify("Couldn't save ${entry.track.title}. Please download it again.") }
+                                completed.removeAll { it.track.ytVideoId == entry.track.ytVideoId }; completed += entry; unavailable.remove(entry.track.ytVideoId); batchCompleted++
+                            } else { batchFailed++
+                                unavailable[entry.track.ytVideoId.orEmpty()] = manifest("unavailable", entry.track.ytVideoId.orEmpty(), "missing", json.encodeToString(entry))
+                                NetworkFeedback.notify("Couldn't save ${entry.track.title}. Please download it again.") }
                         }
                         DownloadManager.STATUS_FAILED -> {
                             pending.remove(entry); changed = true
@@ -272,6 +283,7 @@ class DownloadRepository private constructor(private val context: Context) {
                                 NetworkFeedback.notify("Downloads paused briefly by the server. They will retry automatically.")
                             } else {
                                 rateLimitAttempts.remove(video); batchFailed++
+                                unavailable[video] = manifest("unavailable", video, "failed", json.encodeToString(entry))
                                 NetworkFeedback.notify("Couldn't download ${entry.track.title}. Check your connection and try again.")
                             }
                             withContext(Dispatchers.IO) { manager.remove(entry.id); file(entry.track)?.delete() }

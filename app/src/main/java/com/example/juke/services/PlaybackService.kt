@@ -128,7 +128,7 @@ class PlaybackService : MediaLibraryService() {
                         }
                     }
 
-                    artworkUri?.let(metadataBuilder::setArtworkUri)
+                    artworkUri?.let { com.example.juke.network.ArtworkRepository.register(it.toString(), videoId); metadataBuilder.setArtworkUri(it) }
                 } catch (e: Exception) {
                     // Silently ignore artwork errors — notification will just show no art
                 }
@@ -151,7 +151,8 @@ class PlaybackService : MediaLibraryService() {
             return cache ?: synchronized(this) {
                 cache ?: run {
                     val cacheDir = java.io.File(context.cacheDir, "stream_cache")
-                    val evictor = LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES)
+                    val cacheMb = context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE).getInt("stream_cache_mb", 256).coerceIn(128, 1024)
+                    val evictor = LeastRecentlyUsedCacheEvictor(cacheMb.toLong() * 1024 * 1024)
                     val databaseProvider =
                         androidx.media3.database.StandaloneDatabaseProvider(context)
                     SimpleCache(cacheDir, evictor, databaseProvider).also { cache = it }
@@ -901,17 +902,17 @@ class PlaybackService : MediaLibraryService() {
         }
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
-            StreamCacheManager.getCache(applicationContext)), serviceScope, applicationContext)
+            StreamCacheManager.getCache(applicationContext), prefetch = true), serviceScope, applicationContext)
         preloadConnectivityJob = serviceScope.launch {
             com.example.juke.network.NetworkFeedback.online.collect { online ->
-                upcomingPreloader?.update(if (online) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
+                upcomingPreloader?.update(if (online && player.playWhenReady && !PhonePlaybackOwnership.localHandoff) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
             }
         }
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
-                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYBACK_STATE_CHANGED)) {
-                    upcomingPreloader?.update(if (com.example.juke.network.NetworkFeedback.online.value) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+                    upcomingPreloader?.update(if (com.example.juke.network.NetworkFeedback.online.value && player.playWhenReady && !PhonePlaybackOwnership.localHandoff) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
                 }
             }
         })
@@ -957,7 +958,7 @@ class PlaybackService : MediaLibraryService() {
                 )
             }
 
-        val bitmapLoader = DataSourceBitmapLoader(this)
+        val bitmapLoader = SharedArtworkBitmapLoader(this, serviceScope)
 
         mediaSession = MediaLibrarySession.Builder(this, player, MediaLibrarySessionCallback())
             .apply {

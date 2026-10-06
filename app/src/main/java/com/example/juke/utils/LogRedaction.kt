@@ -8,6 +8,6 @@ fun redactSecrets(message: String, apiKey: String = ""): String {
         safe = safe.replace(java.net.URLEncoder.encode(apiKey, "UTF-8"), "[REDACTED]")
     }
     safe = safe.replace(Regex("(?i)([?&](?:key|api_key|token)=)[^&\\s\"<>]*"), "$1[REDACTED]")
-    safe = safe.replace(Regex("(?im)((?:X-Api-Key|Authorization|Cookie|Set-Cookie)\\s*:\\s*)[^\\r\\n]+"), "$1[REDACTED]")
+    safe = safe.replace(Regex("(?im)((?:X-MusicBox-Audio-Token|X-Api-Key|Authorization|Cookie|Set-Cookie)\\s*:\\s*)[^\\r\\n]+"), "$1[REDACTED]")
     return safe
 }
