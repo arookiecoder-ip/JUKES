@@ -13,12 +13,14 @@ import kotlin.math.abs
 
 /**
  * Peak deviation of an 8-bit Visualizer waveform from digital silence (128).
- * Pure so it can be unit-tested without an audio session.
+ * Waveform bytes are unsigned 0-255 held in signed Bytes, so mask before
+ * comparing (a silent 128 arrives as -128). Pure so it can be unit-tested
+ * without an audio session.
  */
 fun waveformPeakDeviation(waveform: ByteArray): Int {
     var peak = 0
     for (sample in waveform) {
-        val deviation = abs(sample.toInt() - 128)
+        val deviation = abs((sample.toInt() and 0xFF) - 128)
         if (deviation > peak) peak = deviation
     }
     return peak
