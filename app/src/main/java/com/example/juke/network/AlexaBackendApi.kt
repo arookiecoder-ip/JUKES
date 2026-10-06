@@ -32,6 +32,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * - `POST /api/app/queue/`
  */
 object AlexaBackendApi {
+    private val phoneQueueVersion = java.util.concurrent.atomic.AtomicLong(-1)
 
     fun isConfigured(): Boolean = Backend.audioBaseUrl.isNotEmpty()
 
@@ -76,7 +77,9 @@ object AlexaBackendApi {
         @SerialName("output_owner") val outputOwner: String? = null,
         @SerialName("output_token") val outputToken: String? = null,
         val buffering: Boolean = false,
-        @SerialName("command_id") val commandId: String = UUID.randomUUID().toString()
+        @SerialName("command_id") val commandId: String = UUID.randomUUID().toString(),
+        @SerialName("expected_queue_version") val expectedQueueVersion: Long? = null,
+        @SerialName("current_entry_id") val currentEntryId: String? = null
     )
 
     fun thumbnailUrl(raw: JsonElement?): String? {
@@ -144,12 +147,14 @@ object AlexaBackendApi {
     suspend fun updateQueue(
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
         playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null, buffering: Boolean = false,
-        expectedToken: String = com.example.juke.services.PhonePlaybackOwnership.token
+        expectedToken: String = com.example.juke.services.PhonePlaybackOwnership.token, currentEntryId: String? = null
     ) {
         requireConfigured()
         val update = QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex,
-            com.example.juke.services.PhonePlaybackOwnership.ownerId, expectedToken, buffering)
-        Backend.post("/api/app/queue/", kotlinx.serialization.json.Json.encodeToJsonElement(QueueUpdate.serializer(), update).jsonObject)
+            com.example.juke.services.PhonePlaybackOwnership.ownerId, expectedToken, buffering,
+            expectedQueueVersion = phoneQueueVersion.get().takeIf { it >= 0 && action != "start" }, currentEntryId = currentEntryId)
+        val reply = Backend.post("/api/app/queue/", kotlinx.serialization.json.Json.encodeToJsonElement(QueueUpdate.serializer(), update).jsonObject).objectOrEmpty()
+        reply["queue_version"]?.let { phoneQueueVersion.set(reply.number("queue_version")) }
     }
 
     suspend fun phoneQueueSnapshot(): kotlinx.serialization.json.JsonObject {

@@ -272,6 +272,20 @@ class PlaybackService : MediaLibraryService() {
 
     private var upcomingPreloader: UpcomingAudioPreloader? = null
     private var preloadConnectivityJob: Job? = null
+    private val preloadNetworkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) {
+            serviceScope.launch { updatePreloader() }
+        }
+        override fun onLost(network: android.net.Network) { serviceScope.launch { updatePreloader() } }
+    }
+    private fun updatePreloader() {
+        if (!::player.isInitialized) return
+        val connected = getSystemService(android.net.ConnectivityManager::class.java).activeNetwork != null &&
+            com.example.juke.network.NetworkFeedback.online.value
+        upcomingPreloader?.update(if (connected && player.playWhenReady && !PhonePlaybackOwnership.localHandoff)
+            upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
+    }
+
     private lateinit var audioManager: AudioManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingPlayAfterManualTrackChangeFromIndex: Int? = null
@@ -344,6 +358,7 @@ class PlaybackService : MediaLibraryService() {
 
     private val outputPrefs by lazy { getSharedPreferences("music_settings_prefs", MODE_PRIVATE) }
     private val outputListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "prefetch_mobile_data") updatePreloader()
         if (key == "playback_output" && ::player.isInitialized) {
             if (outputPrefs.getString(key, "PHONE") == "ALEXA") {
                 mainHandler.removeCallbacks(resumeAfterCall)
@@ -823,16 +838,17 @@ class PlaybackService : MediaLibraryService() {
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
             StreamCacheManager.getCache(applicationContext), prefetch = true), serviceScope, applicationContext)
+        getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(preloadNetworkCallback)
         preloadConnectivityJob = serviceScope.launch {
             com.example.juke.network.NetworkFeedback.online.collect { online ->
-                upcomingPreloader?.update(if (online && player.playWhenReady && !PhonePlaybackOwnership.localHandoff) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
+                updatePreloader()
             }
         }
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
                         Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
-                    upcomingPreloader?.update(if (com.example.juke.network.NetworkFeedback.online.value && player.playWhenReady && !PhonePlaybackOwnership.localHandoff) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
+                    updatePreloader()
                 }
             }
         })
@@ -943,6 +959,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         if (activeService.get() === this) activeService.clear()
         outputPrefs.unregisterOnSharedPreferenceChangeListener(outputListener)
+        runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(preloadNetworkCallback) }
         upcomingPreloader?.clear()
         serviceScope.coroutineContext[Job]?.cancel()
         // Clean up pending resume operations

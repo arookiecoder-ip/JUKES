@@ -119,8 +119,8 @@ fun SettingsScreen(
                     Text("Stream cache", fontWeight = FontWeight.SemiBold)
                     Row {
                         listOf(128, 256, 512, 1024).forEach { size ->
-                            androidx.compose.material3.TextButton(onClick = { cacheMb = size; settingsPrefs.edit().putInt("stream_cache_mb", size).apply() }) {
-                                Text("${size} MB", color = if (cacheMb == size) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            androidx.compose.material3.TextButton(modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp), onClick = { cacheMb = size; settingsPrefs.edit().putInt("stream_cache_mb", size).apply() }) {
+                                Text(if (size == 1024) "1 GB" else "${size} MB", color = if (cacheMb == size) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
