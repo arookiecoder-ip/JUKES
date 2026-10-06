@@ -59,7 +59,7 @@ See full release notes: [v2.3.4-beta-RELEASE_NOTES.md](docs/v2.3.4-beta-RELEASE_
 - Playback/download resilience improved through immediate provider fallback and deferred Spotmate task polling recovery.
 - Search keyboard handling refined with scroll-to-dismiss and reliable delayed focus triggers.
 
-See full release notes: [v2.3.2-beta-RELEASE_NOTES.md](v2.3.2-beta-RELEASE_NOTES.md)
+See full release notes: [v2.3.2-beta-RELEASE_NOTES.md](docs/v2.3.2-beta-RELEASE_NOTES.md)
 
 ## [2.3.1-beta] - 2026-04-15
 
