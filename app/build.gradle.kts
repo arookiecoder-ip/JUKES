@@ -167,6 +167,7 @@ dependencies {
     // PostHog
     implementation("com.posthog:posthog-android:3.40.2")
 
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation(libs.junit)
     testImplementation(libs.ktor.client.mock)
     androidTestImplementation(libs.androidx.junit)
