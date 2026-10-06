@@ -62,7 +62,7 @@ class EchoController(
     val state: StateFlow<EchoState> = _state.asStateFlow()
 
     private var pollJob: Job? = null
-    private var pollIntervalMs = 0L
+    private var pollingForeground = false
     private val pollLock = Mutex()
     private var lastVolumeRefresh = 0L
     private var likedVersion: Long? = null
@@ -109,23 +109,24 @@ class EchoController(
 
     /** Poll now-playing while the app is visible ([foreground]) or slower in the background. */
     fun startPolling(foreground: Boolean) {
-        val interval = if (foreground) 3_000L else 10_000L
-        if (pollJob?.isActive == true && pollIntervalMs == interval) return
-        pollJob?.cancel()
-        pollIntervalMs = interval
+        pollingForeground = foreground
+        if (pollJob?.isActive == true) return
         pollJob = scope.launch {
+            var failures = 0
             while (isActive) {
                 try {
                     refresh()
+                    failures = 0
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: BackendAuthException) {
                     onSignedOut()
                     return@launch
                 } catch (e: Exception) {
-                    Log.w(TAG, "Now-playing poll failed: ${e.message}")
+                    failures++
+                    Log.w(TAG, "Now-playing poll failed")
                 }
-                delay(interval)
+                delay(remotePollDelayMs(pollingForeground, _state.value.playing, _state.value.processing, failures))
             }
         }
     }
@@ -133,7 +134,7 @@ class EchoController(
     fun stopPolling() {
         pollJob?.cancel()
         pollJob = null
-        pollIntervalMs = 0
+        pollingForeground = false
     }
 
     /** One now-playing poll (and a volume read every 15 s). */
@@ -155,7 +156,7 @@ class EchoController(
             }
         }
         val now = SystemClock.elapsedRealtime()
-        if (force || now - lastVolumeRefresh > 15_000) {
+        if (force || now - lastVolumeRefresh > (if (_state.value.playing && pollingForeground) 15_000 else 60_000)) {
             lastVolumeRefresh = now
             // Volume/account refresh must never hold up playback confirmation.
             scope.launch { safely {

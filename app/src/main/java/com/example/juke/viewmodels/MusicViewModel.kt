@@ -139,12 +139,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _signedOut = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val signedOut: SharedFlow<Unit> = _signedOut.asSharedFlow()
 
-    val echo = EchoController(
-        scope = viewModelScope,
-        prefs = settingsPrefs,
-        onError = { _messages.tryEmit(it) },
-        onSignedOut = { _signedOut.tryEmit(Unit) }
-    )
+    val echo = com.example.juke.services.PlaybackCoordinator.echo(application)
+    private val sharedEchoErrors = viewModelScope.launch {
+        com.example.juke.services.PlaybackCoordinator.errors.collect { _messages.tryEmit(it) }
+    }
+    private val sharedEchoAuth = viewModelScope.launch {
+        com.example.juke.services.PlaybackCoordinator.signedOut.collect { _signedOut.tryEmit(Unit) }
+    }
 
     // Ticks the Echo progress while the player screen asks for updates.
     private val _tick = MutableStateFlow(0L)
@@ -540,7 +541,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         outputSwitchRequests.clearPending()
         com.example.juke.services.RemotePlaybackService.stop(getApplication())
         signInJob?.cancel()
-        echo.clear()
+        com.example.juke.services.PlaybackCoordinator.clear(getApplication())
         AccountRepository.clear()
         playbackManager.pause()
     }
@@ -584,10 +585,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updatePolling() {
         if (signedIn && isAlexa && echo.serial.value.isNotBlank()) {
-            echo.startPolling(isForeground)
+            com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", isForeground, isForeground)
             com.example.juke.services.RemotePlaybackService.start(getApplication(), echo.state.value, isForeground)
         } else {
-            echo.stopPolling()
+            com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", false)
             com.example.juke.services.RemotePlaybackService.stop(getApplication())
         }
     }
@@ -1467,7 +1468,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        echo.stopPolling()
+        com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", false)
         playbackManager.release()
         queueManager.cleanup()
     }

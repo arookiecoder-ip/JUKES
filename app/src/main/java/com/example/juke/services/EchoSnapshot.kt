@@ -40,7 +40,7 @@ data class EchoState(
 internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, preserveVolume: Boolean): EchoState {
     val queue = np.array("queue").mapIndexedNotNull { i, raw ->
         val item = BrowseParser.item(raw.objectOrEmpty())
-        item.takeIf { it.videoId.isNotBlank() }?.toTrack()?.copy(uuid = "echo:$i:${item.videoId}")
+        item.takeIf { it.videoId.isNotBlank() }?.toTrack()?.copy(uuid = raw.objectOrEmpty().text("entry_id").ifBlank { "echo:$i:${item.videoId}" })
     }
     val index = (np["queue_index"] as? JsonPrimitive)?.intOrNull ?: -1
     val videoId = np.text("video_id")

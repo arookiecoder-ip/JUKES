@@ -17,8 +17,8 @@ android {
         applicationId = "com.example.juke"
         minSdk = 26
         targetSdk = 36
-        versionCode = 49
-        versionName = "2.3.35-beta"
+        versionCode = 50
+        versionName = "2.3.36-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -53,7 +53,7 @@ android {
         buildConfigField(
             "String",
             "ALEXA_API_KEY",
-            "\"${properties.getProperty("ALEXA_API_KEY", "")}\""
+            "\"\""
         )
     }
 

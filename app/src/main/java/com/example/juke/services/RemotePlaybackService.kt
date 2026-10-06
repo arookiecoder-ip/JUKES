@@ -40,8 +40,9 @@ class RemotePlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
-        echo = EchoController(scope, prefs,
-            onError = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() }, onSignedOut = { stopSelf() })
+        echo = PlaybackCoordinator.echo(this)
+        scope.launch { PlaybackCoordinator.errors.collect { Toast.makeText(this@RemotePlaybackService, it, Toast.LENGTH_SHORT).show() } }
+        scope.launch { PlaybackCoordinator.signedOut.collect { stopSelf() } }
         remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
@@ -77,7 +78,7 @@ class RemotePlaybackService : MediaSessionService() {
             }
         }
         scope.launch { AccountRepository.liked.collect { updateLike() } }
-        if (!prefs.getBoolean("remote_controls_dismissed", false)) echo.startPolling(foreground = true)
+        if (!prefs.getBoolean("remote_controls_dismissed", false)) PlaybackCoordinator.observe(this, "notification", true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -89,7 +90,7 @@ class RemotePlaybackService : MediaSessionService() {
         val serial = prefs.getString("echo_serial", "").orEmpty()
         if (serial.isNotBlank() && serial != echo.serial.value) echo.select(serial)
         // Existing sessions retain the latest polled state, not the Activity seed.
-        echo.startPolling(foreground = true)
+        PlaybackCoordinator.observe(this, "notification", true)
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
     }
@@ -103,9 +104,10 @@ class RemotePlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
     override fun onTaskRemoved(rootIntent: Intent?) {
+        PlaybackCoordinator.dismiss(this)
         // Only remove the remote controls; never send a pause to Alexa.
         getSharedPreferences("music_settings_prefs", MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
-        echo.stopPolling()
+        PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
         remote.refresh()
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(1002)
@@ -115,11 +117,11 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        echo.stopPolling()
+        PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
         remote.refresh()
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(1002)
-        echo.clear()
+
         session?.let { removeSession(it); it.release() }; remote.release(); scope.cancel()
         super.onDestroy()
     }
@@ -179,6 +181,7 @@ class RemotePlaybackService : MediaSessionService() {
     companion object {
         private const val LIKE = "REMOTE_LIKE"
         fun dismiss(context: Context) {
+            PlaybackCoordinator.dismiss(context)
             context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
             stop(context)
         }
