@@ -1,3 +1,4 @@
+import java.io.File
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -193,7 +194,7 @@ dependencies {
 val verifyReleaseSigning by tasks.registering {
     doLast {
         val signingStore = System.getenv("MUSIC_BOX_SIGNING_STORE")
-        check(!signingStore.isNullOrBlank() && java.io.File(signingStore).isFile) {
+        check(!signingStore.isNullOrBlank() && File(signingStore).isFile) {
             "Release signing requires the preserved Music Box key via MUSIC_BOX_SIGNING_STORE. Use the stable-release Actions workflow."
         }
     }
