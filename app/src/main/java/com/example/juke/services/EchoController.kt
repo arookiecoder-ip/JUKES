@@ -68,6 +68,9 @@ class EchoController(
     private var likedVersion: Long? = null
     private var mutationEpoch = 0L
     private var refreshedAt = 0L
+    // Monotonic play-intent sequence: lets the server drop a superseded switch
+    // that arrives out of order instead of playing stale tracks in turn.
+    private var playIntentSeq = 0L
 
     // Volume slider: a drag is debounced, and server echoes are ignored for a grace window so
     // a stale poll can't snap the slider back (same rules as the web remote).
@@ -250,11 +253,15 @@ class EchoController(
         val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
         val start = tracks.getOrNull(index)
         require(playable.isNotEmpty()) { "Nothing to play" }
+        val seq = ++playIntentSeq
         send("/alexa/play_queue/", buildJsonObject {
             put("serial", requireSerial())
             put("queue_items", JsonArray(playable.map { it.metadata() }))
             put("start_index", playable.indexOf(start).coerceAtLeast(0))
             put("suppress_radio", playable.size > 1)
+            put("intent_seq", seq)
+            // The app never reads this response body (state arrives via polling).
+            put("brief_response", true)
         })
         refreshSoon()
     }
@@ -282,27 +289,36 @@ class EchoController(
         } else refresh(stateOnly = true)
     }
 
-    /** Play one song; the server keeps the queue going with its radio ([radio] forces a new one). */
-    suspend fun playSong(track: Track, radio: Boolean) {
+    /** Play one song; the server keeps the queue going with its radio ([radio] forces a new one).
+     *  [suppressRadio] leaves the queue as just this song: used for fast playlist
+     *  starts where the remainder is backfilled right after (see MusicViewModel). */
+    suspend fun playSong(track: Track, radio: Boolean, suppressRadio: Boolean = false) {
+        val seq = ++playIntentSeq
         send("/alexa/play_queue/", JsonObject(track.metadata() + mapOf(
             "serial" to JsonPrimitive(requireSerial()),
-            "force_radio" to JsonPrimitive(radio)
+            "force_radio" to JsonPrimitive(radio),
+            "suppress_radio" to JsonPrimitive(suppressRadio),
+            "intent_seq" to JsonPrimitive(seq)
         )))
         refreshSoon()
     }
 
     /** Jump to a song already in the Echo queue. */
     suspend fun playQueueIndex(track: Track, index: Int) {
+        val seq = ++playIntentSeq
         send("/alexa/play_queue/", JsonObject(track.metadata() + mapOf(
             "serial" to JsonPrimitive(requireSerial()),
-            "queue_index" to JsonPrimitive(index)
+            "queue_index" to JsonPrimitive(index),
+            "intent_seq" to JsonPrimitive(seq)
         )))
         refreshSoon()
     }
 
     suspend fun playPlaylist(playlistId: String) {
+        val seq = ++playIntentSeq
         send("/alexa/play_queue/", buildJsonObject {
             put("serial", requireSerial()); put("playlist_id", playlistId)
+            put("intent_seq", seq)
         })
         refreshSoon()
     }
@@ -371,7 +387,7 @@ class EchoController(
 
     private fun refreshSoon() {
         scope.launch {
-            delay(600)
+            delay(300)
             safely { refresh() }
         }
     }

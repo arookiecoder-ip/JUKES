@@ -181,6 +181,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val pendingPlayback = MutableStateFlow<Track?>(null)
     private var pendingPlaybackJob: Job? = null
     private var phoneQueueSyncJob: Job? = null
+    private var playlistBackfillJob: Job? = null
     private val phoneQueueMutex = kotlinx.coroutines.sync.Mutex()
     private var sharedPhoneQueueReady = false
     private var serverPlaybackChecked = false
@@ -540,6 +541,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         serverPlaybackChecked = false
         com.example.juke.services.PhonePlaybackOwnership.forget()
         phoneQueueSyncJob?.cancel()
+        playlistBackfillJob?.cancel()
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
@@ -572,6 +574,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (_isSwitchingOutput.value) return
         if (expectedClaim != null && expectedClaim != com.example.juke.services.PhonePlaybackOwnership.token) return
         phoneQueueSyncJob?.cancel()
+        playlistBackfillJob?.cancel()
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
@@ -626,6 +629,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (toPhone && !isAlexa) return
         if (!toPhone && isAlexa && serial == echo.serial.value) return
         phoneQueueSyncJob?.cancel()
+        playlistBackfillJob?.cancel()
         ++playbackRequestId
         pendingPlaybackJob?.cancel()
         pendingPlayback.value = null
@@ -863,6 +867,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun launchPlayback(track: Track, block: suspend () -> Unit) {
         val requestId = ++playbackRequestId
         pendingPlaybackJob?.cancel()
+        // A new song supersedes any in-flight playlist backfill: its chunks
+        // belong to the previous song's queue and must not be appended.
+        playlistBackfillJob?.cancel()
         pendingPlayback.value = track
         pendingPlaybackJob = viewModelScope.launch {
             try {
@@ -938,17 +945,35 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 Backend.get(path, if (bulk) mapOf("playback" to "1", "limit" to "5000")
                     else mapOf("offset" to offset.toString(), "limit" to "100")).objectOrEmpty()
             }
+        parseCollectionContent(item, data).also { collectionCache[key] = it }
+    }
+
+    private suspend fun parseCollectionContent(item: BrowseItem, data: JsonObject): com.example.juke.network.CollectionContent {
         val resolved = com.example.juke.network.resolvedCollectionItem(item, data)
         val tracks = withContext(Dispatchers.Default) {
             data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
                 .filter { it.videoId.isNotBlank() }.map { it.toTrack(AccountRepository.liked.value, resolved.image) }
         }
-        com.example.juke.network.CollectionContent(resolved, tracks).also { collectionCache[key] = it }
+        return com.example.juke.network.CollectionContent(resolved, tracks)
     }
     private suspend fun collectionTracks(item: BrowseItem): List<Track> {
         com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
         return collectionContent(item).tracks
     }
+
+    /** First browser page of a playlist: enough to start playback at once while
+     *  the full list loads in the background. Offline and album collections are
+     *  small/local already, so they keep the direct path. */
+    private suspend fun collectionFirstPage(item: BrowseItem): List<Track> {
+        com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
+        if (item.kind == "album") return collectionTracks(item)
+        val path = "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
+        val data = Backend.get(path, mapOf("offset" to "0", "limit" to "100")).objectOrEmpty()
+        return parseCollectionContent(item, data).tracks
+    }
+
+    private fun playlistIdOf(item: BrowseItem): String =
+        item.playlistId.ifBlank { item.id.removePrefix("VL") }.takeIf { item.kind != "album" }.orEmpty()
 
     fun refreshDownloadedDetails(key: String) {
         val saved = downloads.collections.value.firstOrNull { it.key == key } ?: return
@@ -971,6 +996,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Play All / shuffle: start the first song at once, fill the rest afterwards.
+     *
+     * Fetching a very large playlist (and uploading it as one giant queue) before
+     * playing anything is what made Play All / shuffle take so long. Instead the
+     * first page loads (one small request), its first song plays immediately,
+     * and the full list backfills Up Next in the background.
+     */
     fun playCollection(item: com.example.juke.network.BrowseItem, shuffle: Boolean = false) {
         if (item.raw.flag("offline")) {
             val tracks = com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value).orEmpty()
@@ -981,9 +1014,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _echoRequests.update { it + 1 }
             try {
-                val tracks = collectionTracks(item).let { if (shuffle) it.shuffled() else it }
-                check(tracks.isNotEmpty()) { "This collection is empty" }
-                launchPlayback(tracks.first()) { if (isAlexa) echo.playQueue(tracks, 0) else phoneSetQueue(tracks, 0) }
+                // Albums are one small request already; playlists start from the
+                // first browser page so the first song needs no bulk fetch.
+                val preview = collectionFirstPage(item)
+                check(preview.isNotEmpty()) { "This collection is empty" }
+                if (item.kind == "album") {
+                    val ordered = if (shuffle) preview.shuffled() else preview
+                    launchPlayback(ordered.first()) { if (isAlexa) echo.playQueue(ordered, 0) else phoneSetQueue(ordered, 0) }
+                    return@launch
+                }
+                val first = if (shuffle) preview.random() else preview.first()
+                if (isAlexa) launchPlayback(first) { echo.playSong(first, radio = false, suppressRadio = true) }
+                else launchPlayback(first) {
+                    phoneSetQueue(listOf(first), 0, deferRadioSeed = true,
+                        onPublished = { backfillPhoneQueue(first, playlistIdOf(item), shuffle) })
+                }
+                if (isAlexa) startPlaylistBackfill(playlistIdOf(item), first, shuffle)
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
             catch (e: Exception) { _messages.tryEmit(e.message ?: "Could not load collection") }
@@ -1060,22 +1106,120 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         launchPlayback(tracks[startIndex]) { phoneSetQueue(tracks, startIndex) }
     }
 
-    /** Fetch every page before playing or shuffling a playlist; the visible preview is not the queue. */
+    /**
+     * Tap-a-song in a playlist: play the tapped song at once, fill the rest afterwards.
+     *
+     * Resolving every page of a large playlist before playing is what delayed the
+     * tapped song. The tapped song's metadata is already loaded, so it starts
+     * immediately while the remaining songs backfill Up Next in the background.
+     */
     fun playPlaylist(playlistId: String, tracks: List<Track>, startIndex: Int = 0) {
-        val selected = tracks.getOrNull(startIndex)
-        viewModelScope.launch {
+        val selected = tracks.getOrNull(startIndex) ?: return
+        if (isAlexa) launchPlayback(selected) { echo.playSong(selected, radio = false, suppressRadio = true) }
+        else launchPlayback(selected) {
+            phoneSetQueue(listOf(selected), 0, deferRadioSeed = true,
+                onPublished = { backfillPhoneQueue(selected, playlistId, shuffle = false) })
+        }
+        if (isAlexa) startPlaylistBackfill(playlistId, selected, shuffle = false)
+    }
+
+    /** First browser page of a collection: enough to start playback at once. */
+    private suspend fun collectionFirstPage(item: BrowseItem): List<Track> {
+        com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
+        if (item.kind == "album") return collectionTracks(item)
+        val path = "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
+        val data = Backend.get(path, mapOf("offset" to "0", "limit" to "100")).objectOrEmpty()
+        return parseCollectionTracks(item, data)
+    }
+
+    private fun playlistIdOf(item: BrowseItem): String =
+        item.playlistId.ifBlank { item.id.removePrefix("VL") }.takeIf { item.kind != "album" }.orEmpty()
+
+    /**
+     * Fill Up Next behind an already-playing fast start. The full playlist fetch
+     * runs in the background (playback is already going) and each chunk aborts
+     * unless the fast-started song is still current, so a newer tap/switch wins.
+     */
+    private fun startPlaylistBackfill(playlistId: String, selected: Track, shuffle: Boolean) {
+        if (playlistId.isBlank()) return
+        playlistBackfillJob?.cancel()
+        playlistBackfillJob = viewModelScope.launch {
             try {
                 val item = BrowseParser.item(buildJsonObject {
                     put("playlistId", playlistId); put("title", "Playlist")
                 }, "playlists")
                 val all = collectionTracks(item)
-                check(all.isNotEmpty()) { "This playlist is empty" }
-                val index = startIndex.takeIf { all.getOrNull(it)?.ytVideoId == selected?.ytVideoId }
-                    ?: all.indexOfFirst { it.ytVideoId == selected?.ytVideoId }.coerceAtLeast(0)
-                setQueue(all, index)
+                coroutineContext.ensureActive()
+                val selectedVideo = selected.ytVideoId ?: return@launch
+                echo.refresh(force = true, stateOnly = true)
+                if (!isAlexa || echo.state.value.track?.ytVideoId != selectedVideo) return@launch
+                val remainder = playlistRemainder(all, selectedVideo, shuffle)
+                if (remainder.isEmpty()) return@launch
+                remainder.chunked(PLAYLIST_BACKFILL_CHUNK).forEachIndexed { chunkIndex, chunk ->
+                    coroutineContext.ensureActive()
+                    echo.refresh(force = true, stateOnly = true)
+                    if (!isAlexa || echo.state.value.track?.ytVideoId != selectedVideo) return@launch
+                    // First chunk goes right after the playing song, the rest append.
+                    echo.queueAdd(chunk, next = chunkIndex == 0)
+                }
             } catch (e: CancellationException) { throw e }
             catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
-            catch (e: Exception) { _messages.tryEmit("Couldn't load the playlist: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}") }
+            catch (e: Exception) {
+                // Playback already started; only the Up Next fill failed.
+                Log.w(TAG, "Playlist backfill failed: ${e.javaClass.simpleName}")
+                _messages.tryEmit("Playing now. Couldn't load the rest of the playlist.")
+            }
+        }
+    }
+
+    /**
+     * Phone-side backfill, chained after the fast-start publish ([onPublished])
+     * so the initial install always lands first. Appends locally and to the
+     * shared queue in server-sized chunks.
+     */
+    private suspend fun backfillPhoneQueue(selected: Track, playlistId: String, shuffle: Boolean) {
+        if (playlistId.isBlank()) {
+            if (shuffle) synchronizePhoneQueue(startRadio = true)
+            return
+        }
+        try {
+            val item = BrowseParser.item(buildJsonObject {
+                put("playlistId", playlistId); put("title", "Playlist")
+            }, "playlists")
+            val all = collectionTracks(item)
+            coroutineContext.ensureActive()
+            val claim = com.example.juke.services.PhonePlaybackOwnership.token
+            val selectedVideo = selected.ytVideoId ?: return
+            if (claim.isBlank() || isAlexa || _uiState.value.currentTrack?.ytVideoId != selectedVideo) return
+            val remainder = playlistRemainder(all, selectedVideo, shuffle)
+            if (remainder.isEmpty()) {
+                synchronizePhoneQueue(startRadio = true)
+                return
+            }
+            remainder.chunked(PLAYLIST_BACKFILL_CHUNK).forEach { chunk ->
+                coroutineContext.ensureActive()
+                if (isAlexa || _uiState.value.currentTrack?.ytVideoId != selectedVideo) return
+                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim)) return
+                val resolved = withContext(Dispatchers.IO) { resolveForPhone(chunk, -1) }
+                coroutineContext.ensureActive()
+                if (isAlexa || _uiState.value.currentTrack?.ytVideoId != selectedVideo) return
+                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim)) return
+                playbackManager.addToQueue(resolved)
+                _uiState.update { it.copy(queue = it.queue + resolved) }
+                try {
+                    AlexaBackendApi.updateQueue("extend", selectedVideo, resolved.map(AlexaBackendApi::backendTrack))
+                } catch (e: com.example.juke.network.BackendHttpException) {
+                    // Ownership or cursor moved on: stop filling, keep playing.
+                    Log.w(TAG, "Playlist backfill extend rejected (HTTP ${e.statusCode})")
+                    return
+                }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
+        catch (e: Exception) {
+            Log.w(TAG, "Playlist backfill failed: ${e.javaClass.simpleName}")
+            _messages.tryEmit("Playing now. Couldn't load the rest of the playlist.")
+            if (!isAlexa) synchronizePhoneQueue(startRadio = true)
         }
     }
 
@@ -1179,8 +1323,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * Phone queue: the first song gets a freshly warmed stream from the server, the rest use
      * their proxy URLs. The shared queue on the server is replaced so the Echo and the web
      * remote see the same songs.
+     *
+     * [deferRadioSeed] publishes just this song with no radio expansion: used for fast
+     * playlist starts where the remainder is backfilled right after [onPublished].
+     * [onPublished] runs after the shared-queue publish completed, so a backfill can
+     * safely append without racing the initial install.
      */
-    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true) {
+    private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true,
+        deferRadioSeed: Boolean = false, onPublished: (suspend () -> Unit)? = null) {
         downloads.awaitReady()
         _uiState.update { it.copy(isLoading = true, error = null) }
         var startupClaim = ""
@@ -1213,10 +1363,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 },
                 synchronize = sync@{ playable ->
                     if (!synchronizeQueue || !com.example.juke.network.NetworkFeedback.online.value) return@sync
-                    publishPhoneQueue(playable, startIndex, positionMs, play, startRadio = playable.size == 1)
+                    publishPhoneQueue(playable, startIndex, positionMs, play, startRadio = !deferRadioSeed && playable.size == 1)
                     sharedPhoneQueueReady = true
                     queueManager.initializeQueue(_uiState.value.queue)
-
+                    onPublished?.invoke()
                 },
                 onSyncError = { error ->
                     Log.w(TAG, "Device playback started but server queue sync failed", error)
@@ -1736,12 +1886,30 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         private const val TAG = "MusicViewModel"
         private const val KEY_OUTPUT = "playback_output"
         private const val ECHO_PREFIX = "echo:"
+        /** Server `extend`/bulk-append sized chunks: small POSTs that stay resumable. */
+        internal const val PLAYLIST_BACKFILL_CHUNK = 200
     }
 }
 
 internal fun withPendingPlayback(state: MusicUiState, pending: Track?): MusicUiState =
     if (pending == null) state else state.copy(currentTrack = pending, position = 0L,
         duration = pending.durationSec * 1000L, isLoading = true)
+
+/**
+ * Songs that backfill Up Next behind an already-playing fast start.
+ *
+ * Ordered mode keeps playlist order after the playing song (no wrap-around,
+ * like tapping through a playlist); shuffle mode returns every other song in
+ * random order with the playing song kept first by the caller. When the
+ * playing song is no longer in the fetched list (playlist edited meanwhile),
+ * every other song is returned so Up Next still fills. Pure: unit-tested.
+ */
+fun playlistRemainder(all: List<Track>, selectedVideoId: String, shuffle: Boolean): List<Track> {
+    val index = all.indexOfFirst { it.ytVideoId == selectedVideoId }
+    val rest = if (index < 0) all.filter { it.ytVideoId != selectedVideoId }
+        else all.drop(index + 1)
+    return if (shuffle) rest.shuffled() else rest
+}
 
 internal fun reconcilePhonePlayback(state: MusicUiState, queue: List<Track>, currentId: String): MusicUiState {
     val index = queue.indexOfFirst { it.uuid == currentId }
