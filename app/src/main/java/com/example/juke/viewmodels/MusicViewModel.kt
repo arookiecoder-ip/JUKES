@@ -25,6 +25,7 @@ import com.example.juke.network.number
 import com.example.juke.network.Backend
 import com.example.juke.network.BackendAuthException
 import com.example.juke.network.LyricsApi
+import com.example.juke.network.BrowseItem
 import com.example.juke.network.BrowseParser
 import com.example.juke.network.array
 import com.example.juke.network.toTrack
