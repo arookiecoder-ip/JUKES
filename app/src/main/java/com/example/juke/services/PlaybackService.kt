@@ -204,6 +204,29 @@ class PlaybackService : MediaLibraryService() {
     private var lastReportedListen: String? = null
     private var streamRecoveryJob: Job? = null
     private var recoveryShouldResume = false
+    private lateinit var silentWatchdog: SilentPlaybackWatchdog
+
+    /**
+     * Silent-but-advancing playback confirmed by the watchdog. The first strike
+     * re-prepares the player in place (same position) since a wedged renderer
+     * or sink is the usual cause and an app restart was the only remedy; if it
+     * is still silent afterwards the output route is the likely culprit.
+     */
+    private fun onSilentPlayback(trackId: String, firstStrike: Boolean) {
+        if (!::player.isInitialized || player.currentMediaItem?.mediaId != trackId || !player.isPlaying) return
+        if (firstStrike) {
+            Log.w(TAG, "No audible output for $trackId; re-preparing in place")
+            val position = player.currentPosition.coerceAtLeast(0)
+            player.seekTo(position)
+            player.prepare()
+            player.play()
+            silentWatchdog.notePlaying()
+        } else {
+            Log.w(TAG, "Still no audible output for $trackId after re-prepare")
+            com.example.juke.network.NetworkFeedback.notify(
+                "Playing with no sound. Check Bluetooth/output, then restart the app.")
+        }
+    }
     private val recoveryAttempts = mutableMapOf<String, Int>()
     private val progressHandler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
@@ -627,6 +650,7 @@ class PlaybackService : MediaLibraryService() {
             streamRecoveryJob?.cancel()
             streamRecoveryJob = null
             recoveryAttempts.clear()
+            if (::silentWatchdog.isInitialized && player.isPlaying) silentWatchdog.notePlaying()
             mediaItem?.let {
                 val trackId = it.mediaId
                 // Stable Volume memory: store where the AGC settled for the track that just ended and
@@ -719,6 +743,7 @@ class PlaybackService : MediaLibraryService() {
             if (isPlaying) {
                 reportDeviceListen()
                 progressHandler.post(progressRunnable)
+                if (::silentWatchdog.isInitialized) silentWatchdog.notePlaying()
             } else {
                 progressHandler.removeCallbacks(progressRunnable)
             }
@@ -837,6 +862,18 @@ class PlaybackService : MediaLibraryService() {
         PhonePlaybackSynchronizer(applicationContext, serviceScope, player,
             trackById = { database.trackDao().getTrackByUuid(it)?.toTrack() },
             extendQueue = { maybeExtendPhoneQueue() }).start()
+
+        silentWatchdog = SilentPlaybackWatchdog(
+            scope = serviceScope,
+            audioManager = audioManager,
+            player = player,
+            eligible = {
+                outputPrefs.getString("playback_output", "PHONE") == "PHONE" &&
+                    !inCall() &&
+                    audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) > 0
+            },
+            onSilent = { trackId, firstStrike -> onSilentPlayback(trackId, firstStrike) }
+        )
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
             StreamCacheManager.getCache(applicationContext), prefetch = true), serviceScope, applicationContext)
