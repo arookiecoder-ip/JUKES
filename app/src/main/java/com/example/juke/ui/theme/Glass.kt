@@ -64,7 +64,7 @@ fun GlassSurface(modifier: Modifier = Modifier, shape: Shape = GlassShapes.Card,
 }
 
 @Composable fun GlassWindowBlur(radius: Dp = 28.dp, dim: Float = 0.28f) { /* Standard platform dimming only. */ }
-@Composable fun glassSheetColor(): Color = MaterialTheme.colorScheme.surface
+@Composable fun glassSheetColor(): Color = MaterialTheme.colorScheme.surfaceContainerHigh
 
 @Composable
 fun GlassCard(modifier: Modifier = Modifier, shape: Shape = GlassShapes.Card, level: GlassLevel = GlassLevel.Regular, accent: Color? = null, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {

@@ -828,13 +828,13 @@ class PlaybackService : MediaLibraryService() {
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 delay(1_000)
                 val claim = PhonePlaybackOwnership.token
-                if (claim.isBlank()) continue
+                if (claim.isBlank() || PhonePlaybackOwnership.localHandoff) continue
                 maybeExtendPhoneQueue()
                 try {
                     val status = kotlinx.coroutines.withTimeoutOrNull(1_500) {
                         com.example.juke.network.AlexaBackendApi.phoneOutputStatus()
                     }
-                    if (PhonePlaybackOwnership.token != claim) continue
+                    if (PhonePlaybackOwnership.token != claim || PhonePlaybackOwnership.localHandoff) continue
                     if (status != null && !status.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) {
                         player.pause()
                         if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
@@ -856,7 +856,7 @@ class PlaybackService : MediaLibraryService() {
                                 PhonePlaybackOwnership.ownerId, claim)
                         }
                         if (renewed != null) {
-                            if (PhonePlaybackOwnership.token != claim) continue
+                            if (PhonePlaybackOwnership.token != claim || PhonePlaybackOwnership.localHandoff) continue
                             PhonePlaybackOwnership.accept(renewed)
                             lastReport = now
                             val mediaId = player.currentMediaItem?.mediaId
@@ -970,8 +970,12 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Dismissing the app doesn't interrupt an active device session.
-        if (!player.playWhenReady && !player.isPlaying) stopSelf()
+        // Closing the task stops this phone, never the Echo.
+        player.pause()
+        player.stop()
+        RemotePlaybackService.stop(applicationContext)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 

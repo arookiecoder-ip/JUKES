@@ -31,14 +31,9 @@ fun JamSettings(jam: JamViewModel = viewModel()) {
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = jam::refresh) { Text("Retry") } }
         if (state.active) {
             Text("Your Jam is live", Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.primary)
-            OutlinedButton(onClick = { showQr = true }, enabled = state.url.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Show QR code") }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(enabled = !state.busy && state.url.isNotBlank(), onClick = { share("Join my Music Box Jam", state.url) }) { Text("Share link") }
-                TextButton(enabled = state.url.isNotBlank(), onClick = {
-                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Music Box Jam", state.url))
-                    com.example.juke.network.NetworkFeedback.notify("Jam link copied")
-                }) { Text("Copy") }
-                TextButton(enabled = !state.busy, onClick = { confirmEnd = true }) { Text("End Jam") }
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), enabled = state.url.isNotBlank(), onClick = { showQr = true }) { Text("Manage") }
+                Button(modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error), enabled = !state.busy, onClick = { confirmEnd = true }) { Text("End Jam") }
             }
         } else Button(enabled = !state.busy, onClick = jam::start, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)) { Text("Start Jam") }
     }
@@ -50,7 +45,16 @@ fun JamSettings(jam: JamViewModel = viewModel()) {
             }
         }
         GlassAlertDialog(onDismissRequest = { showQr = false }, title = { Text("Join this Jam") },
-            text = { androidx.compose.foundation.Image(bitmap.asImageBitmap(), "Scan to join this Jam", Modifier.fillMaxWidth().aspectRatio(1f)) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.foundation.Image(bitmap.asImageBitmap(), "Scan to join this Jam", Modifier.fillMaxWidth().aspectRatio(1f))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button( modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), onClick = { share("Join my Music Box Jam", state.url) }) { Text("Share link") }
+                    FilledTonalButton(modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), onClick = {
+                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Music Box Jam", state.url))
+                        com.example.juke.network.NetworkFeedback.notify("Jam link copied")
+                    }) { Text("Copy") }
+                }
+            } },
             confirmButton = { TextButton(onClick = { showQr = false }) { Text("Done") } })
     }
     if (confirmEnd) GlassAlertDialog(onDismissRequest = { confirmEnd = false }, title = { Text("End this Jam?") },

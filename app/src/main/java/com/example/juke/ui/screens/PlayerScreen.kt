@@ -417,7 +417,7 @@ fun PlayerScreen(
     if (showQueue) {
         ModalBottomSheet(
             shape = androidx.compose.ui.graphics.RectangleShape,
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = com.example.juke.ui.theme.glassSheetColor(),
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             onDismissRequest = { showQueue = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -542,7 +542,7 @@ fun PlayerHeader(
     }
     if (showMenu) {
         ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { showMenu = false }, shape = androidx.compose.ui.graphics.RectangleShape,
-            containerColor = MaterialTheme.colorScheme.surface) {
+            containerColor = com.example.juke.ui.theme.glassSheetColor()) {
             Column(Modifier.fillMaxWidth().testTag("Player options").verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 track?.let { com.example.juke.ui.components.MusicMenuHeader(it.title, it.artist, it.thumbnailUri) }
                 fun run(action: () -> Unit) { showMenu = false; action() }

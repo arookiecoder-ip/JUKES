@@ -69,7 +69,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
         }
     }
     if (track != null || item != null) {
-        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = menu::dismiss, shape = RectangleShape, containerColor = MaterialTheme.colorScheme.surface, dragHandle = { Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = Alignment.Center) { Box(Modifier.size(32.dp, 3.dp).background(MaterialTheme.colorScheme.onSurfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(2.dp))) } }) {
+        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = menu::dismiss, shape = RectangleShape, containerColor = com.example.juke.ui.theme.glassSheetColor(), dragHandle = { Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = Alignment.Center) { Box(Modifier.size(32.dp, 3.dp).background(MaterialTheme.colorScheme.onSurfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(2.dp))) } }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
                 MusicMenuHeader(track?.title ?: item!!.title, track?.artist ?: item?.subtitle.orEmpty(), track?.thumbnailUri ?: item?.image)
                 fun quick(run: () -> Unit) { menu.dismiss(); run() }
@@ -185,7 +185,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
     }
     saveTrack?.let { selected ->
         if (create) {
-            AlertDialog(shape = RectangleShape, onDismissRequest = { create = false; saveTrack = null }, title = { Text("New playlist") },
+            GlassAlertDialog(shape = RectangleShape, onDismissRequest = { create = false; saveTrack = null }, title = { Text("New playlist") },
                 text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Playlist name") }) },
                 confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { library.createPlaylist(name.trim(), listOf(selected)); create = false; saveTrack = null; name = "" }) { Text("Create") } },
                 dismissButton = { TextButton(onClick = { create = false }) { Text("Back") } })
