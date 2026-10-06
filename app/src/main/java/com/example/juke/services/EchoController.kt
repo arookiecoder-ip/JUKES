@@ -185,6 +185,7 @@ class EchoController(
             put("serial", requireSerial()); put("action", action)
             if (expectedPhoneToken != null) {
                 put("output_owner", PhonePlaybackOwnership.ownerId); put("output_token", expectedPhoneToken)
+                put("phone_paused", true)
             }
         })
         // Show the change at once; the next poll confirms it.
@@ -199,6 +200,7 @@ class EchoController(
             put("serial", requireSerial()); put("position_ms", positionMs)
             if (expectedPhoneToken != null) {
                 put("output_owner", PhonePlaybackOwnership.ownerId); put("output_token", expectedPhoneToken)
+                put("phone_paused", true)
             }
         })
         _state.update { it.copy(positionMs = positionMs, anchoredAt = SystemClock.elapsedRealtime()) }

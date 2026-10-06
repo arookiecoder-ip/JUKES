@@ -686,7 +686,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val originalClaim = com.example.juke.services.PhonePlaybackOwnership.token
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
-            pauseSource = { playbackManager.pause() },
+            pauseSource = { com.example.juke.services.PlaybackService.pausePhoneForHandoff() },
             startTarget = { moveQueueToEcho(phone.queue, phone.queueIndex, track, position, wasPlaying, originalClaim) },
             restoreSource = {
                 if (signedIn && com.example.juke.services.shouldRestorePhoneSource(originalClaim,
