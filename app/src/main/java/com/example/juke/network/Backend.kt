@@ -136,9 +136,13 @@ object Backend {
     }
 
     private suspend fun call(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?): JsonElement = coroutineScope {
+        // Only nag about slowness while the app is visible; background polls (Doze-throttled)
+        // routinely exceed 8s and must stay silent.
         val slowNotice = launch {
             delay(8_000)
-            NetworkFeedback.notify("Taking longer than usual to load. Please wait…")
+            if (NetworkFeedback.isForeground) {
+                NetworkFeedback.notify("Taking longer than usual to load. Please wait…")
+            }
         }
         try {
             try { performCall(method, path, query, body) }
