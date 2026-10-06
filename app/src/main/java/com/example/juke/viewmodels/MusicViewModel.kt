@@ -1123,18 +1123,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (isAlexa) startPlaylistBackfill(playlistId, selected, shuffle = false)
     }
 
-    /** First browser page of a collection: enough to start playback at once. */
-    private suspend fun collectionFirstPage(item: BrowseItem): List<Track> {
-        com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value)?.let { return it }
-        if (item.kind == "album") return collectionTracks(item)
-        val path = "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
-        val data = Backend.get(path, mapOf("offset" to "0", "limit" to "100")).objectOrEmpty()
-        return parseCollectionTracks(item, data)
-    }
-
-    private fun playlistIdOf(item: BrowseItem): String =
-        item.playlistId.ifBlank { item.id.removePrefix("VL") }.takeIf { item.kind != "album" }.orEmpty()
-
     /**
      * Fill Up Next behind an already-playing fast start. The full playlist fetch
      * runs in the background (playback is already going) and each chunk aborts
