@@ -15,8 +15,10 @@ internal fun selectUpdateRelease(releases: List<GithubRelease>, current: String)
 }
 
 internal fun isNewerVersion(current: String, remote: String): Boolean {
-    fun parts(version: String): List<Int>? = version.removePrefix("v").substringBefore('-')
-        .substringBefore('+').split('.').map { it.toIntOrNull() ?: return null }
+    fun parts(version: String): List<Int>? {
+        val numbers = version.removePrefix("v").substringBefore('-').substringBefore('+').split('.')
+        return numbers.map { it.toIntOrNull() ?: return null }
+    }
     val c = parts(current) ?: return false
     val r = parts(remote) ?: return false
     for (i in 0 until maxOf(c.size, r.size)) {
