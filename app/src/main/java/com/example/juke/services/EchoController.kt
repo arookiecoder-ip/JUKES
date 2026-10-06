@@ -247,7 +247,7 @@ class EchoController(
     }
 
     /** Install the paused shared cursor, then use the same Resume path as the web player. */
-    suspend fun transferQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean, expectedPhoneToken: String) {
+    suspend fun transferQueue(tracks: List<Track>, index: Int, positionMs: Long, playing: Boolean, expectedPhoneToken: String? = null) {
         val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
         val selected = tracks.getOrNull(index)
         require(playable.isNotEmpty()) { "Nothing to play" }
@@ -255,7 +255,7 @@ class EchoController(
         val videoId = requireNotNull(playable[targetIndex].ytVideoId)
         startTransferredAlexaQueue(playing,
             installPaused = {
-                check(PhonePlaybackOwnership.permitsPlayback(expectedPhoneToken)) { "A newer phone play superseded this switch." }
+                check(expectedPhoneToken == null || PhonePlaybackOwnership.permitsPlayback(expectedPhoneToken)) { "A newer phone play superseded this switch." }
                 AlexaBackendApi.updateQueue("start", videoId, playable.map(AlexaBackendApi::backendTrack),
                     playing = false, positionMs = positionMs.coerceAtLeast(0), queueIndex = targetIndex,
                     buffering = false)

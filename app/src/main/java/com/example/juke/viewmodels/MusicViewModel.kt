@@ -700,7 +700,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         ) } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
 
-    private suspend fun moveQueueToEcho(queue: List<Track>, index: Int, track: Track, positionMs: Long, play: Boolean, expectedPhoneToken: String) {
+    private suspend fun moveQueueToEcho(queue: List<Track>, index: Int, track: Track, positionMs: Long, play: Boolean, expectedPhoneToken: String? = null) {
         val items = queue.ifEmpty { listOf(track) }
         val start = index.takeIf { it in items.indices && items[it].ytVideoId == track.ytVideoId }
             ?: items.indexOfFirst { it.ytVideoId == track.ytVideoId }.coerceAtLeast(0)
