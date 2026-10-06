@@ -53,7 +53,8 @@ fun SettingsScreen(
     music: com.example.juke.viewmodels.MusicViewModel,
     onNavigateBack: () -> Unit,
     onNavigateToPowerTools: () -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    jam: com.example.juke.viewmodels.JamViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
     val context = LocalContext.current
     val haptic = rememberJukeHaptics()
@@ -106,7 +107,7 @@ fun SettingsScreen(
                     }
                 }
             } }
-            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { JamSettings() } }
+            item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) { JamSettings(jam) } }
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Alexa", fontWeight = FontWeight.SemiBold)
@@ -201,11 +202,7 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(), shape = RectangleShape,
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
             ) { Text("Sign out") } }
-            item {
-                GlassButton(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, "https://github.com/rajeet-04/JUKES".toUri()))
-                }) { Text("⭐ Star on GitHub") }
-            }
+
         }
     }
 }

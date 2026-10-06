@@ -443,7 +443,7 @@ fun PlayerScreen(
                 uiState = uiState,
                 onClose = { showQueue = false },
                 onMoveTrack = { from, to -> musicViewModel.moveInQueue(from, to) },
-                onRemoveTrack = { id -> musicViewModel.removeFromQueue(id) },
+                onRemoveTrack = { id, complete -> musicViewModel.removeFromQueue(id, complete) },
                 onPlayTrack = { track -> musicViewModel.playTrackFromQueue(track) },
                 onShuffleUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SHUFFLE_UPCOMING) },
                 onSortUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SORT_UPCOMING) },
