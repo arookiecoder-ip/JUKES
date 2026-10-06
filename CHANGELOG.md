@@ -2,6 +2,17 @@
 
 ## Changelog
 
+## [2.4.0] - 2026-10-06
+
+### Added
+
+- Shared phone/Alexa playback and queue ownership with fenced handoffs, lease deadlines, and queue-identity preservation.
+- Update-compatible signed stable release: minified/resource-shrunk, non-debuggable, pinned signing certificate, and SHA-256 checksums.
+- In-app update channel pointed at MusicBox-APP: stable ignores prereleases, beta can upgrade to stable, releases without an APK are skipped.
+- Release-only logging policy (errors only) and stable-APK verification script gating publishing.
+
+See full release notes: [v2.4.0-RELEASE_NOTES.md](docs/v2.4.0-RELEASE_NOTES.md)
+
 ## [2.3.5-beta] - 2026-10-04
 
 ### Added
