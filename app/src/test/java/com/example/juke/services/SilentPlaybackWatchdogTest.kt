@@ -7,7 +7,7 @@ import org.junit.Test
 class SilentPlaybackWatchdogTest {
 
     @Test fun digitalSilenceHasZeroDeviation() {
-        assertEquals(0, waveformPeakDeviation(ByteArray(256) { 128 }))
+        assertEquals(0, waveformPeakDeviation(ByteArray(256) { 128.toByte() }))
     }
 
     @Test fun audibleSignalExceedsThreshold() {
