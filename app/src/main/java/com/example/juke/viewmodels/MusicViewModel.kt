@@ -1384,47 +1384,40 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setEchoVolume(volume: Int) = echo.setVolume(volume)
 
-    fun removeFromQueue(trackId: String) {
-        if (isAlexa) {
-            val queue = uiState.value.queue
-            val index = queue.indexOfFirst { it.uuid == trackId }
-            if (index >= 0) launchEcho { echo.queueRemove(index, queue[index].ytVideoId) }
-            return
-        }
+    fun removeFromQueue(trackId: String, onComplete: ((Boolean) -> Unit)? = null) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isQueueOperationInProgress = true) }
-
-            val currentState = _uiState.value
-            val currentQueue = currentState.queue
-            val currentIndex = currentState.queueIndex
-
-            val trackIndex = currentQueue.indexOfFirst { it.uuid == trackId }
-            if (trackIndex == -1) {
-                _uiState.update { it.copy(isQueueOperationInProgress = false) }
+            // Let the optimistic row finish its collapse; the request survives sheet dismissal.
+            if (onComplete != null) delay(280)
+            val currentState = uiState.value
+            val index = currentState.queue.indexOfFirst { it.uuid == trackId }
+            if (index < 0) { onComplete?.invoke(true); return@launch }
+            if (index == currentState.queueIndex) { onComplete?.invoke(false); return@launch }
+            if (isAlexa) {
+                try {
+                    echo.queueRemove(index, currentState.queue[index].ytVideoId)
+                    onComplete?.invoke(true)
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    onComplete?.invoke(false)
+                    if (e is BackendAuthException) _signedOut.tryEmit(Unit)
+                    _messages.tryEmit(com.example.juke.network.networkErrorMessage(e) ?: "Couldn't delete the song. It has been restored.")
+                }
                 return@launch
             }
-
-            if (playbackManager.removeFromQueue(trackId)) {
+            _uiState.update { it.copy(isQueueOperationInProgress = true) }
+            try {
+                if (!playbackManager.removeFromQueue(trackId)) { onComplete?.invoke(false); return@launch }
                 queueManager.removeFromQueue(trackId)
                 sharedPhoneQueueReady = false
-                val newQueue = currentQueue.toMutableList().apply { removeAt(trackIndex) }
-                val newQueueIndex = when {
-                    trackIndex < currentIndex -> currentIndex - 1
-                    else -> currentIndex
-                }.coerceIn(0, (newQueue.size - 1).coerceAtLeast(0))
-
-                _uiState.update {
-                    it.copy(
-                        queue = newQueue,
-                        queueIndex = newQueueIndex,
-                        currentTrack = newQueue.getOrNull(newQueueIndex),
-                        isQueueOperationInProgress = false
-                    )
-                }
+                val newQueue = currentState.queue.toMutableList().apply { removeAt(index) }
+                val newIndex = (if (index < currentState.queueIndex) currentState.queueIndex - 1 else currentState.queueIndex)
+                    .coerceIn(0, (newQueue.size - 1).coerceAtLeast(0))
+                _uiState.update { it.copy(queue = newQueue, queueIndex = newIndex, currentTrack = newQueue.getOrNull(newIndex)) }
+                onComplete?.invoke(true)
                 synchronizePhoneQueue()
-            } else {
-                _uiState.update { it.copy(isQueueOperationInProgress = false) }
-            }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { onComplete?.invoke(false); _messages.tryEmit("Couldn't delete the song. Please retry.") }
+            finally { _uiState.update { it.copy(isQueueOperationInProgress = false) } }
         }
     }
 

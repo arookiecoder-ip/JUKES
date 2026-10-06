@@ -72,7 +72,7 @@ fun ArtistDetailScreen(
                             if (state.description.length > 150) TextButton(onClick = { expandedDescription = !expandedDescription }) { Text(if (expandedDescription) "Less" else "More") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.setQueue(state.topTracks.shuffled(), 0) }) { Icon(Icons.Default.Shuffle, "Shuffle artist songs") }
+                            Button(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.random()) }) { Icon(Icons.Default.Shuffle, "Shuffle artist songs") }
                             OutlinedButton(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.first()) }) { Icon(Icons.Default.Radio, "Artist radio") }
                             TextButton(enabled = state.isSubscribed != null && !state.subscriptionBusy, onClick = searchViewModel::toggleSubscription) {
                                 if (state.subscriptionBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -87,7 +87,7 @@ fun ArtistDetailScreen(
                     item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }
                     itemsIndexed(state.topTracks.take(5), key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
                         SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
-                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.setQueue(state.topTracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
+                            FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "", onClick = { musicViewModel.startRadio(track) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
                         }
                     }
                     if (state.topTracks.size > 5 || state.topSongsBrowseId.isNotBlank()) item {

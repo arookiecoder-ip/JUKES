@@ -174,6 +174,7 @@ class MainActivity : ComponentActivity() {
             val homeViewModel: HomeViewModel = viewModel()
             val libraryViewModel: LibraryViewModel = viewModel()
             val searchViewModel: SearchViewModel = viewModel()
+            val jamViewModel: com.example.juke.viewmodels.JamViewModel = viewModel()
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner, musicViewModel) {
                 val observer = LifecycleEventObserver { _, _ ->
@@ -540,6 +541,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             composable(Screen.Home.route) {
                                 HomeScreen(
+                                    jam = jamViewModel,
                                     musicViewModel = musicViewModel,
                                     homeViewModel = homeViewModel,
                                     onSettingsClick = { navController.navigate("settings") },
@@ -625,6 +627,7 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("settings") {
                                 SettingsScreen(
+                                    jam = jamViewModel,
                                     account = account,
                                     music = musicViewModel,
                                     onNavigateBack = { navController.popBackStack() },

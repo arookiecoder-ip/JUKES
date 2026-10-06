@@ -47,6 +47,8 @@ import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.foundation.border
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -113,9 +115,12 @@ fun HomeScreen(
     onSettingsClick: () -> Unit = {},
     onOpenItem: (BrowseItem) -> Unit = {},
     onSearchClick: () -> Unit = {},
-    bottomPadding: Dp = 0.dp
+    bottomPadding: Dp = 0.dp,
+    jam: com.example.juke.viewmodels.JamViewModel = viewModel()
 ) {
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
+    val jamState by jam.state.collectAsStateWithLifecycle()
+    LaunchedEffect(jam) { jam.refresh() }
     val connected by musicViewModel.echo.amazonConnected.collectAsStateWithLifecycle()
     val devices by musicViewModel.echo.devices.collectAsStateWithLifecycle()
     val serial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
@@ -139,7 +144,7 @@ fun HomeScreen(
     }
 
     HomeContent(
-        uiState = uiState, alexaStatus = alexaStatus, bottomPadding = bottomPadding,
+        uiState = uiState, alexaStatus = alexaStatus, bottomPadding = bottomPadding, jamActive = jamState.active,
         onSettingsClick = { haptic.click(); onSettingsClick() }, onRefresh = homeViewModel::refresh,
         onSearchClick = onSearchClick, onOpenItem = onOpenItem,
         onPlayTracks = { tracks, index -> musicViewModel.setQueue(tracks, index) },
@@ -158,7 +163,8 @@ internal fun HomeContent(
     onSearchClick: () -> Unit = {},
     onOpenItem: (BrowseItem) -> Unit = {},
     onPlayTracks: (List<Track>, Int) -> Unit = { _, _ -> },
-    onPlayCollection: (BrowseItem) -> Unit = {}
+    onPlayCollection: (BrowseItem) -> Unit = {},
+    jamActive: Boolean = false
 ) {
     PullToRefreshBox(
         isRefreshing = uiState.isRefreshing,
@@ -170,7 +176,7 @@ internal fun HomeContent(
             contentPadding = PaddingValues(bottom = 16.dp + bottomPadding)
         ) {
             item(key = "home-header") {
-                HomeHeader(alexaStatus = alexaStatus, onSettingsClick = { onSettingsClick() })
+                HomeHeader(alexaStatus = alexaStatus, onSettingsClick = { onSettingsClick() }, jamActive = jamActive)
             }
             if (uiState.shelves.isEmpty()) {
                 item(key = "empty-home") {
@@ -205,7 +211,8 @@ internal fun HomeContent(
 @Composable
 private fun HomeHeader(
     alexaStatus: String,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    jamActive: Boolean = false
 ) {
     Row(
         modifier = Modifier
@@ -224,11 +231,12 @@ private fun HomeHeader(
             Text("Music Box", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
 
-        GlassIconButton(
+        androidx.compose.material3.IconButton(
             onClick = onSettingsClick,
-            contentDescription = "Profile"
+            modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, androidx.compose.ui.graphics.RectangleShape)
+                .then(Modifier.border(1.dp, if (jamActive) Color(0xFF66BB6A) else MaterialTheme.colorScheme.outlineVariant, androidx.compose.ui.graphics.RectangleShape))
         ) {
-            Icon(Icons.Filled.AccountCircle, contentDescription = null)
+            Icon(Icons.Filled.Person, contentDescription = "Profile", modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -237,7 +245,7 @@ private fun HomeHeader(
 @Composable
 internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (Int) -> Unit) {
     val menu = LocalMediaMenu.current
-    Column {
+    Column(Modifier.padding(top = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -27,15 +27,15 @@ fun JamSettings(jam: JamViewModel = viewModel()) {
     Column(Modifier.padding(16.dp)) {
         Text("Jam", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Text("Invite friends to the shared Alexa queue with a web app link.", style = MaterialTheme.typography.bodyMedium)
-        if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = jam::refresh) { Text("Retry") } }
+        Box(Modifier.fillMaxWidth().padding(top = 12.dp).height(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
         if (state.active) {
-            Text("Your Jam is live", Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.primary)
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), enabled = state.url.isNotBlank(), onClick = { showQr = true }) { Text("Manage") }
-                Button(modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error), enabled = !state.busy, onClick = { confirmEnd = true }) { Text("End Jam") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(modifier = Modifier.weight(1f).height(48.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), enabled = state.url.isNotBlank(), onClick = { showQr = true }) { Text("Manage") }
+                Button(modifier = Modifier.weight(1f).height(48.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error), enabled = !state.busy, onClick = { confirmEnd = true }) { if (state.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.error) else Text("End Jam") }
             }
-        } else Button(enabled = !state.busy, onClick = jam::start, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)) { Text("Start Jam") }
+        } else Button(enabled = !state.busy, onClick = jam::start, modifier = Modifier.fillMaxWidth().height(48.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)) { if (state.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text("Start Jam") }
+        }
     }
     if (showQr && state.url.isNotBlank()) {
         val bitmap = remember(state.url) {
