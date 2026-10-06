@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,7 +26,7 @@ fun ArtistSongsScreen(artistId: String, searchViewModel: SearchViewModel, musicV
     }
     val songs = state.allTracks.ifEmpty { state.topTracks }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 16.dp)) {
+        LazyColumn(Modifier.fillMaxSize().stableStatusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 16.dp)) {
             item {
                 Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                     Text("Songs", style = MaterialTheme.typography.headlineMedium)

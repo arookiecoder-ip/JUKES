@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableNavigationBarsPadding
+
 import android.annotation.SuppressLint
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
@@ -53,7 +55,7 @@ fun AccountBrowser(url: String, onClose: () -> Unit) {
     }
     DisposableEffect(Unit) { onDispose { browser?.stopLoading(); browser?.destroy(); clearCookies() } }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())).navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())).stableNavigationBarsPadding()) {
             GlassTopAppBar(
                 title = { Text("Account sign-in") },
                 navigationIcon = {

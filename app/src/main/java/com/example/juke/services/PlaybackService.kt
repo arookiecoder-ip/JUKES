@@ -115,7 +115,7 @@ class PlaybackService : MediaLibraryService() {
             thumbnailUri?.takeIf { it.isNotEmpty() }?.let { uriString ->
                 try {
                     val artworkUri = when {
-                        uriString.startsWith("http", ignoreCase = true) -> uriString.toUri()
+                        uriString.startsWith("http", ignoreCase = true) -> com.example.juke.network.largeArtworkUrl(uriString).toUri()
                         uriString.startsWith("file://", ignoreCase = true) -> uriString.toUri()
                         uriString.startsWith("content://", ignoreCase = true) -> uriString.toUri()
                         else -> {
@@ -988,7 +988,7 @@ class PlaybackService : MediaLibraryService() {
         // Closing the task stops this phone, never the Echo.
         player.pause()
         player.stop()
-        RemotePlaybackService.stop(applicationContext)
+        RemotePlaybackService.dismiss(applicationContext)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         super.onTaskRemoved(rootIntent)
@@ -1388,6 +1388,7 @@ class PlaybackManager private constructor(private val context: Context) {
     val snapshot: StateFlow<PhonePlaybackSnapshot> = _snapshot.asStateFlow()
     private var pendingQueueAction: ((MediaController) -> Unit)? = null
     private var userQueueRequested = false
+    private var pausedAtMs = android.os.SystemClock.elapsedRealtime()
     private fun publishSnapshot(ctrl: MediaController) {
         _snapshot.value = PhonePlaybackSnapshot((0 until ctrl.mediaItemCount).map { ctrl.getMediaItemAt(it).mediaId },
             ctrl.currentMediaItem?.mediaId)
@@ -1453,7 +1454,14 @@ class PlaybackManager private constructor(private val context: Context) {
         if (controllerFuture == null) {
             val sessionToken =
                 SessionToken(context, ComponentName(context, PlaybackService::class.java))
-            controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+            controllerFuture = MediaController.Builder(context, sessionToken).setListener(object : MediaController.Listener {
+                override fun onDisconnected(disconnected: MediaController) {
+                    if (controller === disconnected) {
+                        controller = null; controllerFuture = null
+                        _isPlaying.value = false; _isBuffering.value = false
+                    }
+                }
+            }).buildAsync()
             controllerFuture?.addListener(
                 {
                     controller = controllerFuture?.get()
@@ -1499,6 +1507,11 @@ class PlaybackManager private constructor(private val context: Context) {
                                     "Timeline changed (reason=$reason), updated queue flow with ${newScan.size} items"
                                 )
                             }
+                        }
+
+                        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                            if (playWhenReady) pausedAtMs = 0L
+                            else if (pausedAtMs == 0L) pausedAtMs = android.os.SystemClock.elapsedRealtime()
                         }
 
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -1788,6 +1801,9 @@ class PlaybackManager private constructor(private val context: Context) {
         return false
     }
 
+
+    fun needsPlaybackReload(): Boolean = shouldReloadPhonePlayback(controller != null, controller?.playerError != null,
+        controller?.playbackState == Player.STATE_IDLE, if (pausedAtMs == 0L) 0L else (android.os.SystemClock.elapsedRealtime() - pausedAtMs).coerceAtLeast(0))
 
     fun togglePlayPause() {
         controller?.let {

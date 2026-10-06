@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
@@ -33,7 +35,7 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
     Box(Modifier.fillMaxSize()) {
         if (state.error != null && state.items.isEmpty()) ConnectionErrorState(state.error.orEmpty(), releases::loadMore,
             Modifier.fillMaxSize().padding(bottom = bottomPadding))
-        else LazyVerticalGrid(GridCells.Adaptive(148.dp), Modifier.fillMaxSize().statusBarsPadding(), state = grid,
+        else LazyVerticalGrid(GridCells.Adaptive(148.dp), Modifier.fillMaxSize().stableStatusBarsPadding(), state = grid,
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 60.dp, bottom = bottomPadding + 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item(span = { GridItemSpan(maxLineSpan) }) { Text(kind.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.headlineMedium) }

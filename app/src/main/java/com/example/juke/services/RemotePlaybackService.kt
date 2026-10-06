@@ -42,7 +42,7 @@ class RemotePlaybackService : MediaSessionService() {
         val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
         echo = EchoController(scope, prefs,
             onError = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() }, onSignedOut = { stopSelf() })
-        remote = EchoPlayer().apply { snapshot = initialSnapshot ?: EchoState() }
+        remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
@@ -77,12 +77,12 @@ class RemotePlaybackService : MediaSessionService() {
             }
         }
         scope.launch { AccountRepository.liked.collect { updateLike() } }
-        echo.startPolling(foreground = true)
+        if (!prefs.getBoolean("remote_controls_dismissed", false)) echo.startPolling(foreground = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
-        if (prefs.getString("playback_output", "PHONE") != "ALEXA") {
+        if (prefs.getBoolean("remote_controls_dismissed", false) || prefs.getString("playback_output", "PHONE") != "ALEXA") {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -104,6 +104,7 @@ class RemotePlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Only remove the remote controls; never send a pause to Alexa.
+        getSharedPreferences("music_settings_prefs", MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         super.onTaskRemoved(rootIntent)
@@ -129,7 +130,7 @@ class RemotePlaybackService : MediaSessionService() {
                 MediaItemData.Builder("$i:${song.ytVideoId ?: song.uuid}")
                     .setMediaItem(MediaItem.Builder().setMediaId(song.ytVideoId ?: song.uuid)
                         .setMediaMetadata(MediaMetadata.Builder().setTitle(song.title).setArtist(song.artist)
-                            .apply { song.thumbnailUri?.takeIf(String::isNotBlank)?.let { setArtworkUri(it.toUri()) } }.build()).build())
+                            .apply { song.thumbnailUri?.takeIf(String::isNotBlank)?.let { setArtworkUri(com.example.juke.network.largeArtworkUrl(it).toUri()) } }.build()).build())
                     .setDurationUs(if (duration > 0) duration * 1000 else C.TIME_UNSET).build()
             }
             return State.Builder().setAvailableCommands(Player.Commands.Builder().addAll(
@@ -169,9 +170,14 @@ class RemotePlaybackService : MediaSessionService() {
 
     companion object {
         private const val LIKE = "REMOTE_LIKE"
+        fun dismiss(context: Context) {
+            context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
+            stop(context)
+        }
         fun stop(context: Context) { context.stopService(Intent(context, RemotePlaybackService::class.java)) }
         @Volatile internal var initialSnapshot: EchoState? = null
         fun start(context: Context, snapshot: EchoState = EchoState(), foreground: Boolean = false) {
+            if (context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE).getBoolean("remote_controls_dismissed", false)) return
             initialSnapshot = snapshot
             try { context.startService(Intent(context, RemotePlaybackService::class.java).putExtra("foreground", foreground)) }
             catch (_: IllegalStateException) { /* The next foreground entry reconnects if Android stopped an idle service. */ }

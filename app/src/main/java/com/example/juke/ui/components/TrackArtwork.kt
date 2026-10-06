@@ -39,8 +39,8 @@ fun TrackArtwork(track: Track, modifier: Modifier = Modifier, large: Boolean = f
     val online by com.example.juke.network.NetworkFeedback.online.collectAsState()
     LaunchedEffect(online) { if (online && exhausted) { candidate = 0; exhausted = false; retry++ } }
     LaunchedEffect(exhausted, online, retry) {
-        if (exhausted && online && retry < 2) {
-            kotlinx.coroutines.delay(3_000)
+        if (exhausted && online && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            kotlinx.coroutines.delay(if (retry < 2) 3_000 else 30_000)
             candidate = 0; exhausted = false; retry++
         }
     }

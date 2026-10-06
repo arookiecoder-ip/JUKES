@@ -1,5 +1,9 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableNavigationBarsPadding
+
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.material.icons.filled.Radio
 
 import com.example.juke.ui.components.GlassAlertDialog
@@ -350,7 +354,7 @@ fun PlayerScreen(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .navigationBarsPadding()
+                    .stableNavigationBarsPadding()
             ) {
                 val compact = maxHeight < 680.dp
                 com.example.juke.ui.components.player.ResponsivePlayerLayout(artwork = {
@@ -358,7 +362,7 @@ fun PlayerScreen(
                         PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
                             currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
                             isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
-                        Box(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 20.dp)) {
+                        Box(Modifier.align(Alignment.TopCenter).stableStatusBarsPadding().padding(horizontal = 20.dp)) {
                         PlayerHeader(
                             onDismiss = onDismiss,
                             onShowSleepTimer = { showSleepTimerDialog = true },

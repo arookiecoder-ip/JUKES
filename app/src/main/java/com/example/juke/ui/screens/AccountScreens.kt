@@ -1,5 +1,9 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableNavigationBarsPadding
+
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -115,8 +119,8 @@ fun SignInScreen(state: AccountUiState, account: AccountViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+                .stableStatusBarsPadding()
+                .stableNavigationBarsPadding()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 32.dp),
@@ -339,8 +343,8 @@ fun AccountCheckScreen(state: AccountUiState, account: AccountViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+                .stableStatusBarsPadding()
+                .stableNavigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
