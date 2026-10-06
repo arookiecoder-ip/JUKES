@@ -77,7 +77,7 @@ class RemotePlaybackService : MediaSessionService() {
             }
         }
         scope.launch { AccountRepository.liked.collect { updateLike() } }
-        echo.startPolling(foreground = false)
+        echo.startPolling(foreground = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -88,19 +88,27 @@ class RemotePlaybackService : MediaSessionService() {
         }
         val serial = prefs.getString("echo_serial", "").orEmpty()
         if (serial.isNotBlank() && serial != echo.serial.value) echo.select(serial)
-        initialSnapshot?.let { remote.snapshot = it; remote.refresh() }
-        echo.startPolling(foreground = intent?.getBooleanExtra("foreground", false) == true)
-        return super.onStartCommand(intent, flags, startId)
+        // Existing sessions retain the latest polled state, not the Activity seed.
+        echo.startPolling(foreground = true)
+        super.onStartCommand(intent, flags, startId)
+        return START_NOT_STICKY
     }
 
     private fun updateLike() {
         session?.setCustomLayout(listOf(CommandButton.Builder()
-            .setDisplayName("Like").setIconResId(if (AccountRepository.isLiked(echo.state.value.track?.ytVideoId))
+            .setDisplayName("Like").setIconResId(if (AccountRepository.isLiked(remote.snapshot.track?.ytVideoId))
                 R.drawable.thumb_up_filled else R.drawable.thumb_up_outline)
             .setSessionCommand(SessionCommand(LIKE, Bundle.EMPTY)).build()))
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Only remove the remote controls; never send a pause to Alexa.
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         echo.clear()
         session?.let { removeSession(it); it.release() }; remote.release(); scope.cancel()

@@ -61,7 +61,7 @@ fun ArtistDetailScreen(
             ) {
                 item(key = "hero") {
                     DetailHero(state.imageUrl, artist = true) {
-                    Column(Modifier.fillMaxWidth().padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 12.dp)) {
+                    Column(Modifier.fillMaxWidth().heightIn(min = 380.dp).padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.Bottom) {
                         Text(artist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                         if (state.subscribers.isNotBlank()) Text(state.subscribers + if (state.subscribers.contains("subscriber", true)) "" else " subscribers", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.description.isNotBlank()) {

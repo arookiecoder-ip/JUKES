@@ -193,9 +193,7 @@ fun SettingsScreen(
                             }
                         }
                     )
-                    GlassButton(onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, "https://github.com/rajeet-04/JUKES".toUri()))
-                    }) { Text("⭐ Star on GitHub") }
+
                 }
             }
             item { androidx.compose.material3.Button(
@@ -203,6 +201,11 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(), shape = RectangleShape,
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
             ) { Text("Sign out") } }
+            item {
+                GlassButton(onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, "https://github.com/rajeet-04/JUKES".toUri()))
+                }) { Text("⭐ Star on GitHub") }
+            }
         }
     }
 }

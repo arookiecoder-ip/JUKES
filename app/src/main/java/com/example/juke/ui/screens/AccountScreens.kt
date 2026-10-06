@@ -418,8 +418,8 @@ fun AccountStatusCard(state: AccountUiState, account: AccountViewModel) {
             )
             Text("Audio server: ${Backend.audioBaseUrl}", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(modifier = Modifier.weight(1f), onClick = { account.refreshStatus(checkAudio = true) }, enabled = !state.checkingStatus && !state.cookieBusy) { Text(if (state.checkingStatus) "Checking…" else "Check again") }
-                TextButton(modifier = Modifier.weight(1f), onClick = { showCookies = true }, enabled = !state.cookieBusy && !state.checkingStatus) { Text("Replace cookies") }
+                androidx.compose.material3.Button(modifier = Modifier.weight(1f), shape = RoundedCornerShape(4.dp), onClick = { account.refreshStatus(checkAudio = true) }, enabled = !state.checkingStatus && !state.cookieBusy) { Text(if (state.checkingStatus) "Checking…" else "Check again") }
+                androidx.compose.material3.FilledTonalButton(modifier = Modifier.weight(1f), shape = RoundedCornerShape(4.dp), onClick = { showCookies = true }, enabled = !state.cookieBusy && !state.checkingStatus) { Text("Replace cookies") }
             }
         }
     }
@@ -477,7 +477,8 @@ private fun DownloadCookiesDialog(state: AccountUiState, account: AccountViewMod
             finally { reading = false }
         }
     }
-    AlertDialog(
+    GlassAlertDialog(
+        shape = RoundedCornerShape(4.dp),
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("Replace download cookies") },
         text = {

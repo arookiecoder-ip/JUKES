@@ -683,7 +683,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         val queue = state.queue.ifEmpty { listOf(track) }
         val index = state.index.takeIf { it in queue.indices } ?: 0
-        transferPlayback(
+        com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
+        try { transferPlayback(
             pauseSource = { if (wasPlaying) echo.command("pause", refreshAfter = false) },
             startTarget = {
                 phoneSetQueue(queue.map { it.copy(uuid = java.util.UUID.randomUUID().toString()) }, index,
@@ -693,7 +694,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             restoreSource = { if (wasPlaying) echo.command("play") },
             stopTarget = { playbackManager.pause() },
             commit = { setOutputPreference(PlaybackOutput.PHONE); updatePolling() }
-        )
+        ) } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
 
     private suspend fun movePhoneToEcho() {
