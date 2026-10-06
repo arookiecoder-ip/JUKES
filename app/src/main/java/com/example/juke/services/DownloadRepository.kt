@@ -115,6 +115,7 @@ class DownloadRepository private constructor(private val context: Context) {
                         directory.mkdirs(); target.delete()
                         manager.enqueue(DownloadManager.Request(AlexaBackendApi.audioUrl(video).toUri())
                             .addRequestHeader("X-Api-Key", com.example.juke.network.Backend.apiKey)
+                            .addRequestHeader("X-MusicBox-Download", "1")
                             .setTitle(track.title).setDescription(track.artist)
                             // The app notification opens Downloads, never an incomplete/raw audio file.
                             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
