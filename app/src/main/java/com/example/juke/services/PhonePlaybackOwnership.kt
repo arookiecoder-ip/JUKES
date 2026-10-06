@@ -10,6 +10,7 @@ import java.util.UUID
 
 /** Shared with the foreground playback service, so handoffs work after the Activity closes. */
 object PhonePlaybackOwnership {
+    val queueNeedsSync = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private lateinit var prefs: SharedPreferences
     private val remote = MutableStateFlow<SharedPlaybackOutput?>(null)
     val remoteOutput = remote.asStateFlow()

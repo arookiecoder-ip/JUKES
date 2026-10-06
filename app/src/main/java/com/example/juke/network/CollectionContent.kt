@@ -13,3 +13,24 @@ fun resolvedCollectionItem(item: BrowseItem, details: JsonObject): BrowseItem {
 }
 
 data class CollectionContent(val item: BrowseItem, val tracks: List<Track>, val fetchedAtMs: Long = System.currentTimeMillis())
+
+/** Continuation means another page, not a queue-limit violation; tolerate stale provider counts. */
+internal suspend fun completeCollectionDetails(load: suspend (Long, Boolean) -> JsonObject): JsonObject {
+    var page = load(0, true)
+    val first = page
+    val tracks = page.array("tracks").toMutableList()
+    var offset = 0L
+    var pages = 0
+    while (page.flag("has_more") && page.array("tracks").isNotEmpty()) {
+        check(++pages <= 60) { "The playlist continuation could not finish" }
+        val next = page.number("next_offset").takeIf { it > offset } ?: (offset + page.array("tracks").size)
+        page = load(next, false)
+        offset = next
+        tracks += page.array("tracks")
+        check(tracks.count { it.objectOrEmpty().text("videoId", "video_id").isNotBlank() } <= 5000) {
+            "This playlist exceeds the 5,000-song queue limit"
+        }
+    }
+    check(tracks.count { it.objectOrEmpty().text("videoId", "video_id").isNotBlank() } <= 5000) { "This playlist exceeds the 5,000-song queue limit" }
+    return JsonObject(first + ("tracks" to kotlinx.serialization.json.JsonArray(tracks)) + ("has_more" to kotlinx.serialization.json.JsonPrimitive(false)))
+}

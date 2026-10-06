@@ -260,7 +260,7 @@ class EchoController(
                 check(expectedPhoneToken == null || PhonePlaybackOwnership.permitsPlayback(expectedPhoneToken)) { "A newer phone play superseded this switch." }
                 AlexaBackendApi.updateQueue("start", videoId, playable.map(AlexaBackendApi::backendTrack),
                     playing = false, positionMs = positionMs.coerceAtLeast(0), queueIndex = targetIndex,
-                    buffering = false)
+                    buffering = false, expectedToken = expectedPhoneToken ?: PhonePlaybackOwnership.token)
             },
             resume = { command("play", refreshAfter = false, expectedPhoneToken = expectedPhoneToken) },
             keepPaused = { seek(positionMs, refreshAfter = false, expectedPhoneToken = expectedPhoneToken) })

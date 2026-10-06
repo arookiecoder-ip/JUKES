@@ -141,13 +141,14 @@ object AlexaBackendApi {
 
     suspend fun updateQueue(
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
-        playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null, buffering: Boolean = false
+        playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null, buffering: Boolean = false,
+        expectedToken: String = com.example.juke.services.PhonePlaybackOwnership.token
     ) {
         requireConfigured()
         publishPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey,
             QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex,
                 com.example.juke.services.PhonePlaybackOwnership.ownerId,
-                com.example.juke.services.PhonePlaybackOwnership.token, buffering))
+                expectedToken, buffering))
     }
 
     suspend fun phoneQueueSnapshot(): kotlinx.serialization.json.JsonObject {

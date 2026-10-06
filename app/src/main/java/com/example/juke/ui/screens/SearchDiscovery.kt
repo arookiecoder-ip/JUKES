@@ -35,11 +35,11 @@ fun SearchLandingContent(history: List<String>, recommendations: List<Track>, lo
     onRetry: () -> Unit, music: MusicViewModel, bottomPadding: Dp) {
     LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp).let {
         PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 24.dp)
-    }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (history.isNotEmpty()) item { Text("Recent searches", style = MaterialTheme.typography.titleMedium) }
         fun recent(queries: List<String>) {
             items(queries, key = { "history:$it" }) { query ->
-                Row(Modifier.fillMaxWidth().clickable { onSearch(query) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable { onSearch(query) }.padding(vertical = 0.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.History, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(query, Modifier.weight(1f).padding(horizontal = 16.dp), maxLines = 1)
                     IconButton(onClick = { onRemove(query) }) { Icon(Icons.Default.Close, "Remove $query") }
