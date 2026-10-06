@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
-import android.widget.Toast
 import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
@@ -41,7 +40,11 @@ class RemotePlaybackService : MediaSessionService() {
         super.onCreate()
         val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
         echo = PlaybackCoordinator.echo(this)
-        scope.launch { PlaybackCoordinator.errors.collect { Toast.makeText(this@RemotePlaybackService, it, Toast.LENGTH_SHORT).show() } }
+        scope.launch { PlaybackCoordinator.errors.collect {
+            // Service outlives the Activity: route through the foreground-guarded channel
+            // instead of toasting directly while minimized.
+            com.example.juke.network.NetworkFeedback.notify(it)
+        } }
         scope.launch { PlaybackCoordinator.signedOut.collect { stopSelf() } }
         remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
@@ -161,7 +164,7 @@ class RemotePlaybackService : MediaSessionService() {
                 try { action(); refresh(); result.set(null) }
                 catch (e: CancellationException) { result.cancel(false); throw e }
                 catch (e: Exception) {
-                    Toast.makeText(this@RemotePlaybackService, "Couldn't update Alexa playback", Toast.LENGTH_SHORT).show()
+                    com.example.juke.network.NetworkFeedback.notify("Couldn't update Alexa playback")
                     result.setException(e)
                 }
             }
