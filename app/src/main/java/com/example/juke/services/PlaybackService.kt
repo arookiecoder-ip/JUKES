@@ -834,7 +834,7 @@ class PlaybackService : MediaLibraryService() {
                     val status = kotlinx.coroutines.withTimeoutOrNull(1_500) {
                         com.example.juke.network.AlexaBackendApi.phoneOutputStatus()
                     }
-                    if (PhonePlaybackOwnership.token != claim || PhonePlaybackOwnership.localHandoff) continue
+                    if (!canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                     if (status != null && !status.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) {
                         player.pause()
                         if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
@@ -856,12 +856,12 @@ class PlaybackService : MediaLibraryService() {
                                 PhonePlaybackOwnership.ownerId, claim)
                         }
                         if (renewed != null) {
-                            if (PhonePlaybackOwnership.token != claim || PhonePlaybackOwnership.localHandoff) continue
+                            if (!canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                             PhonePlaybackOwnership.accept(renewed)
                             lastReport = now
                             val mediaId = player.currentMediaItem?.mediaId
                             val current = mediaId?.let { database.trackDao().getTrackByUuid(it) }
-                            if (player.currentMediaItem?.mediaId != mediaId || PhonePlaybackOwnership.token != claim) continue
+                            if (player.currentMediaItem?.mediaId != mediaId || !canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                             current?.ytVideoId?.takeIf { it.isNotBlank() }?.let { video ->
                                 kotlinx.coroutines.withTimeoutOrNull(1_500) {
                                     com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
