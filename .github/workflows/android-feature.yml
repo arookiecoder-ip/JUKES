@@ -10,6 +10,10 @@ on:
       - '.github/signing/debug-certificate.sha256'
   workflow_dispatch:
     inputs:
+      handoff_tests:
+        description: Run only audio output handoff and ownership unit tests (no emulator)
+        type: boolean
+        default: false
       playback_tests:
         description: Run only the focused player and feature regression tests
         type: boolean
@@ -95,8 +99,20 @@ jobs:
           status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://alexa.synthora.in/login/)
           test "$status" = "200" || { echo "Account login endpoint returned $status instead of 200"; exit 1; }
 
+      - name: Check audio output handoff and ownership
+        if: ${{ inputs.handoff_tests == true }}
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --no-daemon
+
       - name: Check browse, playback presentation and Echo snapshots
+        if: ${{ inputs.handoff_tests != true }}
         run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.PhoneQueueRequestTest' --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.network.DeviceAudioTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.network.SearchRankingTest' --tests 'com.example.juke.network.YoutubeLinkTest' --tests 'com.example.juke.utils.PlaybackTimeTest' --tests 'com.example.juke.utils.OfflineNavigationTest' --no-daemon
+
+      - name: Upload handoff test results
+        if: ${{ always() && inputs.handoff_tests == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: handoff-test-results
+          path: app/build/test-results/testDebugUnitTest/*.xml
 
       - name: Build debug APK (no local SDK needed; ANDROID_HOME is preinstalled)
         run: |
