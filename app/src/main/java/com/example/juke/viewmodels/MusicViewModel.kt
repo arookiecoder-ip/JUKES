@@ -329,6 +329,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     init {
         playbackManager.initialize()
         viewModelScope.launch {
+            com.example.juke.services.PhonePlaybackOwnership.queueNeedsSync.collect {
+                if (!isAlexa && !_isSwitchingOutput.value && signedIn) synchronizePhoneQueue()
+            }
+        }
+        viewModelScope.launch {
             var previouslyOffline = false
             com.example.juke.network.NetworkFeedback.online.collect { online ->
                 if (!online) { previouslyOffline = true; return@collect }
@@ -913,8 +918,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val key = "${item.kind}:${item.id}"
         collectionCache[key]?.takeIf { System.currentTimeMillis() - it.fetchedAtMs < 60_000 }?.let { return@withLock it }
         val path = if (item.kind == "album") "/api/album/${item.id}" else "/api/library/playlists/${item.playlistId.ifBlank { item.id.removePrefix("VL") }}"
-        val data = Backend.get(path, if (item.kind == "album") emptyMap() else mapOf("playback" to "1", "limit" to "5000")).objectOrEmpty()
-        check(!data.flag("has_more")) { "This playlist exceeds the 5,000-song queue limit" }
+        val data = if (item.kind == "album") Backend.get(path).objectOrEmpty() else
+            com.example.juke.network.completeCollectionDetails { offset, bulk ->
+                Backend.get(path, if (bulk) mapOf("playback" to "1", "limit" to "5000")
+                    else mapOf("offset" to offset.toString(), "limit" to "100")).objectOrEmpty()
+            }
         val resolved = com.example.juke.network.resolvedCollectionItem(item, data)
         val tracks = withContext(Dispatchers.Default) {
             data.array("tracks").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
@@ -1071,7 +1079,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 AlexaBackendApi.updateQueue("start", seed, items,
                     if (firstPublication) playing else playbackManager.isPlayingFlow.value,
                     if (firstPublication) positionMs else playbackManager.getCurrentPosition(),
-                    queueIndex = index, buffering = playbackManager.isBufferingFlow.value)
+                    queueIndex = index, buffering = playbackManager.isBufferingFlow.value, expectedToken = claim)
                 firstPublication = false
             },
             expand = expand@{ initial ->
@@ -1129,6 +1137,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (expired) _signedOut.tryEmit(Unit)
             }
             catch (e: Exception) {
+                if (e is com.example.juke.network.BackendHttpException && e.statusCode == 409) {
+                    _queueLoadError.value = null
+                    val latest = runCatching { AlexaBackendApi.phoneOutputStatus() }.getOrNull()
+                    if (latest?.mode == "alexa") adoptRemoteAlexa(latest)
+                    else if (latest?.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId,
+                            com.example.juke.services.PhonePlaybackOwnership.token) == true) viewModelScope.launch {
+                        delay(300)
+                        if (!isAlexa && !_isSwitchingOutput.value) synchronizePhoneQueue()
+                    }
+                    return@launch
+                }
                 val detail = com.example.juke.network.networkErrorMessage(e)
                     ?: (e as? com.example.juke.network.BackendHttpException)?.let { "Server error (HTTP ${it.statusCode}). Try again." }
                     ?: "Try again."

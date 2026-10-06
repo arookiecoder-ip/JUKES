@@ -24,4 +24,24 @@ class CollectionContentTest {
         val fixed = resolvedCollectionItem(card, raw("{}"))
         assertEquals(card.title, fixed.title); assertEquals(card.subtitle, fixed.subtitle); assertEquals(card.image, fixed.image)
     }
+    @Test fun continuationFlagOnThousandSongPlaylistIsNotAQueueLimitError() = kotlinx.coroutines.runBlocking {
+        val calls = mutableListOf<Long>()
+        val data = completeCollectionDetails { offset, _ ->
+            calls += offset
+            if (offset == 0L) kotlinx.serialization.json.buildJsonObject {
+                put("tracks", kotlinx.serialization.json.JsonArray((0 until 1000).map { raw("""{"videoId":"$it"}""") }))
+                put("has_more", kotlinx.serialization.json.JsonPrimitive(true))
+                put("next_offset", kotlinx.serialization.json.JsonPrimitive(1000))
+            } else raw("""{"tracks":[],"has_more":true}""")
+        }
+        assertEquals(1000, data.array("tracks").size); assertEquals(listOf(0L, 1000L), calls)
+    }
+    @Test fun legacyHundredSongPagesAreFullyCollected() = kotlinx.coroutines.runBlocking {
+        val data = completeCollectionDetails { offset, _ -> kotlinx.serialization.json.buildJsonObject {
+            put("tracks", kotlinx.serialization.json.JsonArray((offset until offset + 100).map { raw("""{"videoId":"$it"}""") }))
+            put("has_more", kotlinx.serialization.json.JsonPrimitive(offset < 900))
+            put("next_offset", kotlinx.serialization.json.JsonPrimitive(offset + 100))
+        } }
+        assertEquals(1000, data.array("tracks").size)
+    }
 }

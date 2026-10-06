@@ -51,6 +51,7 @@ import androidx.media3.session.SessionToken
 import com.example.juke.R
 import com.example.juke.analytics.AnalyticsManager
 import com.example.juke.database.MusicDatabase
+import com.example.juke.network.toAppTrack
 import com.example.juke.database.toEntity
 import com.example.juke.database.toTrack
 import com.example.juke.models.Track
@@ -512,10 +513,61 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private var queueContinuationJob: Job? = null
+    private var lastContinuationSeed = ""
+    private var continuationRetryAt = 0L
+    private fun maybeExtendPhoneQueue() {
+        if (!player.playWhenReady || !com.example.juke.network.NetworkFeedback.online.value ||
+            !PhonePlaybackOwnership.permitsPlayback() || PhonePlaybackOwnership.token.isBlank() ||
+            outputPrefs.getString("playback_output", "PHONE") == "ALEXA" || queueContinuationJob?.isActive == true ||
+            android.os.SystemClock.elapsedRealtime() < continuationRetryAt || player.mediaItemCount >= 5000 ||
+            player.mediaItemCount - player.currentMediaItemIndex - 1 > 2) return
+        val current = player.currentMediaItem ?: return
+        val claim = PhonePlaybackOwnership.token
+        val seedKey = "$claim:${current.mediaId}"
+        if (lastContinuationSeed == seedKey) return
+        val before = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+        queueContinuationJob = serviceScope.launch {
+            try {
+                val seed = withContext(Dispatchers.IO) { database.trackDao().getTrackByUuid(current.mediaId)?.toTrack() } ?: return@launch
+                val video = seed.ytVideoId ?: return@launch
+                val radio = kotlinx.coroutines.withTimeout(12_000) { com.example.juke.network.AlexaBackendApi.getRadio(video) }
+                val oldTracks = withContext(Dispatchers.IO) { before.mapNotNull { database.trackDao().getTrackByUuid(it)?.toTrack() } }
+                val ids = unheardQueueIds(oldTracks.mapNotNull { it.ytVideoId }, radio.map { it.videoId })
+                val tracks = radio.distinctBy { it.videoId }.filter { it.videoId in ids }.map {
+                    val online = it.toAppTrack(com.example.juke.network.AlexaBackendApi.audioUrl(it.videoId))
+                    DownloadRepository.get(applicationContext).localTrack(online) ?: online
+                }
+                val now = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+                if (!canApplyQueueContinuation(before, now, claim, PhonePlaybackOwnership.token,
+                        PhonePlaybackOwnership.permitsPlayback(claim))) return@launch
+                lastContinuationSeed = seedKey
+                if (tracks.isEmpty()) return@launch
+                withContext(Dispatchers.IO) { database.trackDao().insertTracks(tracks.map { it.toEntity() }) }
+                if (!canApplyQueueContinuation(before, (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId },
+                        claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.permitsPlayback(claim))) return@launch
+                val ended = player.playbackState == Player.STATE_ENDED && player.playWhenReady
+                player.addMediaItems(tracks.mapNotNull(::createValidatedMediaItem))
+                if (ended && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
+                val index = player.currentMediaItemIndex
+                val all = oldTracks + tracks
+                val selected = all.getOrNull(index) ?: return@launch
+                com.example.juke.network.AlexaBackendApi.updateQueue("start", requireNotNull(selected.ytVideoId),
+                    all.map(com.example.juke.network.AlexaBackendApi::backendTrack), player.isPlaying,
+                    player.currentPosition.coerceAtLeast(0), index, player.playbackState == Player.STATE_BUFFERING,
+                    expectedToken = claim)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                continuationRetryAt = android.os.SystemClock.elapsedRealtime() + 30_000
+                PhonePlaybackOwnership.queueNeedsSync.tryEmit(Unit)
+            }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
-                Player.STATE_ENDED -> Log.d(TAG, "Playback ended")
+                Player.STATE_ENDED -> { Log.d(TAG, "Playback ended"); maybeExtendPhoneQueue() }
                 Player.STATE_READY -> Log.d(TAG, "Player ready")
                 Player.STATE_BUFFERING -> Log.d(TAG, "Buffering...")
                 Player.STATE_IDLE -> Log.d(TAG, "Player idle")
@@ -566,6 +618,7 @@ class PlaybackService : MediaLibraryService() {
                 }
                 currentPlayingTrackId = trackId
                 lastReportedListen = null
+                maybeExtendPhoneQueue()
                 if (player.isPlaying) reportDeviceListen()
                 Log.d(TAG, "Media item transition: $trackId, reason: $reason")
                 // Note: Play count is now incremented only when track reaches 50% via checkPlayCountThreshold()
@@ -772,6 +825,7 @@ class PlaybackService : MediaLibraryService() {
                 delay(1_000)
                 val claim = PhonePlaybackOwnership.token
                 if (claim.isBlank()) continue
+                maybeExtendPhoneQueue()
                 try {
                     val status = kotlinx.coroutines.withTimeoutOrNull(1_500) {
                         com.example.juke.network.AlexaBackendApi.phoneOutputStatus()
@@ -808,13 +862,17 @@ class PlaybackService : MediaLibraryService() {
                                 kotlinx.coroutines.withTimeoutOrNull(1_500) {
                                     com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
                                         player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
-                                        buffering = player.playbackState == Player.STATE_BUFFERING)
+                                        buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim)
                                 }
                             }
                         }
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                catch (e: Exception) { Log.w(TAG, "Playback ownership refresh failed: ${e.javaClass.simpleName}") }
+                catch (e: Exception) {
+                    if (e is com.example.juke.network.BackendHttpException && e.statusCode == 409 && PhonePlaybackOwnership.token == claim)
+                        PhonePlaybackOwnership.queueNeedsSync.tryEmit(Unit)
+                    Log.w(TAG, "Playback ownership refresh failed: ${e.javaClass.simpleName}")
+                }
                 if (PhonePlaybackOwnership.token.isNotBlank() &&
                     android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) {
                     // During a partition, never keep streaming beyond our exclusive lease.
