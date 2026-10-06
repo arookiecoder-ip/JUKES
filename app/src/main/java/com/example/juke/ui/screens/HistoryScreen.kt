@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -36,7 +38,7 @@ fun HistoryScreen(music: MusicViewModel, onBack: () -> Unit, bottomPadding: Dp) 
     Box(Modifier.fillMaxSize()) {
         if (error != null) ConnectionErrorState(error.orEmpty(), { retry++ },
             Modifier.fillMaxSize().padding(bottom = bottomPadding))
-        else LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 16.dp)) {
+        else LazyColumn(Modifier.fillMaxSize().stableStatusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 16.dp)) {
             item { Text("History", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.headlineMedium) }
             if (loading && tracks.isEmpty()) item { Box(Modifier.padding(horizontal = 20.dp)) { DiscoverySkeleton(moods = false) } }
             itemsIndexed(tracks, key = { index, track -> "$index:${track.ytVideoId}" }) { index, track ->

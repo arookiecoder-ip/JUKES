@@ -1,5 +1,7 @@
 package com.example.juke.ui.components
 
+import com.example.juke.ui.components.stableNavigationBarsPadding
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -73,7 +75,7 @@ fun GlassNavBar(items: List<GlassNavItem>, modifier: Modifier = Modifier) {
     GlassTabGroup(
         items = items,
         vertical = false,
-        modifier = modifier.fillMaxWidth().clip(GlassShapes.Bar).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF303034), Color(0xFF252529)))).navigationBarsPadding().padding(6.dp)
+        modifier = modifier.fillMaxWidth().clip(GlassShapes.Bar).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF303034), Color(0xFF252529)))).stableNavigationBarsPadding().padding(6.dp)
     )
 }
 

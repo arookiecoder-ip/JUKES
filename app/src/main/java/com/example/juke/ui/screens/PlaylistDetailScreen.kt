@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -31,7 +33,7 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
                 playlist?.let { playlistDetailViewModel.loadPlaylistDetails(it) }
             }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
         } else if (playlist == null || (state.isLoading && state.tracks.isEmpty())) {
-            MediaDetailSkeleton(modifier = Modifier.statusBarsPadding(), contentPadding = PaddingValues(20.dp))
+            MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
             item(key = "hero") {
                 CollectionDetailHero(playlist, state.title, state.imageUrl, state.author.takeIf { it.isNotBlank() }?.let { "By $it" }.orEmpty(),

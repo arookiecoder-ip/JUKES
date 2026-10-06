@@ -548,6 +548,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     /** The app moved to the foreground or background: poll the Echo every 3 s or 10 s. */
     fun setForeground(foreground: Boolean) {
         isForeground = foreground
+        if (foreground) settingsPrefs.edit { putBoolean("remote_controls_dismissed", false) }
         if (foreground && signedIn && serverPlaybackChecked) viewModelScope.launch {
             try {
                 val claim = com.example.juke.services.PhonePlaybackOwnership.token
@@ -1233,8 +1234,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             launchEcho { echo.command(if (playing) "pause" else "play") }
             return
         }
-        if (playbackManager.isPlayingFlow.value) {
+        if (playbackManager.shouldResumeAfterTrackChange()) {
             playbackManager.togglePlayPause()
+        } else if (playbackManager.needsPlaybackReload() && _uiState.value.currentTrack != null) {
+            val state = _uiState.value
+            val current = requireNotNull(state.currentTrack)
+            val queue = state.queue.ifEmpty { listOf(current) }
+            val index = state.queueIndex.takeIf { it in queue.indices } ?: 0
+            launchPlayback(current) { phoneSetQueue(queue, index, playbackManager.getCurrentPosition().coerceAtLeast(0)) }
         } else viewModelScope.launch {
             runEcho {
                 if (com.example.juke.network.NetworkFeedback.online.value) {

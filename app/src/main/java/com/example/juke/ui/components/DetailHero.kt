@@ -1,5 +1,7 @@
 package com.example.juke.ui.components
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +37,7 @@ fun DetailHero(image: String?, artist: Boolean = false, content: @Composable Col
 
 @Composable
 fun DetailBackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
-    IconButton(onClick = onBack, modifier = modifier.statusBarsPadding().padding(8.dp)
+    IconButton(onClick = onBack, modifier = modifier.stableStatusBarsPadding().padding(8.dp)
         .size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.38f))) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
     }

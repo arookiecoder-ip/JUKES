@@ -1,5 +1,7 @@
 package com.example.juke.ui.components.player
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -16,7 +18,7 @@ fun ResponsivePlayerLayout(artwork: @Composable () -> Unit, controls: @Composabl
         val wide = paneWidth >= 600.dp && paneWidth > paneHeight
         if (wide) Row(Modifier.fillMaxSize().testTag("Landscape player")) {
             Box(Modifier.weight(1f).fillMaxHeight().testTag("Player artwork pane")) { artwork() }
-            Box(Modifier.weight(0.9f).fillMaxHeight().statusBarsPadding().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(0.9f).fillMaxHeight().stableStatusBarsPadding().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.widthIn(max = 640.dp).fillMaxSize().testTag("Player controls pane")) { controls() }
             }
         } else Column(Modifier.fillMaxSize().testTag("Portrait player"), horizontalAlignment = Alignment.CenterHorizontally) {

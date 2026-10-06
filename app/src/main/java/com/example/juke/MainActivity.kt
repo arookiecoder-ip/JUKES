@@ -1,5 +1,7 @@
 package com.example.juke
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.Manifest
@@ -528,7 +530,7 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
                     Row(modifier = Modifier.fillMaxSize()) {
                         if (isExpanded && currentRoute != "settings") {
-                            GlassNavRail(items = navItems, modifier = Modifier.statusBarsPadding())
+                            GlassNavRail(items = navItems, modifier = Modifier.stableStatusBarsPadding())
                         }
                         Box(Modifier.weight(1f).padding(contentPadding), contentAlignment = Alignment.TopCenter) {
                         NavHost(

@@ -1,5 +1,7 @@
 package com.example.juke.ui.components.player
 
+import com.example.juke.ui.components.stableNavigationBarsPadding
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -95,7 +97,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
             delay(16)
         }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).stableNavigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -129,7 +131,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 val dragging = draggedKey == key
                 val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
                     if (editable && !active && !dragging && value == SwipeToDismissBoxValue.EndToStart) {
-                        onRemoveTrack(track.uuid); true
+                        onRemoveTrack(track.uuid); false
                     } else false
                 })
                 val grip = Modifier.size(width = 36.dp, height = 56.dp).pointerInput(key, editable) {

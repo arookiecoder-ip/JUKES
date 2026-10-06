@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -117,7 +119,7 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
     Box(Modifier.fillMaxSize()) {
         if (error != null) ConnectionErrorState(error.orEmpty(), { retry++ },
             Modifier.fillMaxSize().padding(bottom = bottomPadding))
-        else LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        else LazyColumn(Modifier.fillMaxSize().stableStatusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineMedium) }
             if (loading && page == null) item { Box(Modifier.padding(horizontal = 20.dp)) { DiscoverySkeleton(mode == "moods" && selectedMood == null) } }
             page?.shelves?.forEach { shelf ->

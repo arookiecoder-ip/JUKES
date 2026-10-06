@@ -1,5 +1,7 @@
 package com.example.juke.ui.screens
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import com.example.juke.ui.components.LocalMediaMenu
 
 import androidx.compose.runtime.setValue
@@ -208,7 +210,7 @@ private fun HomeHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .stableStatusBarsPadding()
             .padding(start = 24.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -368,7 +370,7 @@ private fun MusicCard(track: Track, onClick: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.heightIn(min = 18.dp), verticalAlignment = Alignment.CenterVertically) {
         com.example.juke.ui.components.DownloadedBadge(track.ytVideoId, Modifier.padding(end = 4.dp))
         Text(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

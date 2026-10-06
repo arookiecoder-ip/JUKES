@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -111,7 +112,7 @@ fun LyricsOverlay(
     onDismiss: () -> Unit
 ) {
     val density = LocalDensity.current
-    val headerHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp
+    val headerHeight = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding() + 56.dp
     val haptic = rememberJukeHaptics()
     val syncedLyrics = currentTrack.syncedLyrics?.takeIf { it.isNotBlank() }
     val plainLyrics = currentTrack.plainLyrics?.takeIf { it.isNotBlank() }

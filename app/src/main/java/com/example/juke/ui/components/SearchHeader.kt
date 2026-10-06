@@ -1,5 +1,7 @@
 package com.example.juke.ui.components
 
+import com.example.juke.ui.components.stableStatusBarsPadding
+
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -87,7 +89,7 @@ fun SearchHeader(
     }
     Row(
         modifier = modifier
-            .statusBarsPadding()
+            .stableStatusBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .fillMaxWidth()
             .glassFloat(GlassShapes.Pill, GlassLevel.Regular)
