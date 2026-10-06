@@ -127,7 +127,6 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 val active = index == currentIndex
                 val editable = queue.isNotEmpty() && !uiState.isQueueOperationInProgress
                 val dragging = draggedKey == key
-                val offset = if (dragging) initialTop + dragDelta - (list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset ?: initialTop.toInt()) else 0f
                 val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
                     if (editable && !active && !dragging && value == SwipeToDismissBoxValue.EndToStart) {
                         onRemoveTrack(track.uuid); true
@@ -153,7 +152,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 }
                 SwipeToDismissBox(dismiss, enableDismissFromStartToEnd = false,
                     enableDismissFromEndToStart = editable && !active && !dragging,
-                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = if (dragging) null else androidx.compose.animation.core.spring()).testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = offset }.shadow(if (dragging) 8.dp else 0.dp),
+                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = if (dragging) null else androidx.compose.animation.core.spring()).testTag("Queue row ${track.uuid}").zIndex(if (dragging) 2f else 0f).graphicsLayer { translationY = if (dragging) initialTop + dragDelta - (list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset ?: initialTop.toInt()) else 0f }.shadow(if (dragging) 8.dp else 0.dp),
                     backgroundContent = {
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
                             Icon(Icons.Default.Delete, "Remove from queue", tint = MaterialTheme.colorScheme.onErrorContainer)
