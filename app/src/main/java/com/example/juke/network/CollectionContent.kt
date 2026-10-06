@@ -26,7 +26,7 @@ internal suspend fun completeCollectionDetails(load: suspend (Long, Boolean) -> 
         val next = page.number("next_offset").takeIf { it > offset } ?: (offset + page.array("tracks").size)
         page = load(next, false)
         offset = next
-        tracks += page.array("tracks")
+        tracks.addAll(page.array("tracks"))
         check(tracks.count { it.objectOrEmpty().text("videoId", "video_id").isNotBlank() } <= 5000) {
             "This playlist exceeds the 5,000-song queue limit"
         }
