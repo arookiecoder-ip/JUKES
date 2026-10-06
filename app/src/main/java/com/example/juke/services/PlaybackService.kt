@@ -828,7 +828,22 @@ class PlaybackService : MediaLibraryService() {
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 delay(1_000)
                 val claim = PhonePlaybackOwnership.token
-                if (claim.isBlank() || PhonePlaybackOwnership.localHandoff) continue
+                if (claim.isBlank()) continue
+                if (PhonePlaybackOwnership.localHandoff) {
+                    // Keep a preparing phone target's lease alive, without publishing the
+                    // paused source cursor over the queue being installed on Alexa.
+                    try {
+                        val renewed = kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                            com.example.juke.network.AlexaBackendApi.phoneOutputRequest("heartbeat", PhonePlaybackOwnership.ownerId, claim)
+                        }
+                        if (PhonePlaybackOwnership.token == claim && renewed != null) {
+                            if (renewed.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) PhonePlaybackOwnership.accept(renewed)
+                            else player.pause()
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { /* Existing lease expiry still enforces exclusivity. */ }
+                    continue
+                }
                 maybeExtendPhoneQueue()
                 try {
                     val status = kotlinx.coroutines.withTimeoutOrNull(1_500) {
