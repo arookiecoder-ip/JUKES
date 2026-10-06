@@ -1,4 +1,4 @@
-# JUKE Music Player
+# Music Box
 
 <div align="center">
 
@@ -7,7 +7,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-blue.svg)](https://developer.android.com/jetpack/compose)
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-26-orange.svg)](https://developer.android.com/about/versions/oreo)
 [![Compile SDK](https://img.shields.io/badge/Compile%20SDK-36-blue.svg)](https://developer.android.com/about/versions/api-levels)
-[![Version](https://img.shields.io/badge/Version-2.3.2--beta-blue.svg)](https://github.com/rajeet-04/JUKES/releases/tag/v2.3.2-beta)
+[![Version](https://img.shields.io/badge/Version-2.4.0-green.svg)](https://github.com/arookiecoder-ip/MusicBox-APP/releases/tag/v2.4.0)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
 
 **A modern Android music streaming app with smart recommendations, Spotify integration, offline playback, and advanced audio features**
@@ -20,21 +20,21 @@
 
 ## 📱 Overview
 
-JUKE is a feature-rich Android music player that combines Spotify's search API, YouTube Music's recommendation engine, and local playback to deliver an exceptional music experience. Download tracks, import playlists, enjoy smart recommendations, and customize your audio with equalizer and effects. Supports offline playback, synced lyrics, and seamless queue management.
+Music Box is a feature-rich Android music player that combines Spotify's search API, YouTube Music's recommendation engine, and local playback to deliver an exceptional music experience. Download tracks, import playlists, enjoy smart recommendations, and customize your audio with equalizer and effects. Supports offline playback, synced lyrics, and seamless queue management.
 
 ## 📦 Latest Release
 
-**JUKE v2.3.2-beta** is now available! 🚀
+**Music Box v2.4.0** is now available! 🚀
 
-**Incremental Beta Release** focused on smarter lyrics fallback, queue-aware download recovery, and faster search interactions.
+**Stable Release** - Update-compatible signed build consolidating everything since v2.0.0-stable: shared phone/Alexa playback ownership, persistent downloads, three-stage lyrics fallback, queue-aware download recovery, and the liquid-glass UI.
 
 What's new:
 
-- Three-stage lyrics fallback chain (LRCLib -> YouTube Music lyrics -> YouTube captions)
-- Spotmate queue-aware recovery with immediate fallback and deferred task polling
-- Faster split search architecture with debounced autocomplete suggestions
+- Shared playback/queue ownership with fenced phone ↔ Alexa handoffs
+- Signed, optimized, non-debuggable APK with pinned update certificate
+- In-app updater pointed at MusicBox-APP (stable channel, beta can upgrade)
 
-[📥 Download v2.3.2-beta](https://github.com/rajeet-04/JUKES/releases/tag/v2.3.2-beta) | [📝 Full Release Notes](v2.3.2-beta-RELEASE_NOTES.md)
+[📥 Download v2.4.0](https://github.com/arookiecoder-ip/MusicBox-APP/releases/tag/v2.4.0) | [📝 Full Release Notes](docs/v2.4.0-RELEASE_NOTES.md)
 
 ## ✨ Features
 
@@ -166,14 +166,14 @@ What's new:
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/rajeet-04/JUKES.git
-   cd JUKES
+    git clone https://github.com/arookiecoder-ip/MusicBox-APP.git
+    cd MusicBox-APP
    ```
 
 2. **Download from Releases** (Recommended for end users)
 
-   **Latest Release: [v2.3.2-beta](https://github.com/rajeet-04/JUKES/releases/tag/v2.3.2-beta)**
-   - Download the APK file from the [releases page](https://github.com/rajeet-04/JUKES/releases)
+    **Latest Release: [v2.4.0](https://github.com/arookiecoder-ip/MusicBox-APP/releases/tag/v2.4.0)**
+    - Download the APK file from the [releases page](https://github.com/arookiecoder-ip/MusicBox-APP/releases)
    - Install the APK on your Android device (min SDK 26+)
    - Grant necessary permissions when prompted
 
