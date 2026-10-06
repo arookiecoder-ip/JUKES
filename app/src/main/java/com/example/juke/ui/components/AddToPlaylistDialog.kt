@@ -63,8 +63,8 @@ fun AddToPlaylistDialog(
                 .wrapContentHeight()
                 .padding(vertical = 24.dp),
             shape = androidx.compose.ui.graphics.RectangleShape,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
+            color = com.example.juke.ui.theme.glassSheetColor(),
+            tonalElevation = 0.dp
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Header Area
