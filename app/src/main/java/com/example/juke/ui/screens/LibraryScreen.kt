@@ -171,7 +171,7 @@ fun LibraryScreen(
                 when {
                     filter == LibraryFilter.DOWNLOADS -> {
                         if (downloadedSongs.isEmpty() && collectionDownloads.isEmpty()) LibraryNotice("No downloads", "Download songs, albums or playlists from their options to listen without internet.")
-                        else if (grid && !selection.active) LazyVerticalGrid(GridCells.Adaptive(180.dp),
+                        else if (grid && !selection.active) LazyVerticalGrid(GridCells.Adaptive(132.dp),
                             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 96.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                             gridItems(collectionDownloads, key = { "collection:${it.key}" }) { collection ->
@@ -225,7 +225,7 @@ fun LibraryScreen(
                         if (state.searchQuery.isNotBlank()) "No matches" else "No ${filter.label.lowercase()} yet",
                         if (state.searchQuery.isNotBlank()) "Try another search or filter." else "Saved items from your YouTube Music account appear here.")
                     grid -> LazyVerticalGrid(
-                        columns = GridCells.Adaptive(180.dp),
+                        columns = GridCells.Adaptive(132.dp),
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 96.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
