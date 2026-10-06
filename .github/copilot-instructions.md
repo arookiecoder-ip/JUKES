@@ -94,8 +94,7 @@ app/src/main/java/com/example/juke/
 
 ## Agent helper files
 
-- [AGENTS.md](AGENTS.md): concise agent quick guide at repository root — run/build commands, environment notes, and recommended places to inspect first. Read this before running large tasks.
-- `docs/`: in-depth architecture and feature documentation (linked from AGENTS.md).
+- `docs/`: in-depth architecture and feature documentation — start here before running large tasks.
 - Update process: propose changes via PR targeting `beta` and mention maintainers; never commit secrets.
 
 ## Technology Stack
