@@ -39,7 +39,7 @@ object ApiClient {
                     com.example.juke.utils.SafeLog.d("HTTP", message)
                 }
             }
-            sanitizeHeader { it.equals("X-Api-Key", true) || it.equals("Authorization", true) || it.equals("Cookie", true) || it.equals("Set-Cookie", true) }
+            sanitizeHeader { it.equals("X-MusicBox-Audio-Token", true) || it.equals("X-Api-Key", true) || it.equals("Authorization", true) || it.equals("Cookie", true) || it.equals("Set-Cookie", true) }
             level = if (BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
         }
 

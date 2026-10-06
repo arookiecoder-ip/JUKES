@@ -108,6 +108,7 @@ fun BrowseItem.toTrack(liked: Set<String> = emptySet(), fallbackImage: String = 
 
 /** Song metadata in the shape every queue endpoint accepts. */
 fun Track.metadata(): JsonObject = buildJsonObject {
+    put("entry_id", uuid)
     put("video_id", ytVideoId.orEmpty()); put("title", title); put("artist", artist)
     put("thumbnail", thumbnailUri.orEmpty()); put("duration_ms", durationSec * 1000L)
     artistId?.let { put("artist_id", it) }

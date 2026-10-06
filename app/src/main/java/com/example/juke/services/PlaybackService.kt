@@ -901,17 +901,17 @@ class PlaybackService : MediaLibraryService() {
         }
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
-            StreamCacheManager.getCache(applicationContext)), serviceScope)
+            StreamCacheManager.getCache(applicationContext)), serviceScope, applicationContext)
         preloadConnectivityJob = serviceScope.launch {
             com.example.juke.network.NetworkFeedback.online.collect { online ->
-                upcomingPreloader?.update(if (online) upcomingAudioUrls(player) else emptyList())
+                upcomingPreloader?.update(if (online) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
             }
         }
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
-                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY)) {
-                    upcomingPreloader?.update(if (com.example.juke.network.NetworkFeedback.online.value) upcomingAudioUrls(player) else emptyList())
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+                    upcomingPreloader?.update(if (com.example.juke.network.NetworkFeedback.online.value) upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
                 }
             }
         })

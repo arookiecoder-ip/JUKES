@@ -39,13 +39,14 @@ class DownloadRepository private constructor(private val context: Context) {
     private val prefs = context.getSharedPreferences("account_downloads", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val pending = readEntries("pending").toMutableList()
-    private val completed = readEntries("completed").filter { file(it.track)?.let { f -> f.exists() && f.length() > 0 } == true }.toMutableList()
-    private val queued = runCatching { json.decodeFromString<List<Track>>(prefs.getString("queued", "[]").orEmpty()) }
-        .getOrDefault(emptyList()).associateBy { it.ytVideoId.orEmpty() }.toMutableMap()
+    private val pending = mutableListOf<DownloadEntry>()
+    private val completed = mutableListOf<DownloadEntry>()
+    private val queued = mutableMapOf<String, Track>()
     private val starting = mutableSetOf<String>()
-    private val savedCollections = runCatching { json.decodeFromString<List<DownloadedCollection>>(prefs.getString("collections", "[]").orEmpty()) }
-        .getOrDefault(emptyList()).toMutableList()
+    private val savedCollections = mutableListOf<DownloadedCollection>()
+    private val dao = com.example.juke.database.DownloadManifestDatabase.get(context).manifests()
+    private val snapshots = kotlinx.coroutines.channels.Channel<List<com.example.juke.database.DownloadManifestRow>>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private var initialized = false
     @Volatile private var completedByVideo = completed.map { it.track }.associateBy { it.ytVideoId }
     private val _tracks = MutableStateFlow(completed.map { it.track })
     val tracks = _tracks.asStateFlow()
@@ -68,9 +69,50 @@ class DownloadRepository private constructor(private val context: Context) {
                 if (intent.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE) poll()
             }
         }, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
-        // Do not automatically download intentionally removed collection songs again on launch.
-        publishStatus(); pump(); poll()
-        if (_status.value.active > 0) DownloadService.start(context)
+        scope.launch {
+            val rows = withContext(Dispatchers.IO) {
+                if (dao.migrated() == 0) {
+                    val legacy = mutableListOf<com.example.juke.database.DownloadManifestRow>()
+                    for (kind in listOf("pending", "completed")) readEntries(kind).forEach {
+                        legacy += manifest(kind, it.track.ytVideoId.orEmpty(), kind, json.encodeToString(it))
+                    }
+                    runCatching { json.decodeFromString<List<Track>>(prefs.getString("queued", "[]").orEmpty()) }.getOrDefault(emptyList()).forEach {
+                        legacy += manifest("queued", it.ytVideoId.orEmpty(), "queued", json.encodeToString(it))
+                    }
+                    runCatching { json.decodeFromString<List<DownloadedCollection>>(prefs.getString("collections", "[]").orEmpty()) }.getOrDefault(emptyList()).forEach {
+                        legacy += collectionRows(it)
+                    }
+                    dao.replace(legacy)
+                    // Clear legacy JSON only after a successful transaction. A crash safely retries.
+                    prefs.edit().clear().apply()
+                }
+                dao.read()
+            }
+            rows.filter { it.kind == "pending" }.forEach { runCatching { json.decodeFromString<DownloadEntry>(it.payload) }.getOrNull()?.let(pending::add) }
+            rows.filter { it.kind == "completed" }.forEach { row ->
+                runCatching { json.decodeFromString<DownloadEntry>(row.payload) }.getOrNull()?.takeIf {
+                    file(it.track)?.let { f -> f.exists() && f.length() > 0 } == true
+                }?.let(completed::add)
+            }
+            rows.filter { it.kind == "queued" }.forEach { row ->
+                runCatching { json.decodeFromString<Track>(row.payload) }.getOrNull()?.let { queued.putIfAbsent(it.ytVideoId.orEmpty(), it) }
+            }
+            rows.filter { it.kind == "collection" }.forEach { row ->
+                runCatching { json.decodeFromString<DownloadedCollection>(row.payload) }.getOrNull()?.let { collection ->
+                    val members = rows.filter { it.kind == "member:${row.key}" }.sortedBy { it.key.toIntOrNull() ?: 0 }.mapNotNull {
+                        runCatching { json.decodeFromString<Track>(it.payload) }.getOrNull()
+                    }
+                    if (savedCollections.none { it.key == collection.key }) savedCollections += collection.copy(tracks = members)
+                }
+            }
+            initialized = true
+            batchTotal = pending.size + queued.size
+            save(); publishStatus(); pump(); poll()
+            if (_status.value.active > 0) DownloadService.start(context)
+            for (snapshot in snapshots) try { withContext(Dispatchers.IO) { dao.replace(snapshot) } }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { NetworkFeedback.notify("Couldn't save download changes. Check device storage.") }
+        }
     }
     private fun readEntries(key: String): List<DownloadEntry> = runCatching {
         json.decodeFromString<List<DownloadEntry>>(prefs.getString(key, "[]").orEmpty())
@@ -98,6 +140,7 @@ class DownloadRepository private constructor(private val context: Context) {
     private var cooldownUntil = 0L
     private var cooldownJob: Job? = null
     private fun pump() {
+        if (!initialized) return
         val remaining = cooldownUntil - android.os.SystemClock.elapsedRealtime()
         if (remaining > 0) {
             if (cooldownJob?.isActive != true) cooldownJob = scope.launch { delay(remaining); cooldownJob = null; pump() }
@@ -111,10 +154,11 @@ class DownloadRepository private constructor(private val context: Context) {
                     check(AlexaBackendApi.isConfigured()) { "Device downloads are unavailable in this build" }
                     val directory = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: error("Device storage is unavailable")
                     val target = File(directory, "$video.audio")
+                    val credential = com.example.juke.network.AudioCredentials.header(download = true)
                     val id = withContext(Dispatchers.IO) {
                         directory.mkdirs(); target.delete()
                         manager.enqueue(DownloadManager.Request(AlexaBackendApi.audioUrl(video).toUri())
-                            .addRequestHeader("X-Api-Key", com.example.juke.network.Backend.apiKey)
+                            .addRequestHeader(credential.first, credential.second)
                             .addRequestHeader("X-MusicBox-Download", "1")
                             .setTitle(track.title).setDescription(track.artist)
                             // The app notification opens Downloads, never an incomplete/raw audio file.
@@ -165,13 +209,23 @@ class DownloadRepository private constructor(private val context: Context) {
     }
     fun cancelAll() { removeAll(pending.map { it.track } + queued.values) }
     private fun save() {
-        prefs.edit().putString("pending", json.encodeToString(pending.toList()))
-            .putString("completed", json.encodeToString(completed.toList()))
-            .putString("queued", json.encodeToString(queued.values.toList()))
-            .putString("collections", json.encodeToString(savedCollections.toList())).apply()
+        if (initialized) {
+            val rows = pending.map { manifest("pending", it.track.ytVideoId.orEmpty(), "downloading", json.encodeToString(it)) } +
+                completed.map { manifest("completed", it.track.ytVideoId.orEmpty(), "complete", json.encodeToString(it)) } +
+                queued.values.map { manifest("queued", it.ytVideoId.orEmpty(), "queued", json.encodeToString(it)) } +
+                savedCollections.flatMap(::collectionRows)
+            snapshots.trySend(rows)
+        }
         _collections.value = savedCollections.toList(); _tracks.value = completed.map { it.track }
         completedByVideo = _tracks.value.associateBy { it.ytVideoId }
     }
+    private fun manifest(kind: String, key: String, state: String, payload: String) =
+        com.example.juke.database.DownloadManifestRow(kind, key, state, payload)
+    private fun collectionRows(collection: DownloadedCollection): List<com.example.juke.database.DownloadManifestRow> =
+        listOf(manifest("collection", collection.key, "complete", json.encodeToString(collection.copy(tracks = emptyList())))) +
+            collection.tracks.mapIndexed { index, track -> manifest("member:${collection.key}", index.toString(),
+                "member", json.encodeToString(track)) }
+
     private fun publishStatus(percentages: Map<String, Int> = _progress.value) {
         val activeTracks = (pending.map { it.track } + queued.values).distinctBy { it.ytVideoId }
         _activeTracks.value = activeTracks

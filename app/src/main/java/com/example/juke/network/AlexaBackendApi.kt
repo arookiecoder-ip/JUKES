@@ -33,7 +33,7 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 object AlexaBackendApi {
 
-    fun isConfigured(): Boolean = Backend.audioBaseUrl.isNotEmpty() && Backend.apiKey.isNotEmpty()
+    fun isConfigured(): Boolean = Backend.audioBaseUrl.isNotEmpty()
 
     // ---------- Wire models (thumbnail is polymorphic: string | {url} | null) ----------
 
@@ -43,7 +43,8 @@ object AlexaBackendApi {
         val artist: String = "",
         @SerialName("video_id") val videoId: String = "",
         val thumbnail: JsonElement? = null,
-        @SerialName("duration_ms") val durationMs: Long = 0L
+        @SerialName("duration_ms") val durationMs: Long = 0L,
+        @SerialName("entry_id") val entryId: String? = null
     )
 
     @Serializable
@@ -116,7 +117,7 @@ object AlexaBackendApi {
     suspend fun getRadio(videoId: String): List<BackendTrack> {
         requireConfigured()
         val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/get_radio/") {
-            header("X-Api-Key", Backend.apiKey)
+            AudioCredentials.header().let { header(it.first, it.second) }
             parameter("video_id", videoId)
             parameter("update_queue", 0)
         }
@@ -131,7 +132,7 @@ object AlexaBackendApi {
     suspend fun queueTracks(afterVideoId: String, limit: Int): List<BackendTrack> {
         requireConfigured()
         val response = ApiClient.httpClient.get("${Backend.audioBaseUrl}/queue_tracks/") {
-            header("X-Api-Key", Backend.apiKey)
+            AudioCredentials.header().let { header(it.first, it.second) }
             parameter("after", afterVideoId)
             parameter("limit", limit)
         }
@@ -145,20 +146,19 @@ object AlexaBackendApi {
         expectedToken: String = com.example.juke.services.PhonePlaybackOwnership.token
     ) {
         requireConfigured()
-        publishPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey,
-            QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex,
-                com.example.juke.services.PhonePlaybackOwnership.ownerId,
-                expectedToken, buffering))
+        val update = QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex,
+            com.example.juke.services.PhonePlaybackOwnership.ownerId, expectedToken, buffering)
+        Backend.post("/api/app/queue/", kotlinx.serialization.json.Json.encodeToJsonElement(QueueUpdate.serializer(), update).jsonObject)
     }
 
     suspend fun phoneQueueSnapshot(): kotlinx.serialization.json.JsonObject {
         requireConfigured()
-        return readPhoneQueue(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey)
+        return Backend.get("/alexa/now_playing/", mapOf("serial" to "phone")).jsonObject
     }
 
     suspend fun phoneOutputStatus(): com.example.juke.services.SharedPlaybackOutput {
         requireConfigured()
-        return com.example.juke.services.sharedPlaybackOutput(outputRequest(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey))
+        return com.example.juke.services.sharedPlaybackOutput(Backend.get("/api/app/output/").jsonObject)
     }
 
     suspend fun phoneOutputRequest(action: String, owner: String, token: String = "", serial: String = ""): com.example.juke.services.SharedPlaybackOutput {
@@ -167,7 +167,7 @@ object AlexaBackendApi {
             put("action", JsonPrimitive(action)); put("output_owner", JsonPrimitive(owner))
             put("output_token", JsonPrimitive(token)); put("serial", JsonPrimitive(serial))
         }
-        return com.example.juke.services.sharedPlaybackOutput(outputRequest(ApiClient.httpClient, Backend.audioBaseUrl, Backend.apiKey, body))
+        return com.example.juke.services.sharedPlaybackOutput(Backend.post("/api/app/output/", body).jsonObject)
     }
 
     fun backendTrack(track: Track): BackendTrack = BackendTrack(
@@ -175,14 +175,15 @@ object AlexaBackendApi {
         artist = track.artist,
         videoId = requireNotNull(track.ytVideoId),
         thumbnail = track.thumbnailUri?.let { JsonPrimitive(it) } ?: JsonNull,
-        durationMs = track.durationSec.toLong() * 1000
+        durationMs = track.durationSec.toLong() * 1000,
+        entryId = track.uuid
     )
 
     /** Authoritative next-up track from the server's live queue (`after` is required). */
     suspend fun nextTrack(afterVideoId: String): BackendTrack? {
         requireConfigured()
         val response: HttpResponse = ApiClient.httpClient.get("${Backend.audioBaseUrl}/next_track/") {
-            header("X-Api-Key", Backend.apiKey)
+            AudioCredentials.header().let { header(it.first, it.second) }
             parameter("after", afterVideoId)
         }
         check(response.status.value in 200..299) { "Next-track lookup failed (${response.status.value})" }
@@ -200,7 +201,7 @@ object AlexaBackendApi {
  */
 fun AlexaBackendApi.BackendTrack.toAppTrack(audioUrl: String? = null): Track {
     return Track(
-        uuid = UUID.randomUUID().toString(),
+        uuid = entryId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
         title = title.ifBlank { "Unknown title" },
         artist = artist.ifBlank { "Unknown artist" },
         thumbnailUri = AlexaBackendApi.thumbnailUrl(thumbnail),

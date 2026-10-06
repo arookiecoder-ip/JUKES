@@ -89,7 +89,7 @@ object Backend {
     /** True while a web-session cookie is stored (it may still have been revoked server-side). */
     fun hasSession(): Boolean = jar.hasCookies()
 
-    fun clearSession() = jar.clear()
+    fun clearSession() { AudioCredentials.clear(); jar.clear() }
 
     suspend fun get(path: String, query: Map<String, String> = emptyMap()): JsonElement =
         call(HttpMethod.Get, path, query, null)
