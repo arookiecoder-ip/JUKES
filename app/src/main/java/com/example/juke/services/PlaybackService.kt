@@ -440,6 +440,15 @@ class PlaybackService : MediaLibraryService() {
         })
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "com.example.juke.CANCEL_RECOVERY") {
+            leaseInterruption.clear()
+            networkInterruption.clear()
+            recoveryShouldResume = false
+            streamRecoveryJob?.cancel()
+            player.pause()
+            mediaSession?.let { onUpdateNotification(it, false) }
+            return START_NOT_STICKY
+        }
         // Fix: Check if app is in background before attempting anything that might require foreground
         // This prevents ForegroundServiceStartNotAllowedException on Android 12+
         var isAppInForeground = true
@@ -849,7 +858,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         setMediaNotificationProvider(GuardedMediaNotificationProvider(notificationProvider,
             { activeService.get() === this && outputPrefs.getString("playback_output", "PHONE") == "PHONE" },
-            ::onPhoneForegroundDenied))
+            ::onPhoneForegroundDenied, ::holdRecoveryNotification))
 
         database = MusicDatabase.getDatabase(applicationContext)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -927,7 +936,9 @@ class PlaybackService : MediaLibraryService() {
         PhonePlaybackSynchronizer(applicationContext, serviceScope, player,
             trackById = { database.trackDao().getTrackByUuid(it)?.toTrack() },
             extendQueue = { maybeExtendPhoneQueue() }, pauseForLease = ::pauseForExpiredLease,
-            leaseRenewed = ::recoverAfterLeaseRenewal).start()
+            leaseRenewed = ::recoverAfterLeaseRenewal,
+            recoveryPending = { leaseInterruption.pending || networkInterruption.pending || recoveryShouldResume },
+            pauseForHandoff = { pausePhoneForHandoff() }).start()
 
         silentWatchdog = SilentPlaybackWatchdog(
             scope = serviceScope,
@@ -1066,6 +1077,31 @@ class PlaybackService : MediaLibraryService() {
     }
 
     @OptIn(UnstableApi::class)
+    private fun holdRecoveryNotification(): Boolean {
+        if (!::player.isInitialized || !retainRecoveryNotification(
+                outputPrefs.getString("playback_output", "PHONE") == "PHONE", isPlaybackOngoing,
+                player.isPlaying, leaseInterruption.pending, networkInterruption.pending,
+                recoveryShouldResume, PhonePlaybackOwnership.localHandoff)) return false
+        val session = mediaSession ?: return false
+        val open = PendingIntent.getActivity(this, 0, Intent(this, com.example.juke.MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val cancel = PendingIntent.getService(this, 91, Intent(this, PlaybackService::class.java)
+            .setAction("com.example.juke.CANCEL_RECOVERY"), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = androidx.core.app.NotificationCompat.Builder(this, "media_playback")
+            .setSmallIcon(R.drawable.media3_notification_small_icon)
+            .setContentTitle(player.mediaMetadata.title ?: "Music Box")
+            .setContentText("Reconnecting… Playback will resume when available.")
+            .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true)
+            .addAction(android.R.drawable.ic_media_pause, "Cancel recovery", cancel)
+            .setStyle(androidx.media3.session.MediaStyleNotificationHelper.MediaStyle(session)
+                .setShowActionsInCompactView(0)).build()
+        // Retain a service already promoted during real playback. Never use an
+        // outage to create a new, unauthorized background playback service.
+        startForeground(1, notification)
+        return true
+    }
+
+    @OptIn(UnstableApi::class)
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         if (outputPrefs.getString("playback_output", "PHONE") != "PHONE") {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -1075,6 +1111,7 @@ class PlaybackService : MediaLibraryService() {
         // Media3 owns foreground promotion, including starts from media controls.
         // Keep the session foreground while playback continues with the app hidden.
         try {
+            if (holdRecoveryNotification()) return
             super.onUpdateNotification(session, startInForegroundRequired ||
                 recoveryShouldResume || leaseInterruption.pending)
         } catch (e: Exception) {

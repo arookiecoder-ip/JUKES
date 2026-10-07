@@ -12,7 +12,14 @@ import kotlinx.coroutines.*
 class PhonePlaybackSynchronizer(private val applicationContext: Context,
     private val serviceScope: CoroutineScope, private val player: Player,
     private val trackById: suspend (String) -> Track?, private val extendQueue: () -> Unit,
-    private val pauseForLease: () -> Unit, private val leaseRenewed: () -> Unit) {
+    private val pauseForLease: () -> Unit, private val leaseRenewed: () -> Unit,
+    private val recoveryPending: () -> Boolean = { false },
+    private val pauseForHandoff: suspend () -> Pair<Boolean, Long> = {
+        val playing = player.playWhenReady
+        val position = player.currentPosition.coerceAtLeast(0)
+        player.pause()
+        playing to position
+    }) {
     private val outputPrefs = applicationContext.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
     private val TAG = "PhonePlaybackSync"
     fun start() {
@@ -30,7 +37,6 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
         }
         // Ownership remains enforced by the foreground service when the Activity is closed.
         serviceScope.launch {
-            var lastReport = 0L
             var lastOwnershipAttempt = 0L
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 delay(1_000)
@@ -54,7 +60,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                 try {
                     if (player.playWhenReady) extendQueue()
                     val attemptAt = android.os.SystemClock.elapsedRealtime()
-                    if (attemptAt - lastOwnershipAttempt < (if (player.playWhenReady) 2_000 else 5_000)) continue
+                    if (attemptAt - lastOwnershipAttempt < (if (player.playWhenReady || recoveryPending()) 2_000 else 5_000)) continue
                     lastOwnershipAttempt = attemptAt
                     val status = kotlinx.coroutines.withTimeoutOrNull(4_000) {
                         try {
@@ -66,9 +72,9 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     }
                     if (!canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                     if (status != null && !status.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) {
-                        val sourcePlaying = player.playWhenReady
-                        val sourcePosition = player.currentPosition.coerceAtLeast(0)
-                        player.pause()
+                        // A lease/network pause is not a user pause. Preserve
+                        // the original play intent when acknowledging a handoff.
+                        val (sourcePlaying, sourcePosition) = pauseForHandoff()
                         if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
                             outputPrefs.edit().putString("playback_output", "ALEXA")
                                 .apply { if (status.serial.isNotBlank()) putString("echo_serial", status.serial) }.apply()
@@ -82,25 +88,6 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                         continue
                     }
                     if (status != null) { PhonePlaybackOwnership.accept(status); leaseRenewed() }
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (status != null && now - lastReport >= 3_000) {
-                        val renewed = status
-                        if (renewed != null) {
-                            if (!canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
-                            PhonePlaybackOwnership.accept(renewed)
-                            lastReport = now
-                            val mediaId = player.currentMediaItem?.mediaId
-                            val current = mediaId?.let { trackById(it) }
-                            if (player.currentMediaItem?.mediaId != mediaId || !canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
-                            current?.ytVideoId?.takeIf { it.isNotBlank() }?.let { video ->
-                                kotlinx.coroutines.withTimeoutOrNull(4_000) {
-                                    com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
-                                        player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
-                                        buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim, currentEntryId = current.uuid)
-                                }
-                            }
-                        }
-                    }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) {
                     if (e is com.example.juke.network.BackendHttpException && e.statusCode == 409 && PhonePlaybackOwnership.token == claim)
@@ -111,6 +98,35 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) {
                     // During a partition, never keep streaming beyond our exclusive lease.
                     pauseForLease()
+                }
+            }
+        }
+
+        // A slow queue write must not occupy the heartbeat loop and expire an
+        // otherwise healthy output lease. Publishing is independent and bounded.
+        serviceScope.launch {
+            while (currentCoroutineContext().isActive) {
+                delay(3_000)
+                val claim = PhonePlaybackOwnership.token
+                if (claim.isBlank() || PhonePlaybackOwnership.localHandoff || !PhonePlaybackOwnership.permitsPlayback(claim)) continue
+                try {
+                    val mediaId = player.currentMediaItem?.mediaId
+                    val current = mediaId?.let { trackById(it) } ?: continue
+                    if (player.currentMediaItem?.mediaId != mediaId ||
+                        !canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff) ||
+                        !PhonePlaybackOwnership.permitsPlayback(claim)) continue
+                    current.ytVideoId?.takeIf { it.isNotBlank() }?.let { video ->
+                        withTimeoutOrNull(4_000) {
+                            com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
+                                player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
+                                buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim, currentEntryId = current.uuid)
+                        }
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    if (e is com.example.juke.network.BackendHttpException && e.statusCode == 409 && PhonePlaybackOwnership.token == claim)
+                        PhonePlaybackOwnership.queueNeedsSync.tryEmit(Unit)
+                    Log.w(TAG, "Playback cursor publish failed: ${e.javaClass.simpleName}")
                 }
             }
         }

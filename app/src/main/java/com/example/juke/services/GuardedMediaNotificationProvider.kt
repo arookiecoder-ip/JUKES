@@ -15,14 +15,15 @@ import com.google.common.collect.ImmutableList
 internal class GuardedMediaNotificationProvider(
     private val delegate: MediaNotification.Provider,
     private val active: () -> Boolean,
-    private val onDenied: () -> Unit
+    private val onDenied: () -> Unit,
+    private val onRecoveryUpdate: () -> Boolean = { false }
 ) : MediaNotification.Provider {
     private val main = Handler(Looper.getMainLooper())
     override fun createNotification(session: MediaSession, buttons: ImmutableList<CommandButton>,
         actions: MediaNotification.ActionFactory, callback: MediaNotification.Provider.Callback): MediaNotification =
         delegate.createNotification(session, buttons, actions) { notification ->
             main.post {
-                deliverNotificationUpdate({ callback.onNotificationChanged(notification) },
+                deliverNotificationUpdate({ if (!onRecoveryUpdate()) callback.onNotificationChanged(notification) },
                     { Build.VERSION.SDK_INT >= 31 && it is android.app.ForegroundServiceStartNotAllowedException }, onDenied, active)
             }
         }

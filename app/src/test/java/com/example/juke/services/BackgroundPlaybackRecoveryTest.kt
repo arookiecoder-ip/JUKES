@@ -52,4 +52,66 @@ class BackgroundPlaybackRecoveryTest {
         assertFalse(retry.ready(60_999))
         assertTrue(retry.ready(61_000))
     }
+    @Test fun recoveryRetainsOnlyAnExistingLocalForegroundSession() {
+        assertTrue(retainRecoveryNotification(true, true, false, true, false, false, false))
+        assertTrue(retainRecoveryNotification(true, true, false, false, true, false, false))
+        assertTrue(retainRecoveryNotification(true, true, false, false, false, true, false))
+        assertFalse(retainRecoveryNotification(true, true, false, false, false, false, false))
+        assertFalse(retainRecoveryNotification(true, false, false, true, true, true, false))
+        assertFalse(retainRecoveryNotification(false, true, false, true, true, true, false))
+        assertFalse(retainRecoveryNotification(true, true, false, true, true, true, true))
+        assertFalse(retainRecoveryNotification(true, true, true, true, true, true, false))
+    }
+
+    @Test fun slowPlaybackWorkDoesNotBlockPresenceAndNewestUpdateSurvives() = kotlinx.coroutines.runBlocking {
+        val consumer = kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Job())
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val finished = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val seen = mutableListOf<Int>()
+        val delivery = PresenceDelivery<Int>(consumer) { value ->
+            seen += value
+            if (value == 1) { started.complete(Unit); release.await() }
+            if (value == 3) finished.complete(Unit)
+        }
+        try {
+            delivery.offer(1)
+            kotlinx.coroutines.withTimeout(2000) { started.await() }
+            delivery.offer(2)
+            delivery.offer(3) // These calls complete while playback is still waiting.
+            assertEquals(listOf(1), seen)
+            release.complete(Unit)
+            kotlinx.coroutines.withTimeout(2000) { finished.await() }
+            assertEquals(listOf(1, 3), seen)
+        } finally { consumer.coroutineContext[kotlinx.coroutines.Job]!!.let { it.cancel(); it.join() } }
+    }
+
+    @Test fun failedPlaybackDeliveryDoesNotKillLaterReconciliation() = kotlinx.coroutines.runBlocking {
+        val consumer = kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Job())
+        val failed = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val healed = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val delivery = PresenceDelivery<Int>(consumer, onFailure = { failed.complete(Unit) }) {
+            if (it == 1) error("Server unavailable")
+            healed.complete(Unit)
+        }
+        try {
+            delivery.offer(1)
+            kotlinx.coroutines.withTimeout(2000) { failed.await() }
+            delivery.offer(2)
+            kotlinx.coroutines.withTimeout(2000) { healed.await() }
+        } finally { consumer.coroutineContext[kotlinx.coroutines.Job]!!.let { it.cancel(); it.join() } }
+    }
+
+    @Test fun acknowledgmentsCompletedDuringRequestAreNotLost() {
+        val ledger = CommandAcknowledgments()
+        ledger.completed("first")
+        val submitted = ledger.snapshot()
+        ledger.completed("second")
+        ledger.delivered(submitted)
+        assertEquals(listOf("second"), ledger.snapshot())
+        repeat(40) { ledger.completed("cmd-$it") }
+        assertEquals(32, ledger.snapshot().size)
+        ledger.delivered(ledger.snapshot())
+        assertEquals(9, ledger.snapshot().size)
+    }
 }

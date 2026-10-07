@@ -19,7 +19,7 @@ object MobileDeviceConnection {
     private var job: Job? = null
     private var generation = 0L
     private val handled = linkedSetOf<String>()
-    private var acknowledge = emptyList<String>()
+    private val acknowledgments = CommandAcknowledgments()
     private var latestOutput = SharedPlaybackOutput()
     private val _output = MutableStateFlow(latestOutput)
     val output = _output.asStateFlow()
@@ -42,6 +42,24 @@ object MobileDeviceConnection {
         val activeGeneration = ++generation
         val audio = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         job = scope.launch {
+            val delivery = PresenceDelivery<Pair<SharedPlaybackOutput, JsonArray>>(this,
+                onFailure = { com.example.juke.utils.SafeLog.w("MobilePresence", "Playback delivery failed: ${it.javaClass.simpleName}") }) { (output, commands) ->
+                if (activeGeneration != generation) return@PresenceDelivery
+                PhonePlaybackOwnership.retryPauseAcknowledgment(latestOutput)
+                if (!output.olderThan(latestOutput)) onState(output)
+                for (raw in commands) {
+                    val command = raw.objectOrEmpty()
+                    val id = command.text("id")
+                    if (id in handled) { acknowledgments.completed(id); continue }
+                    if (latestOutput.belongsToPhone(PhonePlaybackOwnership.ownerId, command.text("token")) &&
+                        PhonePlaybackOwnership.permitsPlayback(command.text("token"))) {
+                        onCommand(command.text("action"), command["payload"].objectOrEmpty())
+                    }
+                    handled += id
+                    acknowledgments.completed(id)
+                    while (handled.size > 100) handled.remove(handled.first())
+                }
+            }
             var revision = -1L
             var outputToken = ""
             var supportsWait = false
@@ -49,16 +67,17 @@ object MobileDeviceConnection {
             while (isActive && activeGeneration == generation) {
                 if (!NetworkFeedback.online.value) { delay(2_000); continue }
                 try {
+                    val sentAcknowledgments = acknowledgments.snapshot()
                     val reply = withTimeout(6_000) { request("online", buildJsonObject {
                         put("wait", true); put("revision", revision); put("output_token", outputToken)
                         put("volume", (audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 / audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)))
                         put("volume_steps", audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1))
                         put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
-                        put("ack", JsonArray(acknowledge.map(::JsonPrimitive)))
+                        put("ack", JsonArray(sentAcknowledgments.map(::JsonPrimitive)))
                     }, activeSession) }
                     if (activeGeneration != generation) return@launch
                     failures = 0
-                    acknowledge = emptyList()
+                    acknowledgments.delivered(sentAcknowledgments)
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
                         .map {
                             val id = it.text("id")
@@ -71,22 +90,9 @@ object MobileDeviceConnection {
                     revision = reply.number("revision")
                     val output = rememberOutput(sharedPlaybackOutput(reply))
                     outputToken = output.token
-                    onState(output)
-                    val completed = mutableListOf<String>()
-                    reply.array("commands").forEach { raw ->
-                        val command = raw.objectOrEmpty()
-                        val id = command.text("id")
-                        if (id in handled) { completed += id; return@forEach }
-                        if (output.belongsToPhone(PhonePlaybackOwnership.ownerId, command.text("token")) &&
-                            PhonePlaybackOwnership.permitsPlayback(command.text("token"))) {
-                            onCommand(command.text("action"), command["payload"].objectOrEmpty())
-                        }
-                        // Stale commands are acknowledged too; they must never act on a new lease.
-                        handled += id
-                        completed += id
-                        while (handled.size > 100) handled.remove(handled.first())
-                    }
-                    acknowledge = completed
+                    // Playback preparation/acknowledgment may wait on slow audio or
+                    // the server. Presence must keep renewing while that work runs.
+                    delivery.offer(output to reply.array("commands"))
                 } catch (_: TimeoutCancellationException) { failures++ }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { failures++ }

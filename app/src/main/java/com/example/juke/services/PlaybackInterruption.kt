@@ -26,3 +26,9 @@ internal class BackgroundRetry(private val baseMs: Long = 5_000, private val max
     }
     fun reset() { failures = 0; retryAt = 0 }
 }
+
+/** Retain an existing foreground service only for an interrupted local play intent. */
+internal fun retainRecoveryNotification(phoneOutput: Boolean, alreadyForeground: Boolean,
+    playing: Boolean, leasePending: Boolean, networkPending: Boolean, streamPending: Boolean,
+    handingOff: Boolean): Boolean = phoneOutput && alreadyForeground && !playing && !handingOff &&
+    (leasePending || networkPending || streamPending)

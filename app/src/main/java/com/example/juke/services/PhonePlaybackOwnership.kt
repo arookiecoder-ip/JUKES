@@ -22,6 +22,8 @@ object PhonePlaybackOwnership {
         private set
     @Volatile private var relinquishing = false
     @Volatile var localHandoff = false
+    private data class PendingPauseAck(val token: String, val position: Long?, val playing: Boolean?)
+    private var pendingPauseAck: PendingPauseAck? = null
     val ownerId: String get() = prefs.getString("owner_id", "").orEmpty()
 
     fun init(context: Context) {
@@ -69,8 +71,26 @@ object PhonePlaybackOwnership {
         token = ""
         leaseUntilMs = 0
         // Call only after the actual Media3 player has paused.
-        try { AlexaBackendApi.phoneOutputRequest("ack", ownerId, output.token, positionMs = positionMs, playing = playing) }
+        pendingPauseAck = PendingPauseAck(output.token, positionMs, playing)
+        try { retryPauseAcknowledgment(output) }
         finally { if (token.isBlank()) remote.value = output }
+    }
+
+    suspend fun retryPauseAcknowledgment(output: SharedPlaybackOutput) {
+        val pending = pendingPauseAck ?: return
+        // Never let a late source cursor overwrite a target that already started.
+        if (output.token != pending.token || !output.handoffPending || output.owner == ownerId) {
+            pendingPauseAck = null
+            return
+        }
+        try {
+            val acknowledged = kotlinx.coroutines.withTimeoutOrNull(2_000) {
+                AlexaBackendApi.phoneOutputRequest("ack", ownerId, pending.token,
+                    positionMs = pending.position, playing = pending.playing)
+            }
+            if (acknowledged != null && pendingPauseAck == pending) pendingPauseAck = null
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* Presence retries while this exact handoff is pending. */ }
     }
 
     fun permitsPlayback(expectedToken: String = token): Boolean =
