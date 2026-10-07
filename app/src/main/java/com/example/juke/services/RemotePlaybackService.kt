@@ -117,8 +117,26 @@ class RemotePlaybackService : MediaSessionService() {
     private fun isRemotePhone() = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
         .getString("playback_output", "PHONE") == "REMOTE_PHONE"
 
+    private fun phoneControlsSelected() = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
+        .getString("playback_output", "PHONE") in setOf("PHONE", "REMOTE_PHONE")
+
+    private fun localPhoneSelected() = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
+        .getString("playback_output", "PHONE") == "PHONE"
+
+    private fun localVolume(): Int {
+        val audio = getSystemService(android.media.AudioManager::class.java)
+        return audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 /
+            audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    }
+
+    private fun setLocalVolume(value: Int, flags: Int) {
+        val audio = getSystemService(android.media.AudioManager::class.java)
+        audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+            volumePercentToStreamIndex(value, audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)), flags)
+    }
+
     private suspend fun command(action: String) {
-        if (isRemotePhone() || getSharedPreferences("music_settings_prefs", MODE_PRIVATE).getString("playback_output", "PHONE") == "PHONE")
+        if (phoneControlsSelected())
             MobileDeviceConnection.control(MobileDeviceConnection.output.value, action)
         else echo.command(action)
     }
@@ -219,7 +237,7 @@ class RemotePlaybackService : MediaSessionService() {
                 .setPlaybackState(if (track == null) Player.STATE_IDLE else Player.STATE_READY)
                 .setPlayWhenReady(snapshot.playing, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                 .setContentPositionMs { snapshot.livePosition() }
-                .setDeviceVolume(RemoteVolumeControl.current(this@RemotePlaybackService) ?: 0)
+                .setDeviceVolume(if (localPhoneSelected()) localVolume() else RemoteVolumeControl.current(this@RemotePlaybackService) ?: 0)
                 .setDeviceInfo(DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE).setMinVolume(0).setMaxVolume(100).build()).build()
         }
         private fun send(action: suspend () -> Unit): ListenableFuture<*> {
@@ -240,21 +258,29 @@ class RemotePlaybackService : MediaSessionService() {
             when (seekCommand) {
                 Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> command("next")
                 Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> command("previous")
-                else -> if (isRemotePhone()) MobileDeviceConnection.control(MobileDeviceConnection.output.value, "seek",
+                else -> if (phoneControlsSelected()) MobileDeviceConnection.control(MobileDeviceConnection.output.value, "seek",
                     kotlinx.serialization.json.buildJsonObject { put("position_ms", kotlinx.serialization.json.JsonPrimitive(positionMs.coerceAtLeast(0))) })
                     else echo.seek(positionMs.coerceAtLeast(0))
             }
         }
         override fun handleSetDeviceVolume(deviceVolume: Int, flags: Int): ListenableFuture<*> {
-            RemoteVolumeControl.set(this@RemotePlaybackService, deviceVolume); refresh()
+            if (localPhoneSelected()) setLocalVolume(deviceVolume, flags)
+            else RemoteVolumeControl.set(this@RemotePlaybackService, deviceVolume)
+            refresh()
             return Futures.immediateVoidFuture()
         }
         override fun handleIncreaseDeviceVolume(flags: Int): ListenableFuture<*> {
-            RemoteVolumeControl.adjust(this@RemotePlaybackService, 1); refresh()
+            if (localPhoneSelected()) getSystemService(android.media.AudioManager::class.java)
+                .adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, flags)
+            else RemoteVolumeControl.adjust(this@RemotePlaybackService, 1)
+            refresh()
             return Futures.immediateVoidFuture()
         }
         override fun handleDecreaseDeviceVolume(flags: Int): ListenableFuture<*> {
-            RemoteVolumeControl.adjust(this@RemotePlaybackService, -1); refresh()
+            if (localPhoneSelected()) getSystemService(android.media.AudioManager::class.java)
+                .adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, flags)
+            else RemoteVolumeControl.adjust(this@RemotePlaybackService, -1)
+            refresh()
             return Futures.immediateVoidFuture()
         }
         override fun handleRelease(): ListenableFuture<*> = Futures.immediateVoidFuture()
