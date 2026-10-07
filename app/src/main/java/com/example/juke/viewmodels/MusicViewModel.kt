@@ -1299,55 +1299,44 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val generation = playbackRequestId
+        val claim = com.example.juke.services.PhonePlaybackOwnership.token
         try {
-            val item = BrowseParser.item(buildJsonObject {
-                put("playlistId", playlistId); put("title", "Playlist")
-            }, "playlists")
+            val item = BrowseParser.item(buildJsonObject { put("playlistId", playlistId); put("title", "Playlist") }, "playlists")
             val all = collectionTracks(item)
             coroutineContext.ensureActive()
-            val claim = com.example.juke.services.PhonePlaybackOwnership.token
             val selectedVideo = selected.ytVideoId ?: return
-            if (claim.isBlank() || isAlexa || generation != playbackRequestId) return
+            if (claim.isBlank() || isAlexa || isRemotePhone || generation != playbackRequestId) return
             val remainder = playlistRemainder(all, selectedVideo, shuffle, selectedIndex)
-            if (remainder.isEmpty()) {
-                synchronizePhoneQueue(startRadio = true)
-                return
-            }
-            remainder.chunked(PLAYLIST_BACKFILL_CHUNK).forEach { chunk ->
-                coroutineContext.ensureActive()
-                if (isAlexa || generation != playbackRequestId) return
-                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim)) return
-                val resolved = withContext(Dispatchers.IO) { resolveForPhone(chunk, -1) }
-                coroutineContext.ensureActive()
-                if (isAlexa || generation != playbackRequestId) return
-                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim)) return
-                playbackManager.addToQueue(resolved)
-                _uiState.update { it.copy(queue = it.queue + resolved) }
-                // Publish the local authoritative queue under the same lock as other
-                // edits. A current-song advance does not cancel this playlist fill.
-                val live = _uiState.value
-                try {
-                    phoneQueueMutex.withLock {
-                        val current = requireNotNull(live.currentTrack?.ytVideoId)
-                        AlexaBackendApi.updateQueue("current", current, emptyList(),
-                            playbackManager.shouldResumeAfterTrackChange(), playbackManager.getCurrentPosition(),
-                            live.queueIndex, playbackManager.isBufferingFlow.value, expectedToken = claim)
-                        AlexaBackendApi.updateQueue("extend", current, resolved.map(AlexaBackendApi::backendTrack), expectedToken = claim)
-                    }
-                    sharedPhoneQueueReady = true
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    sharedPhoneQueueReady = false
-                    synchronizePhoneQueue()
-                    throw e
-                }
-            }
+            if (remainder.isEmpty()) { synchronizePhoneQueue(startRadio = true); return }
+            sharedPhoneQueueReady = false
+            // Fill the complete local playlist first in Binder-safe batches. Server
+            // rejection must not discard the unprocessed remainder of a playlist.
+            fun stillCurrent() = !isAlexa && !isRemotePhone && generation == playbackRequestId &&
+                com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(claim)
+            val filled = com.example.juke.services.fillPhonePlaylist(remainder, PLAYLIST_BACKFILL_CHUNK,
+                stillCurrent = ::stillCurrent,
+                append = { chunk ->
+                    val resolved = withContext(Dispatchers.IO) { resolveForPhone(chunk, -1) }
+                    coroutineContext.ensureActive()
+                    if (!stillCurrent()) throw CancellationException("Playlist output changed during preparation")
+                    playbackManager.addToQueue(resolved)
+                    _uiState.update { it.copy(queue = it.queue + resolved) }
+                },
+                publish = {
+                    val live = _uiState.value
+                    publishPhoneQueue(live.queue, live.queueIndex, playbackManager.getCurrentPosition(),
+                        playbackManager.shouldResumeAfterTrackChange())
+                })
+            if (!filled) return
+            sharedPhoneQueueReady = true
+            queueManager.initializeQueue(_uiState.value.queue, preserveHistory = true)
         } catch (e: CancellationException) { throw e }
         catch (e: BackendAuthException) { _signedOut.tryEmit(Unit) }
         catch (e: Exception) {
+            sharedPhoneQueueReady = false
             Log.w(TAG, "Playlist backfill failed: ${e.javaClass.simpleName}")
-            _messages.tryEmit("Playing now. Couldn't load the rest of the playlist.")
-            if (!isAlexa) synchronizePhoneQueue(startRadio = true)
+            _messages.tryEmit("Playing locally. Retrying playlist synchronization.")
+            if (!isAlexa && !isRemotePhone && generation == playbackRequestId) synchronizePhoneQueue()
         }
     }
 
