@@ -1097,8 +1097,12 @@ class PlaybackService : MediaLibraryService() {
     private fun onPhoneForegroundDenied() {
         // Android did not grant a background playback start. Do not keep audio running
         // without its required foreground service or transfer it to another phone.
-        if (::player.isInitialized) player.pause()
         recoveryShouldResume = false
+        leaseInterruption.clear()
+        networkInterruption.clear()
+        streamRecoveryJob?.cancel()
+        streamRecoveryJob = null
+        if (::player.isInitialized) player.pause()
         com.example.juke.network.NetworkFeedback.notify("Open Music Box on the playback device, then tap play to resume.")
         Log.w(TAG, "Android denied foreground playback promotion")
     }
