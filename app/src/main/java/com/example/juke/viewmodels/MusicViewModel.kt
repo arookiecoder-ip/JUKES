@@ -624,7 +624,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val request = playbackRequestId
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try {
-            val selected = com.example.juke.services.MobileDeviceConnection.selectForegroundDefault() ?: return
+            val selected = withTimeout(6_000) { com.example.juke.services.MobileDeviceConnection.selectForegroundDefault() } ?: return
             if (request != playbackRequestId || !isForeground) return
             com.example.juke.services.PhonePlaybackOwnership.accept(selected)
             // Restore only metadata. Audio preparation waits for an explicit play action.
@@ -642,7 +642,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             setOutputPreference(PlaybackOutput.PHONE)
             sharedPhoneQueueReady = true
             updatePolling()
-        } catch (e: CancellationException) { throw e }
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) { /* Retry on the next foreground visit. */ }
+        catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* Keep the existing selection when offline or on older servers. */ }
         finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
@@ -1847,7 +1848,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Route physical keys to the selected output; local keys retain Android's normal behavior. */
     fun adjustSelectedDeviceVolume(direction: Int): Boolean {
-        if (_output.value == PlaybackOutput.PHONE) return false
+        if (!signedIn || _output.value == PlaybackOutput.PHONE) return false
         if (_isSwitchingOutput.value) return true
         val current = if (isRemotePhone) mobileDevices.value.firstOrNull { it.id == _remoteMobileOutput.value.owner }?.volume
             else echo.state.value.volume
