@@ -23,8 +23,11 @@ fun CollectionDetailHero(item: BrowseItem, title: String, image: String, credit:
     metadata: String, description: String = "", onCreditClick: (() -> Unit)? = null,
     onPlay: () -> Unit, onShuffle: () -> Unit, onQueue: () -> Unit, options: List<ExtraSongOption> = emptyList()) {
     DetailHero(image) {
+        val paneHeight = LocalDetailPaneHeight.current
+        val topInset = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
+        val contentHeight = paneHeight?.let { (it - topInset).coerceAtLeast(0.dp) } ?: 0.dp
         BoxWithConstraints(Modifier.fillMaxWidth().stableStatusBarsPadding()) {
-            val wide = maxWidth >= 840.dp
+            val wide = paneHeight == null && maxWidth >= 840.dp
             @Composable fun labels() {
                 Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 if (credit.isNotBlank()) Text(credit, style = MaterialTheme.typography.bodyLarge,
@@ -40,8 +43,10 @@ fun CollectionDetailHero(item: BrowseItem, title: String, image: String, credit:
                     labels()
                     CollectionActions(item, onPlay, onShuffle, onQueue, options)
                 }
-            } else Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp)
-                .testTag("Collection hero"), horizontalAlignment = Alignment.CenterHorizontally) {
+            } else Column(Modifier.fillMaxWidth().heightIn(min = contentHeight)
+                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = if (paneHeight != null) 16.dp else 0.dp)
+                .testTag("Collection hero"), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = if (paneHeight != null) Arrangement.Center else Arrangement.Top) {
                 AsyncImage(image, title, Modifier.size(200.dp).clip(RoundedCornerShape(8.dp)).testTag("Collection artwork"), contentScale = ContentScale.Crop)
                 Spacer(Modifier.height(12.dp))
                 labels()

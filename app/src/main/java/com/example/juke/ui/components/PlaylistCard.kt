@@ -47,15 +47,9 @@ fun PlaylistCard(
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(playlist) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
-        androidx.compose.foundation.layout.Box(if (fillCell) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(artworkSize)) {
-        AsyncImage(
-            model = playlist.image,
-            contentDescription = playlist.title,
-            modifier = Modifier
-                .matchParentSize()
-                .clip(androidx.compose.ui.graphics.RectangleShape),
-            contentScale = ContentScale.Crop
-        )
+        androidx.compose.foundation.layout.BoxWithConstraints(if (fillCell) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(artworkSize)) {
+        ListArtwork(playlist.image, if (fillCell) maxWidth else artworkSize,
+            Modifier.matchParentSize().clip(androidx.compose.ui.graphics.RectangleShape))
             onPlay?.let { play -> CollectionPlayButton("Play ${playlist.title}", play,
                 Modifier.align(Alignment.BottomEnd).padding(8.dp)) }
         }

@@ -112,7 +112,7 @@ fun PlayerArtwork(
                 queue.getOrNull(page) ?: currentTrack
             }
 
-            ArtworkCard(
+            ArtworkCardContent(
                 track = pageTrack,
                 // Only show lyrics on the active page
                 showLyrics = showLyrics && page == pagerState.currentPage,

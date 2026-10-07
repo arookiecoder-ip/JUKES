@@ -42,11 +42,16 @@ object ArtworkRepository {
                 slots.withPermit {
                     for (url in artworkCandidates(source, videoId, true)) {
                         val result = context.imageLoader.execute(ImageRequest.Builder(context).data(url)
-                            .size(Size.ORIGINAL).allowHardware(false)
+                            .size(1200).precision(coil.size.Precision.INEXACT).allowHardware(false)
                             .memoryCachePolicy(if (failed != null) CachePolicy.WRITE_ONLY else CachePolicy.ENABLED)
                             .diskCachePolicy(if (failed != null) CachePolicy.WRITE_ONLY else CachePolicy.ENABLED).build())
                         if (result is SuccessResult && isHdArtwork(result.drawable.intrinsicWidth, result.drawable.intrinsicHeight)) {
-                            val original = result.drawable.toBitmap()
+                            val decoded = result.drawable.toBitmap()
+                            // Remove the video thumbnail's baked-in side canvas before cover-scaling.
+                            // Catalog and arbitrary user artwork retain their original aspect ratio.
+                            val crop = squareArtworkCrop(decoded.width, decoded.height)
+                            val original = if (isVideoArtwork(url) && decoded.width != decoded.height)
+                                Bitmap.createBitmap(decoded, crop.left, crop.top, crop.size, crop.size) else decoded
                             val factor = minOf(1f, 1200f / maxOf(original.width, original.height))
                             val bitmap = if (factor < 1f) Bitmap.createScaledBitmap(original,
                                 (original.width * factor).toInt(), (original.height * factor).toInt(), true) else original

@@ -19,7 +19,7 @@ import com.example.juke.services.DownloadRepository
 fun DownloadedBadge(videoId: String?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val repository = remember { DownloadRepository.get(context) }
-    val downloadedFlow = remember(repository, videoId) { repository.tracks.map { tracks -> videoId != null && tracks.any { it.ytVideoId == videoId } }.distinctUntilChanged() }
+    val downloadedFlow = remember(repository, videoId) { repository.downloadedIds.map { ids -> videoId != null && videoId in ids }.distinctUntilChanged() }
     val progressFlow = remember(repository, videoId) { repository.progress.map { progress -> videoId?.let { progress[it] } }.distinctUntilChanged() }
     val downloaded by downloadedFlow.collectAsStateWithLifecycle(initialValue = false)
     val value by progressFlow.collectAsStateWithLifecycle(initialValue = null)

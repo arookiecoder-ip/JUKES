@@ -103,6 +103,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -296,9 +297,9 @@ fun PlayerScreen(
         currentTrack.plainLyrics,
         currentTrack.romanizedSyncedLyrics,
         currentTrack.romanizedPlainLyrics,
-        romanizeLyrics
+        romanizeLyrics, showLyrics
     ) {
-        if (!romanizeLyrics) {
+        if (!romanizeLyrics || !showLyrics) {
             romanizedTrack = null
             return@LaunchedEffect
         }
@@ -362,10 +363,25 @@ fun PlayerScreen(
             )
     }
 
+    // Present the shell immediately; use a short, controlled entrance instead of the
+    // sheet's full-height spring. Retain swipe-to-dismiss and nested-sheet behavior.
+    val playerDensity = androidx.compose.ui.platform.LocalDensity.current
+    val playerSheet = remember(playerDensity) {
+        androidx.compose.material3.SheetState(skipPartiallyExpanded = true,
+            density = playerDensity, initialValue = androidx.compose.material3.SheetValue.Expanded)
+    }
+    val entrance = remember { androidx.compose.animation.core.Animatable(0f) }
+    var queueReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        entrance.animateTo(1f, androidx.compose.animation.core.tween(200,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        queueReady = true
+    }
     // Modal Sheet for Player
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = playerSheet,
+        sheetMaxWidth = androidx.compose.ui.unit.Dp.Unspecified,
         containerColor = Color.Transparent, // Transparent to show the ambient glass backdrop
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxSize(),
@@ -376,7 +392,10 @@ fun PlayerScreen(
         dragHandle = null
     ) {
         JUKETheme(darkTheme = true) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().graphicsLayer {
+            alpha = entrance.value
+            translationY = (1f - entrance.value) * 48.dp.toPx()
+        }) {
             // Plain black backdrop; the artwork is the only color on the screen.
             Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
             // Content — fully responsive, adapts to screen height
@@ -438,7 +457,7 @@ fun PlayerScreen(
                         else if (output == com.example.juke.viewmodels.PlaybackOutput.PHONE) PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
                     }
-                }, queue = queueContent)
+                }, queue = { if (queueReady) queueContent() else Box(Modifier.fillMaxSize()) })
             }
         }
         }

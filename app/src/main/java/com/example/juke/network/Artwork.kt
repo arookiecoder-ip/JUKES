@@ -39,3 +39,14 @@ fun rowArtworkUrl(url: String, pixels: Int): String {
         return url.replace(Regex("/(maxresdefault|hq720|sddefault)\\.(jpg|webp)(?=\\?|$)"), "/hqdefault.$2")
     return url
 }
+
+/** Topic-song video thumbnails often place a square cover on a wide blurred canvas. */
+internal data class ArtworkCrop(val left: Int, val top: Int, val size: Int)
+internal fun squareArtworkCrop(width: Int, height: Int): ArtworkCrop {
+    val size = minOf(width, height).coerceAtLeast(1)
+    return ArtworkCrop((width - size).coerceAtLeast(0) / 2, (height - size).coerceAtLeast(0) / 2, size)
+}
+internal fun isVideoArtwork(url: String): Boolean {
+    val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
+    return host == "ytimg.com" || host.endsWith(".ytimg.com")
+}

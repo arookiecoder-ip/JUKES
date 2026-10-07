@@ -53,6 +53,8 @@ class DownloadRepository private constructor(private val context: Context) {
     @Volatile private var completedByVideo = completed.map { it.track }.associateBy { it.ytVideoId }
     private val _tracks = MutableStateFlow(completed.map { it.track })
     val tracks = _tracks.asStateFlow()
+    private val _downloadedIds = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedIds = _downloadedIds.asStateFlow()
     private val _progress = MutableStateFlow<Map<String, Int>>(emptyMap())
     val progress = _progress.asStateFlow()
     private val _activeTracks = MutableStateFlow<List<Track>>(emptyList())
@@ -231,6 +233,7 @@ class DownloadRepository private constructor(private val context: Context) {
         }
         _collections.value = savedCollections.toList(); _tracks.value = completed.map { it.track }
         completedByVideo = _tracks.value.associateBy { it.ytVideoId }
+        _downloadedIds.value = completedByVideo.keys.filterNotNull().toSet()
     }
     private fun manifest(kind: String, key: String, state: String, payload: String) =
         com.example.juke.database.DownloadManifestRow(kind, key, state, payload)

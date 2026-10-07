@@ -246,6 +246,7 @@ private fun HomeHeader(
 @Composable
 internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (Int) -> Unit) {
     val menu = LocalMediaMenu.current
+    val columns = remember(tracks) { tracks.chunked(4) }
     Column(Modifier.padding(top = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
@@ -256,14 +257,14 @@ internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (In
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val columnWidth = (if (maxWidth >= 600.dp && androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) (maxWidth - 64.dp) / 2 else maxWidth - 48.dp).coerceAtLeast(240.dp)
             LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                itemsIndexed(tracks.chunked(4)) { columnIndex, songs ->
+                itemsIndexed(columns, key = { index, songs -> "$index:${songs.firstOrNull()?.uuid}" }) { columnIndex, songs ->
                     Column(Modifier.width(columnWidth)) {
                         songs.forEachIndexed { row, track ->
                             Row(Modifier.fillMaxWidth().height(64.dp).combinedClickable(
                                 onClick = { onTrackClick(columnIndex * 4 + row) },
                                 onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options"), verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                                    AsyncImage(track.thumbnailUri, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    com.example.juke.ui.components.ListArtwork(track.thumbnailUri, 56.dp, Modifier.fillMaxSize())
                                     Icon(Icons.Default.PlayArrow, null, Modifier.size(28.dp), tint = Color.White)
                                 }
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -292,15 +293,16 @@ private fun BrowseShelfRow(
     onOpen: (BrowseItem) -> Unit,
     onPlayCollection: (BrowseItem) -> Unit
 ) {
+    val trackIndices = remember(tracks) { tracks.withIndex().associate { it.value.ytVideoId to it.index } }
     Column {
         SectionHeader(title = title)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            itemsIndexed(items) { _, item ->
+            itemsIndexed(items, key = { index, item -> "$index:${item.kind}:${item.id}" }) { _, item ->
                 if (item.kind == "track") {
-                    val trackIndex = tracks.indexOfFirst { it.ytVideoId == item.videoId }
+                    val trackIndex = trackIndices[item.videoId] ?: -1
                     val track = tracks.getOrNull(trackIndex) ?: return@itemsIndexed
                     MusicCard(track = track, onClick = { onTrackClick(trackIndex) })
                 } else if (item.kind == "artist") {
@@ -372,7 +374,7 @@ private fun MusicCard(track: Track, onClick: () -> Unit) {
     val menu = LocalMediaMenu.current
     Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = { menu?.show(track) }, onLongClickLabel = "Song options")) {
         Box(Modifier.size(160.dp).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-            AsyncImage(track.thumbnailUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            com.example.juke.ui.components.ListArtwork(track.thumbnailUri, 160.dp, Modifier.fillMaxSize())
             androidx.compose.material3.FilledIconButton(onClick = onClick, modifier = Modifier.size(48.dp), colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = 0.24f))) {
                 Icon(Icons.Filled.PlayArrow, "Play ${track.title}", Modifier.size(30.dp), tint = Color.White)
             }
@@ -391,7 +393,7 @@ private fun CollectionCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> 
     val menu = LocalMediaMenu.current
     Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = { menu?.show(item) }, onLongClickLabel = "Collection options")) {
         Box(Modifier.size(160.dp).testTag("home-artwork-${item.id}").background(MaterialTheme.colorScheme.surfaceVariant)) {
-            AsyncImage(item.image, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            com.example.juke.ui.components.ListArtwork(item.image, 160.dp, Modifier.fillMaxSize())
             if (item.kind in listOf("album", "playlist")) {
                 com.example.juke.ui.components.CollectionPlayButton("Play ${item.title}", onPlay, Modifier.align(Alignment.BottomEnd).padding(8.dp))
             }
@@ -447,12 +449,7 @@ private fun ArtistCircle(
             contentAlignment = Alignment.Center
         ) {
             if (artist.image.isNotBlank()) {
-                AsyncImage(
-                    model = artist.image,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
+                com.example.juke.ui.components.ListArtwork(artist.image, 160.dp, Modifier.fillMaxSize().clip(CircleShape))
             } else {
                 Icon(
                     Icons.Filled.MusicNote,

@@ -47,15 +47,9 @@ fun AlbumCard(
             .combinedClickable(onClick = { haptic.click(); onClick() }, onLongClick = { haptic.heavyClick(); menu?.show(album) }, onLongClickLabel = "Collection options")
             .padding(bottom = 4.dp)
     ) {
-        androidx.compose.foundation.layout.Box(if (fillCell) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(artworkSize)) {
-        AsyncImage(
-            model = album.image,
-            contentDescription = album.title,
-            modifier = Modifier
-                .matchParentSize()
-                .clip(androidx.compose.ui.graphics.RectangleShape),
-            contentScale = ContentScale.Crop
-        )
+        androidx.compose.foundation.layout.BoxWithConstraints(if (fillCell) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(artworkSize)) {
+        ListArtwork(album.image, if (fillCell) maxWidth else artworkSize,
+            Modifier.matchParentSize().clip(androidx.compose.ui.graphics.RectangleShape))
             onPlay?.let { play -> CollectionPlayButton("Play ${album.title}", play,
                 Modifier.align(Alignment.BottomEnd).padding(8.dp)) }
         }

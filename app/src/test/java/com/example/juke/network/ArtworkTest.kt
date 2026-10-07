@@ -34,4 +34,17 @@ class ArtworkTest {
         assertEquals(source, largeArtworkUrl(rowArtworkUrl(source, 144)))
         assertEquals("https://unknown.com/art=w1200?signature=abc", rowArtworkUrl("https://unknown.com/art=w1200?signature=abc", 144))
     }
+    @Test fun wideVideoCanvasIsRemovedSymmetricallyWithoutLosingHd() {
+        val crop = squareArtworkCrop(1280, 720)
+        assertEquals(ArtworkCrop(280, 0, 720), crop)
+        assertTrue(isHdArtwork(crop.size, crop.size))
+        assertEquals(crop.left, 1280 - crop.left - crop.size)
+        assertEquals(ArtworkCrop(0, 280, 720), squareArtworkCrop(720, 1280))
+        assertEquals(ArtworkCrop(0, 0, 1200), squareArtworkCrop(1200, 1200))
+    }
+    @Test fun catalogAndCustomArtworkAreNotClassifiedAsVideoCanvases() {
+        assertTrue(isVideoArtwork("https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg"))
+        assertFalse(isVideoArtwork("https://lh3.googleusercontent.com/art=w1200"))
+        assertFalse(isVideoArtwork("https://example.com/ytimg.com/art.jpg"))
+    }
 }

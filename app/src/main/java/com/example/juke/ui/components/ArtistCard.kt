@@ -45,14 +45,7 @@ fun ArtistCard(
             .padding(bottom = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AsyncImage(
-            model = artist.image,
-            contentDescription = artist.title,
-            modifier = Modifier
-                .size(148.dp)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop
-        )
+        ListArtwork(artist.image, 148.dp, Modifier.size(148.dp).clip(CircleShape))
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = artist.title,
