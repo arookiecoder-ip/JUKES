@@ -360,6 +360,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     val latest = echo.state.value
                     if (latest.sharedOutput.mode == "alexa" && (latest.playing || latest.processing)) {
                         adoptRemoteAlexa(latest.sharedOutput)
+                    } else if (latest.sharedOutput.mode == "phone" && latest.sharedOutput.owner.isNotBlank() &&
+                        latest.sharedOutput.owner != com.example.juke.services.PhonePlaybackOwnership.ownerId && latest.sharedOutput.leaseMs > 0) {
+                        onMobileOutput(latest.sharedOutput)
                     } else {
                         com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                         serverPlaybackChecked = true
@@ -692,6 +695,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         } else if (output.mode == "phone" && output.owner.isNotBlank() && output.owner != ownId) {
+            // A downloaded track may have continued without a token while offline.
+            // On reconnection it must stop before following another phone's ownership.
+            playbackManager.pause()
+            com.example.juke.services.PhonePlaybackOwnership.forget()
             phoneQueueSyncJob?.cancel()
             playlistBackfillJob?.cancel()
             _remoteMobileOutput.value = output
