@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.juke.ui.components.GlassButton
 import com.example.juke.ui.components.GlassTopAppBar
 import com.example.juke.ui.theme.GlassCard
@@ -77,14 +79,17 @@ fun SettingsScreen(
     var versionTaps by remember { mutableIntStateOf(0) }
     var lastVersionTapAt by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(Unit) {
+    val profileLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(profileLifecycle) {
         account.refreshStatus()
         music.refreshDevices()
-        while (true) {
-            kotlinx.coroutines.delay(5_000)
-            try { music.echo.refreshDeviceStatus() }
-            catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) { /* A server outage is not proof that Echo is offline. */ }
+        profileLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                try { music.echo.refreshDeviceStatus() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { /* A server outage is not proof that Echo is offline. */ }
+                kotlinx.coroutines.delay(5_000)
+            }
         }
     }
 
