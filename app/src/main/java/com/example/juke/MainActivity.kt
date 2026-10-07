@@ -590,7 +590,7 @@ class MainActivity : ComponentActivity() {
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
-                                GlassNavBar(items = navItems, modifier = if (isExpanded) Modifier.padding(horizontal = 24.dp, vertical = 4.dp) else Modifier)
+                                GlassNavBar(items = navItems, modifier = if (isExpanded) Modifier.padding(vertical = 4.dp) else Modifier)
                             }
                         }
                     }
@@ -605,16 +605,15 @@ class MainActivity : ComponentActivity() {
                     )
 
                     Box(modifier = Modifier.fillMaxSize()) {
-                    // Backdrop source: the ambient light field and every screen scroll inside it,
-                    // so the floating glass (tab bar, mini player) blurs what is really behind it.
-                    Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+                    // Surfaces are opaque; do not capture a full-screen blur source on each frame.
+                    Box(modifier = Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
                     Row(modifier = Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f).padding(contentPadding), contentAlignment = Alignment.TopCenter) {
                         NavHost(
                             navController = navController,
                             startDestination = Screen.Home.route,
-                            modifier = Modifier.widthIn(max = 1200.dp).fillMaxSize()
+                            modifier = Modifier.then(if (isExpanded) Modifier else Modifier.widthIn(max = 1200.dp)).fillMaxSize()
                         ) {
                             composable(Screen.Home.route) {
                                 HomeScreen(

@@ -29,7 +29,6 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
     val state by albumDetailViewModel.uiState.collectAsStateWithLifecycle()
     val album = state.album
     Box(Modifier.fillMaxSize()) {
-        if (state.error == null) DetailPageBackdrop(state.imageUrl)
         if (state.error != null && state.tracks.isEmpty()) {
             ConnectionErrorState(state.error.orEmpty(), {
                 album?.let { albumDetailViewModel.loadAlbumDetails(it) }

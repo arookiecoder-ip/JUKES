@@ -674,7 +674,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (signedIn && isRemotePhone) {
             // Presence already refreshes the remote phone cursor; avoid a duplicate poller.
             com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", false)
-            com.example.juke.services.RemotePlaybackService.stop(getApplication())
+            com.example.juke.services.RemotePlaybackService.start(getApplication(), echo.state.value, isForeground)
         } else if (signedIn && isAlexa && echo.serial.value.isNotBlank()) {
             com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", isForeground, isForeground)
             com.example.juke.services.RemotePlaybackService.start(getApplication(), echo.state.value, isForeground)
@@ -1850,31 +1850,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun adjustSelectedDeviceVolume(direction: Int): Boolean {
         if (!signedIn || _output.value == PlaybackOutput.PHONE) return false
         if (_isSwitchingOutput.value) return true
-        val current = if (isRemotePhone) mobileDevices.value.firstOrNull { it.id == _remoteMobileOutput.value.owner }?.volume
-            else echo.state.value.volume
-        if (current == null) {
-            _messages.tryEmit("Volume isn't available for this device yet")
-            return true
-        }
-        val value = com.example.juke.services.remoteVolumeStep(current, direction)
-        if (isRemotePhone) {
-            val device = mobileDevices.value.firstOrNull { it.id == _remoteMobileOutput.value.owner }
-            setRemotePhoneVolume(com.example.juke.services.remotePhoneVolumeStep(current, direction, device?.volumeSteps))
-        } else setEchoVolume(value)
-        return true
+        return com.example.juke.services.RemoteVolumeControl.adjust(getApplication(), direction)
     }
 
-    private var remoteVolumeJob: Job? = null
-    fun setRemotePhoneVolume(volume: Int) {
-        val output = _remoteMobileOutput.value
-        com.example.juke.services.MobileDeviceConnection.previewVolume(output.owner, volume)
-        remoteVolumeJob?.cancel()
-        remoteVolumeJob = viewModelScope.launch {
-            delay(150)
-            if (!isRemotePhone || output.token != _remoteMobileOutput.value.token || output.owner != _remoteMobileOutput.value.owner) return@launch
-            runEcho { com.example.juke.services.MobileDeviceConnection.control(output, "volume", buildJsonObject { put("value", volume.coerceIn(0, 100)) }) }
-        }
-    }
+    fun setRemotePhoneVolume(volume: Int) = com.example.juke.services.RemoteVolumeControl.set(getApplication(), volume)
 
     private fun setPhoneVolume(percent: Int) {
         val audio = getApplication<Application>().getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager

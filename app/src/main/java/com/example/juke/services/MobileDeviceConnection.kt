@@ -21,6 +21,8 @@ object MobileDeviceConnection {
     private val handled = linkedSetOf<String>()
     private var acknowledge = emptyList<String>()
     private var latestOutput = SharedPlaybackOutput()
+    private val _output = MutableStateFlow(latestOutput)
+    val output = _output.asStateFlow()
     private data class PendingVolume(val value: Int, val until: Long)
     private val pendingVolumes = mutableMapOf<String, PendingVolume>()
     fun previewVolume(id: String, value: Int) {
@@ -28,7 +30,7 @@ object MobileDeviceConnection {
         _devices.value = _devices.value.map { if (it.id == id) it.copy(volume = value.coerceIn(0, 100)) else it }
     }
     fun rememberOutput(output: SharedPlaybackOutput): SharedPlaybackOutput {
-        if (!output.olderThan(latestOutput)) latestOutput = output
+        if (!output.olderThan(latestOutput)) { latestOutput = output; _output.value = output }
         return latestOutput
     }
 

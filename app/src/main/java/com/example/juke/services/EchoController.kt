@@ -274,6 +274,7 @@ class EchoController(
         volumeJob?.cancel()
         volumeJob = scope.launch {
             delay(220)
+            if (_serial.value != serial || prefs.getString("playback_output", "PHONE") != "ALEXA") return@launch
             try {
                 send("/alexa/command/", buildJsonObject {
                     put("serial", serial); put("action", "volume"); put("value", value)

@@ -39,7 +39,7 @@ class JukeApplication : Application(), ImageLoaderFactory {
             .diskCachePolicy(CachePolicy.ENABLED)
             // Respect server Cache-Control but still serve stale from disk while revalidating
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(true)
+            .crossfade(false)
             .build()
     }
 }

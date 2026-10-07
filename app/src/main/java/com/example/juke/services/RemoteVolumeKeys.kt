@@ -14,3 +14,8 @@ internal fun remotePhoneVolumeStep(current: Int, direction: Int, maximum: Int?):
     val target = (volumePercentToStreamIndex(current, levels) + direction.coerceIn(-1, 1)).coerceIn(0, levels)
     return (target * 100 + levels / 2) / levels
 }
+
+/** Delayed volume updates must never cross a lease or target change. */
+internal fun canSendRemotePhoneVolume(target: SharedPlaybackOutput, latest: SharedPlaybackOutput, remoteSelected: Boolean): Boolean =
+    remoteSelected && target.mode == "phone" && latest.mode == "phone" && target.owner.isNotBlank() &&
+        target.token.isNotBlank() && target.owner == latest.owner && target.token == latest.token && !latest.handoffPending

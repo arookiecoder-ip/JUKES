@@ -28,7 +28,6 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
     val state by playlistDetailViewModel.uiState.collectAsStateWithLifecycle()
     val playlist = state.playlist
     Box(Modifier.fillMaxSize()) {
-        if (state.error == null) DetailPageBackdrop(state.imageUrl)
         if (state.error != null && state.tracks.isEmpty()) {
             ConnectionErrorState(state.error.orEmpty(), {
                 playlist?.let { playlistDetailViewModel.loadPlaylistDetails(it) }

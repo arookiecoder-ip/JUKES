@@ -25,22 +25,28 @@ fun SyncedLyricsLines(lines: List<LyricLine>, position: Long, onSeek: (Long) -> 
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val dragged by list.interactionSource.collectIsDraggedAsState()
-    val active = lines.indexOfLast { it.timeMs <= position }.coerceAtLeast(0)
+    val active = remember(lines, position) { lines.indexOfLast { it.timeMs <= position }.coerceAtLeast(0) }
     val currentActive by rememberUpdatedState(active)
-    var centering by remember { mutableStateOf(false) }
     suspend fun center(index: Int) {
-        if (index !in lines.indices) return
-        centering = true
-        try {
-            list.animateScrollToItem(index)
-            val layout = list.layoutInfo
-            val item = layout.visibleItemsInfo.firstOrNull { it.index == index }
-            if (item != null) list.animateScrollBy((item.offset + item.size / 2f - (layout.viewportStartOffset + layout.viewportEndOffset) / 2f))
-        } finally { centering = false }
+        if (index !in lines.indices || dragged) return
+        var layout = list.layoutInfo
+        var item = layout.visibleItemsInfo.firstOrNull { it.index == index }
+        if (item == null) {
+            // Large seeks place the target near the center before measuring its real height.
+            list.scrollToItem(index, -(layout.viewportEndOffset - layout.viewportStartOffset) / 2)
+            withFrameNanos { }
+            layout = list.layoutInfo
+            item = layout.visibleItemsInfo.firstOrNull { it.index == index }
+        }
+        item?.let {
+            list.animateScrollBy(lyricCenterDelta(it.offset, it.size,
+                layout.viewportStartOffset, layout.viewportEndOffset))
+        }
     }
-    LaunchedEffect(active, lines) { if (!list.isScrollInProgress && !centering) center(active) }
-    LaunchedEffect(dragged) {
-        if (!dragged) { delay(1_200); if (!centering) center(currentActive) }
+    LaunchedEffect(lines) {
+        snapshotFlow { Triple(currentActive, dragged, list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset) }.collectLatest { (index, dragging, _) ->
+            if (!dragging) { delay(350); center(index) }
+        }
     }
     BoxWithConstraints(modifier.testTag("Synced lyrics")) {
         LazyColumn(Modifier.fillMaxSize(), state = list,

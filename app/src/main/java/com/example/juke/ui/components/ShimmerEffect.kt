@@ -6,7 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -32,11 +32,12 @@ fun Modifier.shimmerEffect(): Modifier = composed {
         label = "shimmer_offset"
     )
 
-    background(
-        brush = Brush.linearGradient(
+    // Read the animation in the draw phase: loading rows do not recompose every frame.
+    drawBehind {
+        drawRect(brush = Brush.linearGradient(
             colors = shimmerColors,
             start = Offset(shimmerOffset - 260f, shimmerOffset - 260f),
             end = Offset(shimmerOffset, shimmerOffset)
-        )
-    )
+        ))
+    }
 }

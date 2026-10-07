@@ -49,7 +49,6 @@ fun ArtistDetailScreen(
     val artist = state.artist
     var expandedDescription by remember(artist?.id) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
-        if (state.error == null) DetailPageBackdrop(state.imageUrl)
         when {
             state.error != null && (artist == null || state.topTracks.isEmpty()) -> {
                 ConnectionErrorState(state.error.orEmpty(), {
@@ -59,7 +58,7 @@ fun ArtistDetailScreen(
             state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp), bottomPadding = bottomPadding)
             else -> AdaptiveDetailLayout(bottomPadding = bottomPadding, spacing = 16.dp, hero = {
                     DetailHero(state.imageUrl, artist = true) {
-                    Column(Modifier.fillMaxWidth().heightIn(min = 380.dp).padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.Bottom) {
+                    Column(Modifier.fillMaxWidth().heightIn(min = LocalDetailPaneHeight.current ?: 380.dp).padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.Bottom) {
                         Text(artist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                         if (state.subscribers.isNotBlank()) Text(state.subscribers + if (state.subscribers.contains("subscriber", true)) "" else " subscribers", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.description.isNotBlank()) {

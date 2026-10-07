@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -21,17 +22,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 
+internal val LocalDetailPaneHeight = compositionLocalOf<androidx.compose.ui.unit.Dp?> { null }
+
 /** Artwork behind the entire hero, starting underneath the status bar and fading at the tracks. */
 @Composable
 fun DetailHero(image: String?, artist: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val surface = MaterialTheme.colorScheme.background
+    val paneHeight = LocalDetailPaneHeight.current
     Box(Modifier.fillMaxWidth().clip(androidx.compose.ui.graphics.RectangleShape)) {
-        AsyncImage(image, null,  (if (artist) Modifier.fillMaxWidth().height(380.dp) else Modifier.matchParentSize()).then(
-            if (artist) Modifier.testTag("Artist banner") else Modifier.blur(22.dp).alpha(0.55f)), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-        Box((if (artist) Modifier.fillMaxWidth().height(380.dp) else Modifier.matchParentSize()).background(Brush.verticalGradient(listOf(
+        AsyncImage(coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+            .data(image).size(if (artist) 960 else 256).crossfade(false).build(), null,  (if (artist) Modifier.fillMaxWidth().height(paneHeight ?: 380.dp) else Modifier.matchParentSize()).then(
+            if (artist) Modifier.testTag("Artist banner") else Modifier.blur(22.dp).alpha(0.55f)), contentScale = ContentScale.Crop, alignment = Alignment.Center)
+        Box((if (artist) Modifier.fillMaxWidth().height(paneHeight ?: 380.dp) else Modifier.matchParentSize()).background(Brush.verticalGradient(listOf(
             surface.copy(alpha = if (artist) 0.05f else 0.18f),
             surface.copy(alpha = 0.45f), surface))))
-        Column(Modifier.fillMaxWidth(), content = content)
+        Column(Modifier.fillMaxWidth().then(paneHeight?.let { Modifier.heightIn(min = it) } ?: Modifier), content = content)
     }
 }
 
@@ -41,14 +46,4 @@ fun DetailBackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
         .size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.38f))) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
     }
-}
-
-/** A single backdrop spans both detail panes in landscape. */
-@Composable
-fun DetailPageBackdrop(image: String?) {
-    if (androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE) return
-    val surface = MaterialTheme.colorScheme.background
-    AsyncImage(coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-        .data(image).size(960).build(), null, Modifier.fillMaxSize().alpha(0.25f), contentScale = ContentScale.Crop)
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(surface.copy(alpha = 0.2f), surface.copy(alpha = 0.65f), surface))))
 }

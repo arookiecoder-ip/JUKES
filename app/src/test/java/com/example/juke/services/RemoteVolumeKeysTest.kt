@@ -32,4 +32,14 @@ class RemoteVolumeKeysTest {
         assertEquals(0, remoteVolumeStep(1, -1))
         assertEquals(50, remoteVolumeStep(50, 0))
     }
+    @Test fun delayedVolumeIsRejectedAfterSwitchDisconnectOrLeaseReplacement() {
+        val target = SharedPlaybackOutput(mode = "phone", owner = "phone2", token = "lease1")
+        org.junit.Assert.assertTrue(canSendRemotePhoneVolume(target, target, true))
+        org.junit.Assert.assertFalse(canSendRemotePhoneVolume(target, target.copy(token = "lease2"), true))
+        org.junit.Assert.assertFalse(canSendRemotePhoneVolume(target, target.copy(owner = "phone1"), true))
+        org.junit.Assert.assertFalse(canSendRemotePhoneVolume(target, target.copy(mode = "alexa"), true))
+        org.junit.Assert.assertFalse(canSendRemotePhoneVolume(target, target.copy(handoffPending = true), true))
+        org.junit.Assert.assertFalse(canSendRemotePhoneVolume(target, target.copy(owner = "", token = ""), true))
+        org.junit.Assert.assertFalse(canSendRemotePhoneVolume(target, target, false))
+    }
 }
