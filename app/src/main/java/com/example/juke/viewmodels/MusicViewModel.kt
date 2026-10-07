@@ -1876,7 +1876,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun setPhoneVolume(percent: Int) {
         val audio = getApplication<Application>().getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         val maximum = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (percent.coerceIn(0, 100) * maximum / 100f).toInt(), 0)
+        audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, com.example.juke.services.volumePercentToStreamIndex(percent, maximum), 0)
     }
 
 
