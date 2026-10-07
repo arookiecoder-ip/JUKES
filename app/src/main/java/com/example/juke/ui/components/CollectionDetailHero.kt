@@ -18,6 +18,7 @@ import coil.compose.AsyncImage
 import com.example.juke.network.BrowseItem
 
 /** One hero and action layout for account collections and their downloaded copies. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CollectionDetailHero(item: BrowseItem, title: String, image: String, credit: String,
     metadata: String, description: String = "", onCreditClick: (() -> Unit)? = null,

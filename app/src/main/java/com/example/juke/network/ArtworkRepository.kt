@@ -29,6 +29,8 @@ object ArtworkRepository {
         if (videos.size > 512) videos.clear()
         videos[url] = videoId
     } }
+    /** Cached HD artwork can be displayed on the first player frame without waiting for IO. */
+    fun cached(source: String, videoId: String? = videos[source]): Bitmap? = cache.get(videoId ?: source)
     suspend fun load(context: Context, source: String, videoId: String? = videos[source]): Bitmap? = withContext(Dispatchers.IO) {
         val key = videoId ?: source
         cache.get(key)?.let { return@withContext it }
@@ -42,7 +44,7 @@ object ArtworkRepository {
                 slots.withPermit {
                     for (url in artworkCandidates(source, videoId, true)) {
                         val result = context.imageLoader.execute(ImageRequest.Builder(context).data(url)
-                            .size(1200).precision(coil.size.Precision.INEXACT).allowHardware(false)
+                            .size(1200).scale(coil.size.Scale.FILL).precision(coil.size.Precision.INEXACT).allowHardware(false)
                             .memoryCachePolicy(if (failed != null) CachePolicy.WRITE_ONLY else CachePolicy.ENABLED)
                             .diskCachePolicy(if (failed != null) CachePolicy.WRITE_ONLY else CachePolicy.ENABLED).build())
                         if (result is SuccessResult && isHdArtwork(result.drawable.intrinsicWidth, result.drawable.intrinsicHeight)) {

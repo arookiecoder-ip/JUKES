@@ -293,7 +293,9 @@ private fun BrowseShelfRow(
     onOpen: (BrowseItem) -> Unit,
     onPlayCollection: (BrowseItem) -> Unit
 ) {
-    val trackIndices = remember(tracks) { tracks.withIndex().associate { it.value.ytVideoId to it.index } }
+    val trackIndices = remember(tracks) { buildMap {
+        tracks.forEachIndexed { index, track -> if (!containsKey(track.ytVideoId)) put(track.ytVideoId, index) }
+    } }
     Column {
         SectionHeader(title = title)
         LazyRow(

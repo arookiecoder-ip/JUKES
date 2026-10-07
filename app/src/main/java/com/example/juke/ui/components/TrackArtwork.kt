@@ -21,8 +21,10 @@ fun TrackArtwork(track: Track, modifier: Modifier = Modifier, large: Boolean = f
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val online by com.example.juke.network.NetworkFeedback.online.collectAsState()
-    val bitmap by produceState<android.graphics.Bitmap?>(null, track.ytVideoId, track.thumbnailUri, online) {
-        value = null
+    val bitmap by produceState<android.graphics.Bitmap?>(
+        com.example.juke.network.ArtworkRepository.cached(track.thumbnailUri.orEmpty(), track.ytVideoId),
+        track.ytVideoId, track.thumbnailUri, online) {
+        value = com.example.juke.network.ArtworkRepository.cached(track.thumbnailUri.orEmpty(), track.ytVideoId)
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive && value == null) {
                 value = com.example.juke.network.ArtworkRepository.load(context, track.thumbnailUri.orEmpty(), track.ytVideoId)
