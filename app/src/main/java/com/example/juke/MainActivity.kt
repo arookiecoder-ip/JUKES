@@ -1,6 +1,13 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.example.juke
 
 import com.example.juke.ui.components.stableStatusBarsPadding
+import com.example.juke.ui.components.stableNavigationBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
@@ -533,13 +540,14 @@ class MainActivity : ComponentActivity() {
                 })
                 Scaffold(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility.only(WindowInsetsSides.Horizontal)),
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
                         if (currentRoute != "settings") {
                             Column(
-                                modifier = Modifier.fillMaxWidth().background(com.example.juke.ui.theme.dockColor()),
+                                modifier = Modifier.fillMaxWidth().background(com.example.juke.ui.theme.dockColor())
+                                    .then(if (isExpanded) Modifier.stableNavigationBarsPadding() else Modifier),
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
@@ -572,7 +580,7 @@ class MainActivity : ComponentActivity() {
                         NavHost(
                             navController = navController,
                             startDestination = Screen.Home.route,
-                            modifier = Modifier.widthIn(max = 1400.dp).fillMaxSize()
+                            modifier = Modifier.widthIn(max = 1200.dp).fillMaxSize()
                         ) {
                             composable(Screen.Home.route) {
                                 HomeScreen(

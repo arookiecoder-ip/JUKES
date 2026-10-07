@@ -403,6 +403,9 @@ fun PlayerScreen(
                             modifier = Modifier.padding(top = 8.dp), playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
                         Spacer(Modifier.height(16.dp))
                         if (isAlexa) EchoVolumeRow(volume = echoVolume, enabled = musicViewModel.echo.serial.value.isNotBlank(), onVolumeChange = musicViewModel::setEchoVolume)
+                        else if (output == com.example.juke.viewmodels.PlaybackOutput.REMOTE_PHONE)
+                            EchoVolumeRow(volume = mobileDevices.firstOrNull { it.id == remoteMobileOutput.owner }?.volume,
+                                enabled = mobileDevices.any { it.id == remoteMobileOutput.owner }, onVolumeChange = musicViewModel::setRemotePhoneVolume)
                         else if (output == com.example.juke.viewmodels.PlaybackOutput.PHONE) PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
                     }

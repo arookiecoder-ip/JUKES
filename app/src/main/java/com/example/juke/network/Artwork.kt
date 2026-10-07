@@ -28,3 +28,14 @@ fun artworkCandidates(source: String, videoId: String?, large: Boolean): List<St
 }
 
 fun isHdArtwork(width: Int, height: Int): Boolean = minOf(width, height) >= 720
+
+/** Independent list-cache key: reduced row thumbnails never replace verified player HD art. */
+fun rowArtworkUrl(url: String, pixels: Int): String {
+    val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
+    val size = pixels.coerceIn(64, 320)
+    if (host == "lh3.googleusercontent.com" || host.endsWith(".ggpht.com"))
+        return url.replace(Regex("=(?:w\\d+(?:-h\\d+)?|s\\d+)[^?]*?(?=\\?|$)"), "=w$size-h$size-l90-rj")
+    if (host == "i.ytimg.com" || host.endsWith(".ytimg.com"))
+        return url.replace(Regex("/(maxresdefault|hq720|sddefault)\\.(jpg|webp)(?=\\?|$)"), "/hqdefault.$2")
+    return url
+}

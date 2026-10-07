@@ -535,7 +535,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         collectionCache.clear()
         downloads.collections.value.filter { it.title.isBlank() || it.title == "Untitled" }.forEach { refreshDownloadedDetails(it.key) }
         signedIn = true
-        com.example.juke.services.MobileDeviceConnection.start(::onMobileOutput, ::onMobileCommand)
+        com.example.juke.services.MobileDeviceConnection.start(getApplication(), ::onMobileOutput, ::onMobileCommand)
         serverPlaybackChecked = false
         signInJob?.cancel()
         signInJob = viewModelScope.launch {
@@ -695,7 +695,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         try {
             com.example.juke.services.PhonePlaybackOwnership.accept(output)
             setOutputPreference(PlaybackOutput.PHONE)
-            phoneSetQueue(queue, index, state.livePosition(), play = state.playing)
+            phoneSetQueue(queue, index, state.livePosition(), play = state.playing, synchronizeQueue = false, reuseOwnership = true)
             updatePolling()
         } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
@@ -736,9 +736,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun onMobileCommand(action: String, payload: JsonObject) {
         if (isAlexa || isRemotePhone) return
-        fun tracks() = kotlinx.serialization.json.Json.decodeFromJsonElement(
+        fun tracks(): List<Track> = if (payload["tracks"] != null) kotlinx.serialization.json.Json.decodeFromJsonElement(
             kotlinx.serialization.builtins.ListSerializer(Track.serializer()), requireNotNull(payload["tracks"]))
+            else (payload["queue_items"] as? JsonArray)?.map { BrowseParser.item(it.objectOrEmpty()).toTrack() }
+                ?: listOfNotNull(payload.takeIf { it.text("video_id").isNotBlank() }?.let { BrowseParser.item(it).toTrack() })
         when (action) {
+            "volume" -> setPhoneVolume(payload.number("value").toInt())
             "play" -> if (!playbackManager.shouldResumeAfterTrackChange()) togglePlayPause()
             "pause" -> playbackManager.pause()
             "next" -> skipToNext()
@@ -747,16 +750,44 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             "shuffle" -> toggleShuffle()
             "repeat" -> toggleRepeat()
             "tool" -> runCatching { QueueTool.valueOf(payload.text("tool")) }.getOrNull()?.let(::applyQueueTool)
-            "song" -> startRadio(kotlinx.serialization.json.Json.decodeFromJsonElement(Track.serializer(), requireNotNull(payload["track"])))
-            "next_items" -> addNext(tracks())
-            "append" -> addToQueue(tracks())
+            "song" -> when {
+                payload["track"] != null -> startRadio(kotlinx.serialization.json.Json.decodeFromJsonElement(Track.serializer(), requireNotNull(payload["track"])))
+                payload.text("video_id").isNotBlank() -> startRadio(BrowseParser.item(payload).toTrack())
+                else -> {
+                    val query = payload.text("query")
+                    val link = com.example.juke.network.youtubeLink(query)
+                    if (link != null) playYoutubeLink(link)
+                    else {
+                        val result = Backend.get("/alexa/search/", mapOf("q" to query)).objectOrEmpty()
+                        val song = (result.array("songs") + result.array("all")).map { BrowseParser.item(it.objectOrEmpty()) }
+                            .firstOrNull { it.videoId.isNotBlank() } ?: error("No playable songs found")
+                        startRadio(song.toTrack())
+                    }
+                }
+            }
+            "next_items", "append" -> {
+                if (payload.text("playlist_id").isNotBlank()) queueCollection(BrowseParser.item(buildJsonObject { put("playlistId", payload.text("playlist_id")) }), next = action == "next_items")
+                else if (action == "next_items") addNext(tracks()) else addToQueue(tracks())
+            }
             "remove" -> removeFromQueue(payload.text("id"))
             "reorder" -> moveInQueue(payload.number("from").toInt(), payload.number("to").toInt())
             "queue" -> when {
                 payload["collection"] != null -> playCollection(BrowseParser.item(payload["collection"].objectOrEmpty(), payload.text("kind")), payload.flag("shuffle"))
                 payload["queue_index"] != null -> _uiState.value.queue.getOrNull(payload.number("queue_index").toInt())?.let(::playTrackFromQueue)
-                payload.text("playlist_id").isNotBlank() -> playPlaylist(payload.text("playlist_id"), tracks(), payload.number("index").toInt())
-                else -> setQueue(tracks(), payload.number("index").toInt())
+                payload.text("playlist_id").isNotBlank() -> {
+                    val video = payload.text("target_video_id", "video_id")
+                    if (video.isNotBlank() && !payload.flag("shuffle")) {
+                        val metadata = Backend.get("/api/track/$video/metadata").objectOrEmpty()
+                        val selected = BrowseParser.item(JsonObject(metadata + mapOf("video_id" to JsonPrimitive(video)))).toTrack()
+                        playPlaylist(payload.text("playlist_id"), listOf(selected), 0)
+                    } else playCollection(BrowseParser.item(buildJsonObject { put("playlistId", payload.text("playlist_id")); put("title", "Playlist") }), payload.flag("shuffle"))
+                }
+                else -> {
+                    val items = tracks()
+                    val index = if (payload["start_index"] != null) payload.number("start_index").toInt() else payload.number("index").toInt()
+                    val ordered = if (payload.flag("shuffle")) items.shuffled() else items
+                    if (ordered.isNotEmpty()) setQueue(ordered, if (payload.flag("shuffle")) 0 else index.coerceIn(ordered.indices))
+                }
             }
         }
     }
@@ -1482,7 +1513,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * safely append without racing the initial install.
      */
     private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true,
-        deferRadioSeed: Boolean = false, onPublished: (suspend () -> Unit)? = null) {
+        deferRadioSeed: Boolean = false, reuseOwnership: Boolean = false, onPublished: (suspend () -> Unit)? = null) {
         downloads.awaitReady()
         _uiState.update { it.copy(isLoading = true, error = null) }
         var startupClaim = ""
@@ -1496,7 +1527,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     coroutineScope {
                         val playable = async(Dispatchers.IO) { resolveForPhone(tracks, startIndex) }
                         if (com.example.juke.network.NetworkFeedback.online.value) {
-                            com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                            if (!reuseOwnership || !com.example.juke.services.PhonePlaybackOwnership.permitsPlayback())
+                                com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                             serverPlaybackChecked = true
                         } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
                         startupClaim = com.example.juke.services.PhonePlaybackOwnership.token
@@ -1721,6 +1753,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun setEchoVolume(volume: Int) = echo.setVolume(volume)
+
+    private var remoteVolumeJob: Job? = null
+    fun setRemotePhoneVolume(volume: Int) {
+        val output = _remoteMobileOutput.value
+        remoteVolumeJob?.cancel()
+        remoteVolumeJob = viewModelScope.launch {
+            delay(150)
+            runEcho { com.example.juke.services.MobileDeviceConnection.control(output, "volume", buildJsonObject { put("value", volume.coerceIn(0, 100)) }) }
+        }
+    }
+
+    private fun setPhoneVolume(percent: Int) {
+        val audio = getApplication<Application>().getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+        val maximum = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (percent.coerceIn(0, 100) * maximum / 100f).toInt(), 0)
+    }
+
 
     fun removeFromQueue(trackId: String, onComplete: ((Boolean) -> Unit)? = null) {
         if (isRemotePhone) {

@@ -27,4 +27,11 @@ class ArtworkTest {
     @Test fun missingThumbnailUsesSongIdentity() {
         assertTrue(artworkCandidates("", "aaaaaaaaaaa", true).first().contains("/aaaaaaaaaaa/maxresdefault.jpg"))
     }
+    @Test fun rowArtworkIsBoundedAndCannotOverwritePlayerHdUrl() {
+        val source = "https://lh3.googleusercontent.com/art=w1200-h1200-l90-rj?signature=abc"
+        assertEquals("https://lh3.googleusercontent.com/art=w144-h144-l90-rj?signature=abc", rowArtworkUrl(source, 144))
+        assertEquals("https://lh3.googleusercontent.com/art=w320-h320-l90-rj?signature=abc", rowArtworkUrl(source, 4000))
+        assertEquals(source, largeArtworkUrl(rowArtworkUrl(source, 144)))
+        assertEquals("https://unknown.com/art=w1200?signature=abc", rowArtworkUrl("https://unknown.com/art=w1200?signature=abc", 144))
+    }
 }

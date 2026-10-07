@@ -63,4 +63,13 @@ class SharedPlaybackOutputTest {
         val output = SharedPlaybackOutput("phone", "target", "lease", 12_000, handoffPending = true)
         org.junit.Assert.assertFalse(output.belongsToPhone("target", "lease"))
     }
+    @Test fun remoteControlledLeaseIdentifiesTheFallbackController() {
+        val latest = sharedPlaybackOutput(Json.parseToJsonElement("""{
+            "playback_output":"phone","output_owner":"phone-two","output_token":"transfer",
+            "output_controller":"phone-one","phone_lease_ms":12000,"handoff_pending":false
+        }""").jsonObject)
+        assertEquals("phone-one", latest.controller)
+        assertTrue(latest.belongsToPhone("phone-two", "transfer"))
+        assertFalse(latest.belongsToPhone("phone-one", "transfer"))
+    }
 }

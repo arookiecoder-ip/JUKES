@@ -23,17 +23,30 @@ fun CollectionDetailHero(item: BrowseItem, title: String, image: String, credit:
     metadata: String, description: String = "", onCreditClick: (() -> Unit)? = null,
     onPlay: () -> Unit, onShuffle: () -> Unit, onQueue: () -> Unit, options: List<ExtraSongOption> = emptyList()) {
     DetailHero(image) {
-        Column(Modifier.fillMaxWidth().stableStatusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 16.dp)
-            .testTag("Collection hero"), horizontalAlignment = Alignment.CenterHorizontally) {
-            AsyncImage(image, title, Modifier.size(200.dp).clip(RoundedCornerShape(8.dp)).testTag("Collection artwork"), contentScale = ContentScale.Crop)
-            Spacer(Modifier.height(12.dp))
-            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            if (credit.isNotBlank()) Text(credit, style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable(enabled = onCreditClick != null) { onCreditClick?.invoke() })
-            Text(metadata, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-            if (description.isNotBlank()) Text(description, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
+        BoxWithConstraints(Modifier.fillMaxWidth().stableStatusBarsPadding()) {
+            val wide = maxWidth >= 840.dp
+            @Composable fun labels() {
+                Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                if (credit.isNotBlank()) Text(credit, style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clickable(enabled = onCreditClick != null) { onCreditClick?.invoke() })
+                Text(metadata, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                if (description.isNotBlank()) Text(description, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
+            }
+            if (wide) Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 28.dp, top = 56.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                AsyncImage(image, title, Modifier.size(220.dp).clip(RoundedCornerShape(8.dp)).testTag("Collection artwork"), contentScale = ContentScale.Crop)
+                Column(Modifier.weight(1f).testTag("Collection hero")) {
+                    labels()
+                    CollectionActions(item, onPlay, onShuffle, onQueue, options)
+                }
+            } else Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp)
+                .testTag("Collection hero"), horizontalAlignment = Alignment.CenterHorizontally) {
+                AsyncImage(image, title, Modifier.size(200.dp).clip(RoundedCornerShape(8.dp)).testTag("Collection artwork"), contentScale = ContentScale.Crop)
+                Spacer(Modifier.height(12.dp))
+                labels()
+                CollectionActions(item, onPlay, onShuffle, onQueue, options)
+            }
         }
-        CollectionActions(item, onPlay, onShuffle, onQueue, options)
     }
 }

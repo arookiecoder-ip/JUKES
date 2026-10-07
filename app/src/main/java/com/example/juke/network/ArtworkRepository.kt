@@ -29,13 +29,13 @@ object ArtworkRepository {
         if (videos.size > 512) videos.clear()
         videos[url] = videoId
     } }
-    suspend fun load(context: Context, source: String, videoId: String? = videos[source]): Bitmap? {
+    suspend fun load(context: Context, source: String, videoId: String? = videos[source]): Bitmap? = withContext(Dispatchers.IO) {
         val key = videoId ?: source
-        cache.get(key)?.let { return it }
+        cache.get(key)?.let { return@withContext it }
         val flight = synchronized(locks) { locks.getOrPut(key) { Flight() }.also { it.users++ } }
         val lock = flight.mutex
         try {
-            return lock.withLock {
+            return@withContext lock.withLock {
                 cache.get(key)?.let { return@withLock it }
                 val failed = synchronized(failures) { failures[key] }
                 if (failed != null && android.os.SystemClock.elapsedRealtime() < failed.second) return@withLock null

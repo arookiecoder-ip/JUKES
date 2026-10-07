@@ -49,9 +49,6 @@ fun FlatTrackRow(
     downloadStatus: (@Composable () -> Unit)? = null
 ) {
     val menu = LocalMediaMenu.current
-    val context = LocalContext.current
-    val downloads = remember { com.example.juke.services.DownloadRepository.get(context) }
-    val downloaded by downloads.tracks.collectAsStateWithLifecycle()
     val options: () -> Unit = onOptions ?: { track?.let { menu?.show(it) } ?: collection?.let { menu?.show(it) }; Unit }
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -66,14 +63,12 @@ fun FlatTrackRow(
             if (number != null) Text(number.toString(), Modifier.width(32.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else {
-            AsyncImage(
-                model = imageUrl ?: "",
-                contentDescription = null,
+            ListArtwork(
+                url = imageUrl, size = 44.dp,
                 modifier = Modifier
                     .size(44.dp)
                     .clip(if (sharpArtwork) androidx.compose.ui.graphics.RectangleShape else RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
-                contentScale = ContentScale.Crop
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             )
             }
             Spacer(Modifier.width(12.dp))

@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-data class MobileAudioDevice(val id: String, val name: String)
+data class MobileAudioDevice(val id: String, val name: String, val volume: Int? = null)
 
 /** One presence loop per app process, including while an active player is minimized. */
 object MobileDeviceConnection {
@@ -21,25 +21,32 @@ object MobileDeviceConnection {
     private val handled = linkedSetOf<String>()
     private var acknowledge = emptyList<String>()
 
-    fun start(onState: suspend (SharedPlaybackOutput) -> Unit,
+    fun start(context: android.content.Context, onState: suspend (SharedPlaybackOutput) -> Unit,
               onCommand: suspend (String, JsonObject) -> Unit) {
         if (job?.isActive == true) return
         val activeSession = UUID.randomUUID().toString()
         session = activeSession
         val activeGeneration = ++generation
+        val audio = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         job = scope.launch {
+            var revision = -1L
+            var outputToken = ""
             while (isActive && activeGeneration == generation) {
                 if (!NetworkFeedback.online.value) { delay(2_000); continue }
                 try {
                     val reply = request("online", buildJsonObject {
+                        put("wait", true); put("revision", revision); put("output_token", outputToken)
+                        put("volume", (audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 / audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)))
                         put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
                         put("ack", JsonArray(acknowledge.map(::JsonPrimitive)))
                     }, activeSession)
                     if (activeGeneration != generation) return@launch
                     acknowledge = emptyList()
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
-                        .map { MobileAudioDevice(it.text("id"), it.text("name")) }
+                        .map { MobileAudioDevice(it.text("id"), it.text("name"), (it["volume"] as? JsonPrimitive)?.intOrNull) }
+                    revision = reply.number("revision")
                     val output = sharedPlaybackOutput(reply)
+                    outputToken = output.token
                     onState(output)
                     val completed = mutableListOf<String>()
                     reply.array("commands").forEach { raw ->
@@ -57,8 +64,8 @@ object MobileDeviceConnection {
                     }
                     acknowledge = completed
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Expiring presence/ownership leases bound network failures. */ }
-                delay(2_000)
+                catch (_: Exception) { delay(2_000) /* Expiring leases bound network failures. */ }
+                delay(100)
             }
         }
     }

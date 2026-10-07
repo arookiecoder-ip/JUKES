@@ -11,18 +11,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.example.juke.services.DownloadRepository
 
 @Composable
 fun DownloadedBadge(videoId: String?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val repository = remember { DownloadRepository.get(context) }
-    val tracks by repository.tracks.collectAsStateWithLifecycle()
-    val progress by repository.progress.collectAsStateWithLifecycle()
-    if (videoId != null && videoId in progress) {
-        val value = progress[videoId] ?: -1
-        if (value >= 0) CircularProgressIndicator(progress = { value / 100f }, modifier = modifier.size(18.dp), strokeWidth = 2.dp)
+    val downloadedFlow = remember(repository, videoId) { repository.tracks.map { tracks -> videoId != null && tracks.any { it.ytVideoId == videoId } }.distinctUntilChanged() }
+    val progressFlow = remember(repository, videoId) { repository.progress.map { progress -> videoId?.let { progress[it] } }.distinctUntilChanged() }
+    val downloaded by downloadedFlow.collectAsStateWithLifecycle(initialValue = false)
+    val value by progressFlow.collectAsStateWithLifecycle(initialValue = null)
+    if (value != null) {
+        if (value!! >= 0) CircularProgressIndicator(progress = { value!! / 100f }, modifier = modifier.size(18.dp), strokeWidth = 2.dp)
         else CircularProgressIndicator(modifier.size(18.dp), strokeWidth = 2.dp)
-    } else if (videoId != null && tracks.any { it.ytVideoId == videoId })
+    } else if (downloaded)
         Icon(Icons.Default.DownloadDone, "Downloaded", modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
 }

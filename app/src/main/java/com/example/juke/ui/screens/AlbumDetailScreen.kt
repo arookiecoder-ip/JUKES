@@ -53,7 +53,7 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
             }
             if (state.tracks.isNotEmpty()) {
                 item { Text("Tracks", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge) }
-                itemsIndexed(state.tracks) { index, track ->
+                itemsIndexed(state.tracks, key = { index, track -> "${track.uuid}:$index" }, contentType = { _, _ -> "track" }) { index, track ->
                     SwipeToAddNextContainer(onAddNext = { musicViewModel.addNext(track) }, onAddToQueue = { musicViewModel.addToQueue(listOf(track)) }) {
                         FlatTrackRow(track.thumbnailUri, track.title, track.artist, if (track.durationSec > 0) "%d:%02d".format(track.durationSec / 60, track.durationSec % 60) else "",
                             onClick = { musicViewModel.setQueue(state.tracks, index) }, modifier = Modifier.padding(horizontal = 20.dp), track = track, showMore = true, number = index + 1)

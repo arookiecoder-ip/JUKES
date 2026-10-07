@@ -18,6 +18,8 @@ object PhonePlaybackOwnership {
         private set
     @Volatile var leaseUntilMs = 0L
         private set
+    @Volatile var remoteControlled = false
+        private set
     @Volatile private var relinquishing = false
     @Volatile var localHandoff = false
     val ownerId: String get() = prefs.getString("owner_id", "").orEmpty()
@@ -44,6 +46,7 @@ object PhonePlaybackOwnership {
     fun accept(output: SharedPlaybackOutput) {
         check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank() && !output.handoffPending)
         token = output.token
+        remoteControlled = output.controller.isNotBlank() && output.controller != ownerId
         relinquishing = false
         // Pause before the server lease expires, leaving room for a slow status request.
         leaseUntilMs = SystemClock.elapsedRealtime() + (output.leaseMs - 4_000).coerceAtLeast(0)
@@ -71,6 +74,7 @@ object PhonePlaybackOwnership {
 
     fun forget(allowOffline: Boolean = false) {
         relinquishing = !allowOffline
+        remoteControlled = false
         token = ""
         leaseUntilMs = 0
     }

@@ -126,7 +126,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
             TextButton(onClick = onRetry) { Text("Retry") }
         } }
         LazyColumn(Modifier.weight(1f).testTag("Queue rows"), state = list, contentPadding = PaddingValues(bottom = 12.dp)) {
-            itemsIndexed(order, key = { _, key -> key }) { position, key ->
+            itemsIndexed(order, key = { _, key -> key }, contentType = { _, _ -> "queue-track" }) { position, key ->
                 val track = byKey.getValue(key)
                 val index = keyIndices.getValue(key)
                 val active = index == currentIndex
@@ -208,7 +208,7 @@ private fun QueueWebRow(track: Track, number: Int, active: Boolean, lifted: Bool
         Box(grip, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragHandle, "Drag to reorder ${track.title}", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) }
         Text("$number", Modifier.width(20.dp), style = MaterialTheme.typography.labelSmall, color = if (active) accent else MaterialTheme.colorScheme.onSurfaceVariant)
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-            AsyncImage(track.thumbnailUri, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            com.example.juke.ui.components.ListArtwork(track.thumbnailUri, 40.dp, Modifier.fillMaxSize())
             if (active) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.Equalizer, "Playing", Modifier.size(24.dp), tint = accent)
             }
