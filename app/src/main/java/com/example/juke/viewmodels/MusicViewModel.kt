@@ -359,13 +359,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     echo.refresh(stateOnly = true)
                     if (requestId != playbackRequestId || !signedIn) return@collect
                     val latest = echo.state.value
-                    if (latest.sharedOutput.mode == "alexa" && (latest.playing || latest.processing)) {
+                    if (latest.sharedOutput.mode == "alexa") {
                         adoptRemoteAlexa(latest.sharedOutput)
                     } else if (latest.sharedOutput.mode == "phone" && latest.sharedOutput.owner.isNotBlank() &&
                         latest.sharedOutput.owner != com.example.juke.services.PhonePlaybackOwnership.ownerId && latest.sharedOutput.leaseMs > 0) {
                         onMobileOutput(latest.sharedOutput)
                     } else {
-                        com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                        val claim = com.example.juke.services.PhonePlaybackOwnership.token
+                        if (claim.isNotBlank()) {
+                            if (latest.sharedOutput.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId, claim)) {
+                                val renewed = AlexaBackendApi.phoneOutputRequest("heartbeat",
+                                    com.example.juke.services.PhonePlaybackOwnership.ownerId, claim)
+                                com.example.juke.services.PhonePlaybackOwnership.accept(renewed)
+                            } else { onMobileOutput(latest.sharedOutput); return@collect }
+                        } else com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
                         serverPlaybackChecked = true
                         synchronizePhoneQueue()
                     }
@@ -381,7 +388,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             com.example.juke.services.PhonePlaybackOwnership.remoteOutput.collect { output ->
-                if (output != null && signedIn && !_isSwitchingOutput.value) onMobileOutput(output)
+                try {
+                    if (output != null && signedIn && !_isSwitchingOutput.value) onMobileOutput(output)
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    Log.e(TAG, "Device ownership update failed", e)
+                    _messages.tryEmit("Couldn't update playback output. Retry when connected.")
+                }
             }
         }
         // While the phone plays, report its song and position to the server so the shared queue
@@ -917,7 +930,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
             pauseSource = {
-                if (originalClaim.isNotBlank()) {
+                if (originalClaim.isNotBlank() && !com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(originalClaim)) {
                     val renewed = withTimeout(5_000) { AlexaBackendApi.phoneOutputRequest("heartbeat",
                         com.example.juke.services.PhonePlaybackOwnership.ownerId, originalClaim) }
                     check(renewed.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId, originalClaim)) {
@@ -925,7 +938,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     com.example.juke.services.PhonePlaybackOwnership.accept(renewed)
                 }
-                val snapshot = com.example.juke.services.PlaybackService.pausePhoneForHandoff()
+                val snapshot = com.example.juke.services.PlaybackService.pausePhoneForHandoff(wasPlaying, position)
                 wasPlaying = snapshot.first
                 position = snapshot.second
             },

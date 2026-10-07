@@ -57,7 +57,7 @@ object PhonePlaybackOwnership {
     }
 
     fun restoreIfCurrent(output: SharedPlaybackOutput): Boolean {
-        if (output.mode != "phone" || output.owner != ownerId || output.token != prefs.getString("last_token", "") || output.leaseMs <= 0) return false
+        if (output.mode != "phone" || output.owner != ownerId || output.token != prefs.getString("last_token", "") || output.leaseMs <= 0 || output.handoffPending) return false
         accept(output)
         return true
     }

@@ -91,8 +91,9 @@ class PlaybackService : MediaLibraryService() {
         private var activeService = java.lang.ref.WeakReference<PlaybackService>(null)
 
         /** Pause the actual service player before acknowledging an app-initiated handoff. */
-        internal suspend fun pausePhoneForHandoff() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
-            val service = checkNotNull(activeService.get()) { "Phone playback service is unavailable." }
+        internal suspend fun pausePhoneForHandoff(fallbackPlaying: Boolean = false, fallbackPosition: Long = 0) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+            // Android may have destroyed an idle service. No live service means no phone audio to pause.
+            val service = activeService.get() ?: return@withContext (fallbackPlaying to fallbackPosition.coerceAtLeast(0))
             val snapshot = (service.player.playWhenReady || service.leaseInterruption.matches(
                 service.player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token) || service.recoveryShouldResume) to service.player.currentPosition
             service.leaseInterruption.clear()
