@@ -56,7 +56,7 @@ fun ArtistDetailScreen(
                     artist?.let { searchViewModel.loadArtistDetails(it) }
                 }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
             }
-            state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
+            state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp), bottomPadding = bottomPadding)
             else -> AdaptiveDetailLayout(bottomPadding = bottomPadding, spacing = 16.dp, hero = {
                     DetailHero(state.imageUrl, artist = true) {
                     Column(Modifier.fillMaxWidth().heightIn(min = 380.dp).padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.Bottom) {

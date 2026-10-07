@@ -2,6 +2,7 @@
 
 package com.example.juke
 
+import androidx.activity.viewModels
 import com.example.juke.ui.components.stableStatusBarsPadding
 import com.example.juke.ui.components.stableNavigationBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -156,6 +157,27 @@ sealed class Screen(
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
 
+    private val musicViewModel: MusicViewModel by viewModels()
+    private val remoteVolumeKeys = mutableSetOf<Int>()
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        val direction = when (keyCode) {
+            android.view.KeyEvent.KEYCODE_VOLUME_UP -> 1
+            android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> -1
+            else -> 0
+        }
+        if (direction != 0 && musicViewModel.adjustSelectedDeviceVolume(direction)) {
+            remoteVolumeKeys += keyCode
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (remoteVolumeKeys.remove(keyCode)) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
     private val showPlayerOnLaunch = mutableStateOf(false)
     private var downloadsOpenTrigger by mutableIntStateOf(0)
 
@@ -178,7 +200,6 @@ class MainActivity : ComponentActivity() {
         handlePlayerIntent(intent)
 
         setContent {
-            val musicViewModel: MusicViewModel = viewModel()
             val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
             val homeViewModel: HomeViewModel = viewModel()
             val libraryViewModel: LibraryViewModel = viewModel()

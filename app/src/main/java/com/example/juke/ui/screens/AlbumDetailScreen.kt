@@ -35,7 +35,7 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
                 album?.let { albumDetailViewModel.loadAlbumDetails(it) }
             }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
         } else if (album == null || (state.isLoading && state.tracks.isEmpty())) {
-            MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
+            MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp), bottomPadding = bottomPadding)
         } else AdaptiveDetailLayout(bottomPadding = bottomPadding, hero = {
                 CollectionDetailHero(album, state.title, state.imageUrl, state.artist,
                     listOf("Album", state.year, "${state.tracks.size} tracks").filter { it.isNotBlank() }.joinToString(" · "),

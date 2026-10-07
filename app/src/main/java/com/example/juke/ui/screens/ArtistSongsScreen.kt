@@ -31,13 +31,13 @@ fun ArtistSongsScreen(artistId: String, searchViewModel: SearchViewModel, musicV
                 Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                     Text("Songs", style = MaterialTheme.typography.headlineMedium)
                     Text(state.artist?.title.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (state.isLoading || state.songsLoading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
                     state.error?.let { error ->
                         Text(error, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = searchViewModel::loadAllArtistSongs) { Text("Retry") }
                     }
                 }
             }
+            if ((state.isLoading || state.songsLoading) && songs.isEmpty()) item { TrackRowsSkeleton() }
             itemsIndexed(songs, key = { index, track -> "$index-${track.ytVideoId}" }) { index, track ->
                 if (index >= songs.size - 5 && !state.allSongsLoaded && state.error == null) {
                     LaunchedEffect(songs.size, state.songsLoading) { if (!state.songsLoading) searchViewModel.loadAllArtistSongs() }
@@ -48,6 +48,7 @@ fun ArtistSongsScreen(artistId: String, searchViewModel: SearchViewModel, musicV
                         onClick = { musicViewModel.startRadio(track) }, modifier = Modifier.padding(horizontal = 20.dp), track = track)
                 }
             }
+            if (state.songsLoading && songs.isNotEmpty()) item { TrackRowsSkeleton(3) }
         }
         DetailBackButton(onNavigateBack, Modifier.align(Alignment.TopStart))
     }

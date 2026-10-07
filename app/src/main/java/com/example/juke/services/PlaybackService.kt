@@ -90,6 +90,12 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private var activeService = java.lang.ref.WeakReference<PlaybackService>(null)
 
+        /** A silent default must not publish an old local player's queue over the shared queue. */
+        internal suspend fun discardIdlePhoneQueue() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+            pausePhoneForHandoff()
+            activeService.get()?.player?.clearMediaItems()
+        }
+
         /** Pause the actual service player before acknowledging an app-initiated handoff. */
         internal suspend fun pausePhoneForHandoff(fallbackPlaying: Boolean = false, fallbackPosition: Long = 0) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
             // Android may have destroyed an idle service. No live service means no phone audio to pause.

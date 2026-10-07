@@ -108,6 +108,11 @@ object MobileDeviceConnection {
         } } }
     }
 
+    suspend fun selectForegroundDefault(): SharedPlaybackOutput? {
+        val reply = request("foreground", buildJsonObject { put("name", "${Build.MANUFACTURER} ${Build.MODEL}") })
+        return if (reply.flag("default_selected")) rememberOutput(sharedPlaybackOutput(reply)) else null
+    }
+
     suspend fun transfer(target: String, output: SharedPlaybackOutput, serial: String): SharedPlaybackOutput =
         rememberOutput(sharedPlaybackOutput(request("transfer", buildJsonObject {
             put("target_id", target); put("output_token", output.token); put("serial", serial)

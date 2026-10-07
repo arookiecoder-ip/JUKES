@@ -577,6 +577,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 com.example.juke.services.PhonePlaybackOwnership.restoreIfCurrent(latest)
             }
             serverPlaybackChecked = true
+            if (isForeground) selectIdleForegroundDevice()
             updatePolling()
         }
     }
@@ -610,10 +611,39 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val requestId = playbackRequestId
                 val latest = AlexaBackendApi.phoneOutputStatus()
                 if (requestId == playbackRequestId && latest.mode == "alexa") adoptRemoteAlexa(latest, claim)
+                if (requestId == playbackRequestId) selectIdleForegroundDevice()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Retain the existing output while offline. */ }
         }
         updatePolling()
+    }
+
+    private var idlePhoneSelection = false
+    private suspend fun selectIdleForegroundDevice() {
+        if (!isForeground || !signedIn || _isSwitchingOutput.value || pendingPlayback.value != null || (_output.value == PlaybackOutput.PHONE && playbackManager.shouldResumeAfterTrackChange())) return
+        val request = playbackRequestId
+        com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
+        try {
+            val selected = com.example.juke.services.MobileDeviceConnection.selectForegroundDefault() ?: return
+            if (request != playbackRequestId || !isForeground) return
+            com.example.juke.services.PhonePlaybackOwnership.accept(selected)
+            // Restore only metadata. Audio preparation waits for an explicit play action.
+            if (_output.value != PlaybackOutput.PHONE) {
+                com.example.juke.services.PlaybackService.discardIdlePhoneQueue()
+                playbackManager.release()
+                selected.nowPlaying?.let { snapshot ->
+                    val state = com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
+                    _uiState.value = MusicUiState(currentTrack = state.track, queue = state.queue,
+                        queueIndex = state.index, position = state.livePosition(), duration = state.durationMs)
+                }
+                idlePhoneSelection = true
+            }
+            setOutputPreference(PlaybackOutput.PHONE)
+            sharedPhoneQueueReady = true
+            updatePolling()
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* Keep the existing selection when offline or on older servers. */ }
+        finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
 
     private suspend fun adoptRemoteAlexa(output: com.example.juke.services.SharedPlaybackOutput, expectedClaim: String? = null) {
@@ -1563,6 +1593,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true,
         deferRadioSeed: Boolean = false, reuseOwnership: Boolean = false, onPublished: (suspend () -> Unit)? = null) {
+        idlePhoneSelection = false
         downloads.awaitReady()
         _uiState.update { it.copy(isLoading = true, error = null) }
         var startupClaim = ""
@@ -1644,6 +1675,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (isAlexa) {
             val playing = echo.state.value.playing
             launchEcho { echo.command(if (playing) "pause" else "play") }
+            return
+        }
+        if (idlePhoneSelection && _uiState.value.currentTrack != null) {
+            val state = _uiState.value
+            val current = requireNotNull(state.currentTrack)
+            val queue = state.queue.ifEmpty { listOf(current) }
+            val index = state.queueIndex.takeIf { it in queue.indices } ?: 0
+            launchPlayback(current) { phoneSetQueue(queue, index, state.position.coerceAtLeast(0)) }
             return
         }
         if (playbackManager.shouldResumeAfterTrackChange()) {
@@ -1805,6 +1844,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setEchoVolume(volume: Int) = echo.setVolume(volume)
 
+    /** Route physical keys to the selected output; local keys retain Android's normal behavior. */
+    fun adjustSelectedDeviceVolume(direction: Int): Boolean {
+        if (_output.value == PlaybackOutput.PHONE) return false
+        if (_isSwitchingOutput.value) return true
+        val current = if (isRemotePhone) mobileDevices.value.firstOrNull { it.id == _remoteMobileOutput.value.owner }?.volume
+            else echo.state.value.volume
+        if (current == null) {
+            _messages.tryEmit("Volume isn't available for this device yet")
+            return true
+        }
+        val value = com.example.juke.services.remoteVolumeStep(current, direction)
+        if (isRemotePhone) setRemotePhoneVolume(value) else setEchoVolume(value)
+        return true
+    }
+
     private var remoteVolumeJob: Job? = null
     fun setRemotePhoneVolume(volume: Int) {
         val output = _remoteMobileOutput.value
@@ -1812,6 +1866,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         remoteVolumeJob?.cancel()
         remoteVolumeJob = viewModelScope.launch {
             delay(150)
+            if (!isRemotePhone || output.token != _remoteMobileOutput.value.token || output.owner != _remoteMobileOutput.value.owner) return@launch
             runEcho { com.example.juke.services.MobileDeviceConnection.control(output, "volume", buildJsonObject { put("value", volume.coerceIn(0, 100)) }) }
         }
     }

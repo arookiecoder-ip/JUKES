@@ -4,6 +4,10 @@ import com.example.juke.ui.components.stableStatusBarsPadding
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -99,136 +103,67 @@ fun TrackListSkeleton(
 }
 
 @Composable
-fun MediaDetailSkeleton(
-    count: Int = 6,
-    modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(
-        start = 20.dp,
-        top = 16.dp,
-        end = 20.dp,
-        bottom = 16.dp
-    )
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                ShapedSkeletonBlock(
-                    modifier = Modifier.size(200.dp),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-                ShapedSkeletonBlock(
-                    modifier = Modifier
-                        .fillMaxWidth(0.62f)
-                        .height(28.dp),
-                    shape = RoundedCornerShape(8.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                ShapedSkeletonBlock(
-                    modifier = Modifier
-                        .fillMaxWidth(0.42f)
-                        .height(18.dp),
-                    shape = RoundedCornerShape(6.dp)
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    repeat(3) {
-                        ShapedSkeletonBlock(
-                            modifier = Modifier
-                                .width(72.dp)
-                                .height(28.dp),
-                            shape = RoundedCornerShape(50)
-                        )
-                    }
-                }
-            }
-        }
+fun TrackRowsSkeleton(count: Int = 6, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) { repeat(count) { TrackRowSkeleton(it) } }
+}
 
-        items(count) { index ->
-            TrackRowSkeleton(index = index)
+@Composable
+fun MediaGridSkeleton(modifier: Modifier = Modifier, contentPadding: PaddingValues = PaddingValues(20.dp)) {
+    LazyVerticalGrid(GridCells.Adaptive(132.dp), modifier.fillMaxSize(), contentPadding = contentPadding,
+        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        items(12) { MediaCardSkeleton() }
+    }
+}
+
+@Composable
+fun MediaCardSkeleton() {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ShapedSkeletonBlock(Modifier.fillMaxWidth().aspectRatio(1f), androidx.compose.ui.graphics.RectangleShape)
+        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.8f).height(16.dp))
+        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.55f).height(12.dp))
+    }
+}
+
+@Composable
+private fun DetailHeroSkeleton(modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        ShapedSkeletonBlock(Modifier.width(220.dp).aspectRatio(1f), androidx.compose.ui.graphics.RectangleShape)
+        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.7f).height(28.dp))
+        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.45f).height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            repeat(4) { ShapedSkeletonBlock(Modifier.size(40.dp), CircleShape) }
         }
     }
 }
 
 @Composable
-fun PlayerSkeleton(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        ShapedSkeletonBlock(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
-            shape = RoundedCornerShape(28.dp)
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-        ShapedSkeletonBlock(
-            modifier = Modifier
-                .fillMaxWidth(0.74f)
-                .height(30.dp),
-            shape = RoundedCornerShape(8.dp)
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        ShapedSkeletonBlock(
-            modifier = Modifier
-                .fillMaxWidth(0.42f)
-                .height(18.dp),
-            shape = RoundedCornerShape(6.dp)
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-        ShapedSkeletonBlock(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp),
-            shape = CircleShape
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            ShapedSkeletonBlock(
-                modifier = Modifier
-                    .width(42.dp)
-                    .height(12.dp),
-                shape = RoundedCornerShape(4.dp)
-            )
-            ShapedSkeletonBlock(
-                modifier = Modifier
-                    .width(42.dp)
-                    .height(12.dp),
-                shape = RoundedCornerShape(4.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(36.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ShapedSkeletonBlock(
-                modifier = Modifier.size(48.dp),
-                shape = CircleShape
-            )
-            ShapedSkeletonBlock(
-                modifier = Modifier.size(72.dp),
-                shape = CircleShape
-            )
-            ShapedSkeletonBlock(
-                modifier = Modifier.size(48.dp),
-                shape = CircleShape
-            )
-        }
+fun MediaDetailSkeleton(count: Int = 6, modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(20.dp), bottomPadding: Dp = 0.dp) {
+    val landscape = LocalConfiguration.current.smallestScreenWidthDp >= 600 && LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    if (landscape) Row(modifier.fillMaxSize().padding(bottom = bottomPadding)) {
+        Box(Modifier.weight(0.42f).fillMaxHeight(), contentAlignment = Alignment.Center) { DetailHeroSkeleton() }
+        TrackListSkeleton(count, Modifier.weight(0.58f), contentPadding)
+    } else LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(top = 16.dp, bottom = bottomPadding + 24.dp)) {
+        item { DetailHeroSkeleton() }
+        items(count) { TrackRowSkeleton(it) }
     }
+}
+
+@Composable
+fun PlayerSkeleton(modifier: Modifier = Modifier) {
+    com.example.juke.ui.components.player.ResponsivePlayerLayout(modifier = modifier, artwork = {
+        ShapedSkeletonBlock(Modifier.fillMaxSize(), androidx.compose.ui.graphics.RectangleShape)
+    }, controls = {
+        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            ShapedSkeletonBlock(Modifier.fillMaxWidth(0.65f).height(24.dp))
+            ShapedSkeletonBlock(Modifier.fillMaxWidth().height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(3) { ShapedSkeletonBlock(Modifier.size(if (it == 1) 56.dp else 36.dp), CircleShape) }
+            }
+        }
+    }, queue = { TrackListSkeleton() })
 }
 
 @Composable
@@ -280,16 +215,8 @@ fun HomeSkeleton(
             }
         }
 
-        item {
-            ShapedSkeletonBlock(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp),
-                shape = RoundedCornerShape(32.dp)
-            )
-        }
-
         item { HomeSkeletonSection() }
+        item { TrackRowsSkeleton(4) }
         item { HomeSkeletonSection() }
     }
 }
@@ -320,7 +247,7 @@ private fun HomeSkeletonSection() {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            repeat(3) {
+            repeat(if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 5 else 3) {
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -329,7 +256,7 @@ private fun HomeSkeletonSection() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(0.92f),
-                        shape = RoundedCornerShape(20.dp)
+                        shape = androidx.compose.ui.graphics.RectangleShape
                     )
                     ShapedSkeletonBlock(
                         modifier = Modifier
@@ -346,5 +273,34 @@ private fun HomeSkeletonSection() {
                 }
             }
         }
+    }
+}
+@Composable
+fun SearchResultsSkeleton(bottomPadding: Dp = 0.dp) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    repeat(4) { ShapedSkeletonBlock(Modifier.width(64.dp).height(36.dp), androidx.compose.ui.graphics.RectangleShape) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ShapedSkeletonBlock(Modifier.size(120.dp), androidx.compose.ui.graphics.RectangleShape)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.8f).height(24.dp))
+                        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.6f).height(14.dp))
+                    }
+                }
+            }
+        }
+        item { TrackRowsSkeleton() }
+    }
+}
+
+@Composable
+fun StatusSkeleton(modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.65f).height(16.dp))
+        ShapedSkeletonBlock(Modifier.fillMaxWidth(0.85f).height(12.dp))
     }
 }

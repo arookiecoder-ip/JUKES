@@ -147,7 +147,8 @@ fun SettingsScreen(
             item { GlassCard(Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, RectangleShape)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Alexa", fontWeight = FontWeight.SemiBold)
-                    if (amazonConnected == false) Text("Connect your Amazon account")
+                    if (amazonConnected == null && echoDevices.isEmpty()) com.example.juke.ui.components.StatusSkeleton(Modifier.padding(top = 12.dp))
+                    else if (amazonConnected == false) Text("Connect your Amazon account")
                     else if (echoDevices.isEmpty()) Text("No Echo devices found")
                     echoDevices.forEach { device ->
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {

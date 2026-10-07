@@ -44,11 +44,8 @@ fun ArtistReleasesScreen(artistId: String, kind: String, music: MusicViewModel,
                 else AlbumCard(item, { onOpen(item) }, onPlay = { music.playCollection(item) }, fillCell = true)
             }
             if (state.loading && state.items.isEmpty()) items(8) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(1f).shimmerEffect())
-                    Box(Modifier.fillMaxWidth(0.8f).height(16.dp).shimmerEffect())
-                }
-            } else if (state.loading) item(span = { GridItemSpan(maxLineSpan) }) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                MediaCardSkeleton()
+            } else if (state.loading) items(4) { MediaCardSkeleton() }
             state.error?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) {
                 ConnectionErrorState(message, releases::loadMore, Modifier.fillMaxWidth())
             } }

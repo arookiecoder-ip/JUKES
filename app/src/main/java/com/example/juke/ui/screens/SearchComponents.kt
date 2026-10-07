@@ -334,10 +334,7 @@ internal fun EmptySearchState(
     bottomPadding: Dp
 ) {
     if (isSearching && !isQueryEmpty) {
-        TrackListSkeleton(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp + bottomPadding)
-        )
+        com.example.juke.ui.components.SearchResultsSkeleton(bottomPadding)
         return
     }
 

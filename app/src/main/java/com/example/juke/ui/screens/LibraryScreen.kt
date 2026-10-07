@@ -218,7 +218,9 @@ fun LibraryScreen(
                     !online -> com.example.juke.ui.components.ConnectionErrorState("", {
                         com.example.juke.network.NetworkFeedback.refresh(context)
                     }, Modifier.fillMaxSize(), offline = true)
-                    state.isLoading && entries.isEmpty() -> TrackListSkeleton(modifier = Modifier.fillMaxSize())
+                    state.isLoading && entries.isEmpty() -> if (grid) com.example.juke.ui.components.MediaGridSkeleton(
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 96.dp))
+                    else TrackListSkeleton(contentPadding = PaddingValues(bottom = bottomPadding + 96.dp))
                     state.needsYouTube -> LibraryNotice("Connect YouTube Music", "Your library comes from your connected account.", "Open Settings", onOpenSettings)
                     state.error != null && entries.isEmpty() -> com.example.juke.ui.components.ConnectionErrorState(state.error.orEmpty(), libraryViewModel::refresh, Modifier.fillMaxSize())
                     entries.isEmpty() -> LibraryNotice(

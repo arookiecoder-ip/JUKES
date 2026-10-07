@@ -534,7 +534,8 @@ private fun AccountRow(
         }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (checking) com.example.juke.ui.components.StatusSkeleton()
+            else Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         when {
             checking -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)

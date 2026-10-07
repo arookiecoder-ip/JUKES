@@ -65,7 +65,7 @@ fun SearchLandingContent(history: List<String>, recommendations: List<Track>, lo
         recent(history.drop(5))
         if (history.size <= 5) {
             item { Text("Recommended for you", style = MaterialTheme.typography.titleLarge) }
-            if (loading && recommendations.isEmpty()) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            if (loading && recommendations.isEmpty()) item { TrackRowsSkeleton() }
             items(recommendations, key = { "recommendation:${it.ytVideoId}" }) { track ->
                 SwipeToAddNextContainer(onAddNext = { music.addNext(track) }, onAddToQueue = { music.addToQueue(listOf(track)) }) {
                     FlatTrackRow(track.thumbnailUri, track.title, track.artist,

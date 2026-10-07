@@ -34,7 +34,7 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
                 playlist?.let { playlistDetailViewModel.loadPlaylistDetails(it) }
             }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
         } else if (playlist == null || (state.isLoading && state.tracks.isEmpty())) {
-            MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
+            MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp), bottomPadding = bottomPadding)
         } else AdaptiveDetailLayout(bottomPadding = bottomPadding, hero = {
                 CollectionDetailHero(playlist, state.title, state.imageUrl, state.author.takeIf { it.isNotBlank() }?.let { "By $it" }.orEmpty(),
                     "${state.trackCount} tracks", state.description,
@@ -60,7 +60,7 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
                             modifier = Modifier.padding(horizontal = 20.dp), track = track, showMore = true)
                     }
                 }
-                if (state.isLoadingMore) item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp)) }
+                if (state.isLoadingMore) item { TrackRowsSkeleton(3) }
             }
         }
         DetailBackButton(onNavigateBack, Modifier.align(Alignment.TopStart))

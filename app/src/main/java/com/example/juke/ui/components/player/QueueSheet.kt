@@ -189,7 +189,8 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                 }
                 }
             }
-            if (upcoming == 0) item { Text("No upcoming songs", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (uiState.isLoading && queue.isEmpty()) item { com.example.juke.ui.components.TrackRowsSkeleton(4) }
+            if (upcoming == 0 && !uiState.isLoading) item { Text("No upcoming songs", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
