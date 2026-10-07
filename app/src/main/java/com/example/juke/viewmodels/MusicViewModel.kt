@@ -604,7 +604,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updatePolling() {
         if (signedIn && isRemotePhone) {
-            com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", isForeground, isForeground)
+            // Presence already refreshes the remote phone cursor; avoid a duplicate poller.
+            com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", false)
             com.example.juke.services.RemotePlaybackService.stop(getApplication())
         } else if (signedIn && isAlexa && echo.serial.value.isNotBlank()) {
             com.example.juke.services.PlaybackCoordinator.observe(getApplication(), "ui", isForeground, isForeground)
@@ -705,7 +706,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             setOutputPreference(PlaybackOutput.REMOTE_PHONE)
             echo.refreshSharedPhone()
             updatePolling()
-        } else if (output.mode == "alexa" && !isAlexa) adoptRemoteAlexa(output)
+        } else if (output.mode == "alexa" && !isAlexa && echo.serial.value.isNotBlank()) adoptRemoteAlexa(output)
     }
 
     private suspend fun onMobileCommand(action: String, payload: JsonObject) {
