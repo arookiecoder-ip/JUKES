@@ -1857,7 +1857,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             return true
         }
         val value = com.example.juke.services.remoteVolumeStep(current, direction)
-        if (isRemotePhone) setRemotePhoneVolume(value) else setEchoVolume(value)
+        if (isRemotePhone) {
+            val device = mobileDevices.value.firstOrNull { it.id == _remoteMobileOutput.value.owner }
+            setRemotePhoneVolume(com.example.juke.services.remotePhoneVolumeStep(current, direction, device?.volumeSteps))
+        } else setEchoVolume(value)
         return true
     }
 

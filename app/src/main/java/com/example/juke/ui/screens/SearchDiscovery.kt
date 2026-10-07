@@ -121,7 +121,7 @@ fun SearchDiscoveryScreen(mode: String, onBack: () -> Unit, music: MusicViewMode
             Modifier.fillMaxSize().padding(bottom = bottomPadding))
         else LazyColumn(Modifier.fillMaxSize().stableStatusBarsPadding(), contentPadding = PaddingValues(top = 60.dp, bottom = bottomPadding + 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineMedium) }
-            if (loading && page == null) item { Box(Modifier.padding(horizontal = 20.dp)) { DiscoverySkeleton(mode == "moods" && selectedMood == null) } }
+            if (loading && page == null) item { Box(Modifier.padding(horizontal = 20.dp)) { DiscoverySkeleton(mode == "moods" && selectedMood == null, collections = mode == "moods" && selectedMood != null) } }
             page?.shelves?.forEach { shelf ->
                 if (selectedMood != null) item { Text(shelf.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
                 if (mode == "new_releases" || shelf.items.all { it.kind == "track" }) {

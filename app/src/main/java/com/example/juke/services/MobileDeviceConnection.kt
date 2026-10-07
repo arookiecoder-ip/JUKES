@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-data class MobileAudioDevice(val id: String, val name: String, val volume: Int? = null)
+data class MobileAudioDevice(val id: String, val name: String, val volume: Int? = null, val volumeSteps: Int? = null)
 
 /** One presence loop per app process, including while an active player is minimized. */
 object MobileDeviceConnection {
@@ -50,6 +50,7 @@ object MobileDeviceConnection {
                     val reply = withTimeout(6_000) { request("online", buildJsonObject {
                         put("wait", true); put("revision", revision); put("output_token", outputToken)
                         put("volume", (audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 / audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)))
+                        put("volume_steps", audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1))
                         put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
                         put("ack", JsonArray(acknowledge.map(::JsonPrimitive)))
                     }, activeSession) }
@@ -62,7 +63,7 @@ object MobileDeviceConnection {
                             val reported = (it["volume"] as? JsonPrimitive)?.intOrNull
                             val pending = pendingVolumes[id]
                             if (pending != null && (reported == pending.value || android.os.SystemClock.elapsedRealtime() >= pending.until)) pendingVolumes.remove(id)
-                            MobileAudioDevice(id, it.text("name"), pendingVolumes[id]?.value ?: reported)
+                            MobileAudioDevice(id, it.text("name"), pendingVolumes[id]?.value ?: reported, (it["volume_steps"] as? JsonPrimitive)?.intOrNull)
                         }
                     supportsWait = reply.containsKey("revision")
                     revision = reply.number("revision")

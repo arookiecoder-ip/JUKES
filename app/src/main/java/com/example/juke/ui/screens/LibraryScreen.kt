@@ -82,6 +82,8 @@ fun LibraryScreen(
     val mediaMenu = LocalMediaMenu.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     val viewPrefs = remember(context) { context.getSharedPreferences("library_view", android.content.Context.MODE_PRIVATE) }
+    var downloadsReady by remember(musicViewModel.downloads) { mutableStateOf(false) }
+    LaunchedEffect(musicViewModel.downloads) { musicViewModel.downloads.awaitReady(); downloadsReady = true }
     var grid by rememberSaveable { mutableStateOf(viewPrefs.getBoolean("grid", false)) }
     val pager = rememberPagerState { LibraryFilter.entries.size }
     val scope = rememberCoroutineScope()
@@ -170,7 +172,11 @@ fun LibraryScreen(
                 modifier = Modifier.fillMaxSize()) {
                 when {
                     filter == LibraryFilter.DOWNLOADS -> {
-                        if (downloadedSongs.isEmpty() && collectionDownloads.isEmpty()) LibraryNotice("No downloads", "Download songs, albums or playlists from their options to listen without internet.")
+                        if (!downloadsReady) {
+                            if (grid) com.example.juke.ui.components.MediaGridSkeleton(
+                                contentPadding = PaddingValues(bottom = bottomPadding + 96.dp))
+                            else TrackListSkeleton(contentPadding = PaddingValues(bottom = bottomPadding + 96.dp))
+                        } else if (downloadedSongs.isEmpty() && collectionDownloads.isEmpty()) LibraryNotice("No downloads", "Download songs, albums or playlists from their options to listen without internet.")
                         else if (grid && !selection.active) LazyVerticalGrid(GridCells.Adaptive(132.dp),
                             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = bottomPadding + 96.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {

@@ -6,7 +6,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun DiscoverySkeleton(moods: Boolean) {
+fun DiscoverySkeleton(moods: Boolean, collections: Boolean = false) {
+    if (collections) {
+        Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            repeat(2) {
+                Box(Modifier.fillMaxWidth(0.4f).height(20.dp).shimmerEffect())
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(5) { Column(Modifier.width(148.dp)) { MediaCardSkeleton() } }
+                }
+            }
+            TrackRowsSkeleton(3)
+        }
+        return
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         repeat(if (moods) 6 else 8) {
             if (moods) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
