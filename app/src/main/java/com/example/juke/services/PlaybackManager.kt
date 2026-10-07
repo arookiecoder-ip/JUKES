@@ -115,6 +115,8 @@ class PlaybackManager private constructor(private val context: Context) {
 
     private val _snapshot = MutableStateFlow(PhonePlaybackSnapshot())
     val snapshot: StateFlow<PhonePlaybackSnapshot> = _snapshot.asStateFlow()
+    private var connectionFailures = 0
+    private var connectionRetry: kotlinx.coroutines.Job? = null
     private var pendingQueueAction: ((MediaController) -> Unit)? = null
     private var userQueueRequested = false
     private var pausedAtMs = android.os.SystemClock.elapsedRealtime()
@@ -198,12 +200,22 @@ class PlaybackManager private constructor(private val context: Context) {
                     val connected = try { connection.get() }
                     catch (e: Exception) {
                         controllerFuture = null
+                        MediaController.releaseFuture(connection)
+                        connectionFailures++
+                        if (pendingQueueAction != null && connectionFailures <= 3) {
+                            connectionRetry?.cancel()
+                            connectionRetry = scope.launch(Dispatchers.Main) {
+                                kotlinx.coroutines.delay(1_000L * connectionFailures)
+                                if (controllerFuture == null && controller == null) initialize()
+                            }
+                        }
                         _isPlaying.value = false
                         _isBuffering.value = false
                         com.example.juke.network.NetworkFeedback.notify("Player service unavailable. Tap play to reconnect.")
                         Log.w(TAG, "Player service connection failed: ${e.javaClass.simpleName}")
                         return@addListener
                     } ?: return@addListener
+                    connectionFailures = 0
                     controller = connected
                     Log.d(TAG, "MediaController connected to PlaybackService")
 
@@ -946,6 +958,8 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun release() {
+        connectionRetry?.cancel()
+        connectionRetry = null
         cancelSleepTimer()
         savePlaybackState() // Save state before releasing
         MediaController.releaseFuture(controllerFuture ?: return)
