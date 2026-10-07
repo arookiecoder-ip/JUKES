@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -549,8 +550,7 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         if (currentRoute != "settings") {
                             Column(
-                                modifier = Modifier.fillMaxWidth().background(com.example.juke.ui.theme.dockColor())
-                                    .then(if (isExpanded) Modifier.stableNavigationBarsPadding() else Modifier),
+                                modifier = Modifier.fillMaxWidth().background(com.example.juke.ui.theme.dockColor()),
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
