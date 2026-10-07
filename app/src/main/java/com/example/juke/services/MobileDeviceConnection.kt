@@ -13,7 +13,7 @@ data class MobileAudioDevice(val id: String, val name: String)
 /** One presence loop per app process, including while an active player is minimized. */
 object MobileDeviceConnection {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val session = UUID.randomUUID().toString()
+    private var session = ""
     private val _devices = MutableStateFlow<List<MobileAudioDevice>>(emptyList())
     val devices = _devices.asStateFlow()
     private var job: Job? = null
@@ -24,6 +24,8 @@ object MobileDeviceConnection {
     fun start(onState: suspend (SharedPlaybackOutput) -> Unit,
               onCommand: suspend (String, JsonObject) -> Unit) {
         if (job?.isActive == true) return
+        val activeSession = UUID.randomUUID().toString()
+        session = activeSession
         val activeGeneration = ++generation
         job = scope.launch {
             while (isActive && activeGeneration == generation) {
@@ -32,7 +34,7 @@ object MobileDeviceConnection {
                     val reply = request("online", buildJsonObject {
                         put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
                         put("ack", JsonArray(acknowledge.map(::JsonPrimitive)))
-                    })
+                    }, activeSession)
                     if (activeGeneration != generation) return@launch
                     acknowledge = emptyList()
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
@@ -62,10 +64,11 @@ object MobileDeviceConnection {
     }
 
     fun stop() {
+        val closingSession = session
         ++generation
         job?.cancel(); job = null
         _devices.value = emptyList()
-        scope.launch { runCatching { withTimeout(2_000) { request("offline") } } }
+        scope.launch { runCatching { withTimeout(2_000) { request("offline", presenceSession = closingSession) } } }
     }
 
     suspend fun transfer(target: String, output: SharedPlaybackOutput, serial: String): SharedPlaybackOutput =
@@ -80,8 +83,8 @@ object MobileDeviceConnection {
         })
     }
 
-    private suspend fun request(action: String, fields: JsonObject = buildJsonObject {}): JsonObject =
+    private suspend fun request(action: String, fields: JsonObject = buildJsonObject {}, presenceSession: String = session): JsonObject =
         Backend.post("/api/app/devices/", JsonObject(fields + mapOf(
             "action" to JsonPrimitive(action), "device_id" to JsonPrimitive(PhonePlaybackOwnership.ownerId),
-            "session_id" to JsonPrimitive(session)))).objectOrEmpty()
+            "session_id" to JsonPrimitive(presenceSession)))).objectOrEmpty()
 }

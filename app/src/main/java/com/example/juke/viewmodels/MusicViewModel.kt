@@ -712,7 +712,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             "seek" -> seekTo(payload.number("position_ms").coerceAtLeast(0))
             "shuffle" -> toggleShuffle()
             "repeat" -> toggleRepeat()
-            "song" -> playRadio(kotlinx.serialization.json.Json.decodeFromJsonElement(Track.serializer(), requireNotNull(payload["track"])))
+            "song" -> startRadio(kotlinx.serialization.json.Json.decodeFromJsonElement(Track.serializer(), requireNotNull(payload["track"])))
             "next_items" -> addNext(tracks())
             "append" -> addToQueue(tracks())
             "remove" -> removeFromQueue(payload.text("id"))
@@ -1038,6 +1038,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startRadio(track: Track) {
+        if (isRemotePhone) { remoteControl("song", buildJsonObject { put("track", kotlinx.serialization.json.Json.encodeToJsonElement(Track.serializer(), track)); put("radio", true) }); return }
         if (isAlexa) { launchPlayback(track) { echo.playSong(track, radio = true) }; return }
         launchPlayback(track) {
             phoneSetQueue(listOf(track), 0, throwOnFailure = true)
@@ -1169,7 +1170,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Mix: replace the upcoming songs with a fresh radio from the current song. */
     fun startRadio() {
-        if (isRemotePhone) { uiState.value.currentTrack?.let { playRadio(it) }; return }
+        if (isRemotePhone) { uiState.value.currentTrack?.let { startRadio(it) }; return }
         val current = uiState.value.currentTrack ?: return
         if (isAlexa) {
             launchEcho { echo.playSong(current, radio = true) }
