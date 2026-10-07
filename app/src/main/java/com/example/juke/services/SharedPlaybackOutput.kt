@@ -22,3 +22,8 @@ internal fun canStartPhonePlayback(expectedToken: String, currentToken: String, 
 
 internal fun canContinueDownloadedOffline(online: Boolean, scheme: String?): Boolean =
     !online && scheme in setOf("file", "content")
+
+internal fun canRetryPhoneCommand(previous: SharedPlaybackOutput, current: SharedPlaybackOutput,
+    action: String, hasExplicitTracks: Boolean = false): Boolean = current.mode == "phone" &&
+    current.owner.isNotBlank() && current.owner == previous.owner && !current.handoffPending &&
+    (action in setOf("play", "pause", "volume", "song") || (action == "queue" && hasExplicitTracks))

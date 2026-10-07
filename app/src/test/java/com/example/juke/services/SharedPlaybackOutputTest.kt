@@ -6,6 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SharedPlaybackOutputTest {
+    @org.junit.Test fun renewedSongTokenRetriesOnlyExplicitIntentsOnTheSamePhone() {
+        val old = SharedPlaybackOutput(mode = "phone", owner = "two", token = "old")
+        val renewed = old.copy(token = "new")
+        org.junit.Assert.assertTrue(canRetryPhoneCommand(old, renewed, "play"))
+        org.junit.Assert.assertTrue(canRetryPhoneCommand(old, renewed, "song"))
+        org.junit.Assert.assertTrue(canRetryPhoneCommand(old, renewed, "queue", true))
+        org.junit.Assert.assertFalse(canRetryPhoneCommand(old, renewed, "queue"))
+        org.junit.Assert.assertFalse(canRetryPhoneCommand(old, renewed, "next"))
+        org.junit.Assert.assertFalse(canRetryPhoneCommand(old, renewed.copy(owner = "one"), "play"))
+        org.junit.Assert.assertFalse(canRetryPhoneCommand(old, renewed.copy(mode = "alexa"), "play"))
+        org.junit.Assert.assertFalse(canRetryPhoneCommand(old, renewed.copy(handoffPending = true), "play"))
+    }
+
     @Test fun reopeningWithAnOldPhoneTokenCannotClaimALaterAlexaSession() {
         val latest = sharedPlaybackOutput(Json.parseToJsonElement("""{
             "playback_output":"alexa","output_owner":"","output_token":"new-echo-intent",

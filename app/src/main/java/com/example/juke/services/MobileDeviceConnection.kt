@@ -135,7 +135,7 @@ object MobileDeviceConnection {
             // Their existing command route still safely checks the exact owner/token.
             if (error.statusCode == 400 && error.message.orEmpty().contains("invalid device action", true)) {
                 val fresh = AlexaBackendApi.phoneOutputStatus()
-                check(fresh.mode == "phone" && fresh.owner.isNotBlank() && fresh.owner == output.owner && fresh.token == output.token && !fresh.handoffPending) {
+                check(canRetryPhoneCommand(output, fresh, "play")) {
                     "Update the backend to recover a disconnected playback device."
                 }
                 control(fresh, "play")
@@ -145,7 +145,8 @@ object MobileDeviceConnection {
             val fresh = AlexaBackendApi.phoneOutputStatus()
             // A close can race the tap before presence delivers the new token.
             // Retry only that orphaned-phone case, never a switch to another output.
-            if (fresh.mode != "phone" || fresh.owner.isNotBlank() || fresh.handoffPending) throw error
+            if (!canRetryPhoneCommand(output, fresh, "play") &&
+                (fresh.mode != "phone" || fresh.owner.isNotBlank() || fresh.handoffPending)) throw error
             send(fresh)
         }
         val latest = rememberOutput(sharedPlaybackOutput(reply))
@@ -158,10 +159,21 @@ object MobileDeviceConnection {
         })))
 
     suspend fun control(output: SharedPlaybackOutput, action: String, payload: JsonObject = buildJsonObject {}) {
-        request("command", buildJsonObject {
-            put("target_id", output.owner); put("output_token", output.token)
-            put("command", action); put("payload", payload); put("command_id", UUID.randomUUID().toString())
+        val commandId = UUID.randomUUID().toString()
+        suspend fun send(current: SharedPlaybackOutput) = request("command", buildJsonObject {
+            put("target_id", current.owner); put("output_token", current.token)
+            put("command", action); put("payload", payload); put("command_id", commandId)
         })
+        try { send(output) }
+        catch (error: BackendHttpException) {
+            if (error.statusCode != 409) throw error
+            val fresh = rememberOutput(AlexaBackendApi.phoneOutputStatus())
+            // A song start rotates this target's token before presence can deliver it.
+            // Retry explicit transport/song intents only; old queue indices and a
+            // switch to a different target must never be silently reinterpreted.
+            if (!canRetryPhoneCommand(output, fresh, action, payload["tracks"] != null)) throw error
+            send(fresh)
+        }
     }
 
     private suspend fun request(action: String, fields: JsonObject = buildJsonObject {}, presenceSession: String = session): JsonObject =
