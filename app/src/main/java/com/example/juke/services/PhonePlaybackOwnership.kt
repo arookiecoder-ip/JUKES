@@ -58,6 +58,8 @@ object PhonePlaybackOwnership {
 
     fun restoreIfCurrent(output: SharedPlaybackOutput): Boolean {
         if (output.mode != "phone" || output.owner != ownerId || output.token != prefs.getString("last_token", "") || output.leaseMs <= 0 || output.handoffPending) return false
+        val latest = MobileDeviceConnection.rememberOutput(output)
+        if (latest.token != output.token || output.olderThan(latest)) return false
         accept(output)
         return true
     }

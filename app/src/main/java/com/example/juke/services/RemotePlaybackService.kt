@@ -81,11 +81,18 @@ class RemotePlaybackService : MediaSessionService() {
         scope.launch {
             var first = true
             echo.state.collect {
-                if (!first || initialSnapshot?.track == null) { remote.snapshot = it; remote.refresh(); updateLike() }
-                first = false
+                try {
+                    if (!first || initialSnapshot?.track == null) { remote.snapshot = it; remote.refresh(); updateLike() }
+                    first = false
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { com.example.juke.utils.SafeLog.e("RemotePlaybackService", "Remote state refresh failed", e) }
             }
         }
-        scope.launch { AccountRepository.liked.collect { updateLike() } }
+        scope.launch { AccountRepository.liked.collect {
+            try { updateLike() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { com.example.juke.utils.SafeLog.e("RemotePlaybackService", "Remote like refresh failed", e) }
+        } }
         if (!prefs.getBoolean("remote_controls_dismissed", false)) PlaybackCoordinator.observe(this, "notification", true)
     }
 
@@ -108,6 +115,19 @@ class RemotePlaybackService : MediaSessionService() {
             .setDisplayName("Like").setIconResId(if (AccountRepository.isLiked(remote.snapshot.track?.ytVideoId))
                 R.drawable.thumb_up_filled else R.drawable.thumb_up_outline)
             .setSessionCommand(SessionCommand(LIKE, Bundle.EMPTY)).build()))
+    }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        try { super.onUpdateNotification(session, startInForegroundRequired) }
+        catch (e: Exception) {
+            if (android.os.Build.VERSION.SDK_INT >= 31 && e is android.app.ForegroundServiceStartNotAllowedException) {
+                // A remote Echo can resume while Android no longer permits a background service start.
+                // Drop only this notification service; the foreground Activity recreates it legally.
+                com.example.juke.utils.SafeLog.e("RemotePlaybackService", "Android deferred remote notification restart", e)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            } else throw e
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
