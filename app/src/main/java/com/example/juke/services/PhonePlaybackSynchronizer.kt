@@ -64,12 +64,14 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     }
                     if (!canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                     if (status != null && !status.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) {
+                        val sourcePlaying = player.playWhenReady
+                        val sourcePosition = player.currentPosition.coerceAtLeast(0)
                         player.pause()
                         if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
                             outputPrefs.edit().putString("playback_output", "ALEXA")
                                 .apply { if (status.serial.isNotBlank()) putString("echo_serial", status.serial) }.apply()
                         }
-                        PhonePlaybackOwnership.releaseTo(status)
+                        PhonePlaybackOwnership.releaseTo(status, sourcePosition, sourcePlaying)
                         if (!PhonePlaybackOwnership.localHandoff && status.mode == "alexa") {
                             val snapshot = com.example.juke.network.AlexaBackendApi.phoneQueueSnapshot()
                             RemotePlaybackService.start(applicationContext, parseEchoSnapshot(snapshot,

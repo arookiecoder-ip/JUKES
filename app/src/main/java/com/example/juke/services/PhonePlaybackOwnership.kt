@@ -57,12 +57,12 @@ object PhonePlaybackOwnership {
         return true
     }
 
-    suspend fun releaseTo(output: SharedPlaybackOutput) {
+    suspend fun releaseTo(output: SharedPlaybackOutput, positionMs: Long? = null, playing: Boolean? = null) {
         relinquishing = true
         token = ""
         leaseUntilMs = 0
         // Call only after the actual Media3 player has paused.
-        try { AlexaBackendApi.phoneOutputRequest("ack", ownerId, output.token) }
+        try { AlexaBackendApi.phoneOutputRequest("ack", ownerId, output.token, positionMs = positionMs, playing = playing) }
         finally { if (token.isBlank()) remote.value = output }
     }
 

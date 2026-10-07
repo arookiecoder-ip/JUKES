@@ -672,13 +672,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun onMobileOutput(output: com.example.juke.services.SharedPlaybackOutput) {
-        if (!signedIn) return
+        if (!signedIn || com.example.juke.services.PhonePlaybackOwnership.localHandoff) return
         val ownId = com.example.juke.services.PhonePlaybackOwnership.ownerId
         val claim = com.example.juke.services.PhonePlaybackOwnership.token
         if (claim.isNotBlank() && (output.mode != "phone" || output.owner != ownId)) {
             // Do not wait for the foreground service's next heartbeat to silence the source.
-            com.example.juke.services.PlaybackService.pausePhoneForHandoff()
-            com.example.juke.services.PhonePlaybackOwnership.releaseTo(output)
+            val stopped = com.example.juke.services.PlaybackService.pausePhoneForHandoff()
+            com.example.juke.services.PhonePlaybackOwnership.releaseTo(output, stopped.second, stopped.first)
         }
         if (_isSwitchingOutput.value) return
         if (output.mode == "phone" && output.owner == ownId && !output.handoffPending) {
