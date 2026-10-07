@@ -975,7 +975,7 @@ class PlaybackService : MediaLibraryService() {
 
     @OptIn(UnstableApi::class)
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        if (outputPrefs.getString("playback_output", "PHONE") == "ALEXA") {
+        if (outputPrefs.getString("playback_output", "PHONE") != "PHONE") {
             stopForeground(STOP_FOREGROUND_REMOVE)
             getSystemService(NotificationManager::class.java).cancel(1)
             return

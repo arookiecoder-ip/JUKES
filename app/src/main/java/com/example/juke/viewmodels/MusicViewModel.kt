@@ -312,7 +312,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _queueLoadError.value = null
             try {
                 if (!com.example.juke.network.NetworkFeedback.online.value && !isAlexa) return@launch
-                if (isAlexa || isRemotePhone) echo.refresh(force = true, stateOnly = true)
+                if (isRemotePhone) echo.refreshSharedPhone()
+                else if (isAlexa) echo.refresh(force = true, stateOnly = true)
                 else {
                     if (!sharedPhoneQueueReady) { synchronizePhoneQueue(); phoneQueueSyncJob?.join() }
                     if (!sharedPhoneQueueReady) return@launch
@@ -640,7 +641,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val latest = AlexaBackendApi.phoneOutputStatus()
                 _remoteMobileOutput.value = latest
                 setOutputPreference(PlaybackOutput.REMOTE_PHONE)
-                echo.refresh(force = true, stateOnly = true)
+                echo.refreshSharedPhone()
                 updatePolling()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { _messages.tryEmit(com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't switch devices") }
@@ -695,7 +696,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             playlistBackfillJob?.cancel()
             _remoteMobileOutput.value = output
             setOutputPreference(PlaybackOutput.REMOTE_PHONE)
-            echo.refresh(force = true, stateOnly = true)
+            echo.refreshSharedPhone()
             updatePolling()
         } else if (output.mode == "alexa" && !isAlexa) adoptRemoteAlexa(output)
     }

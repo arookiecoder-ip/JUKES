@@ -194,6 +194,8 @@ class EchoController(
         _state.update { old -> parseEchoSnapshot(np, now, old.volume, now < volumeGraceUntil, old.queue) }
     }
 
+    suspend fun refreshSharedPhone() { apply(AlexaBackendApi.phoneQueueSnapshot()) }
+
     private fun requireSerial(): String =
         _serial.value.ifBlank { throw IllegalStateException("Choose an Echo device first") }
 

@@ -25,7 +25,14 @@ object PhonePlaybackOwnership {
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = context.getSharedPreferences("shared_playback_output", Context.MODE_PRIVATE)
-        if (prefs.getString("owner_id", "").isNullOrBlank()) prefs.edit().putString("owner_id", UUID.randomUUID().toString()).apply()
+        val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        if (!androidId.isNullOrBlank()) {
+            // A restored backup must not make two phones share one playback identity.
+            val id = UUID.nameUUIDFromBytes("${context.packageName}:$androidId".toByteArray()).toString()
+            if (prefs.getString("owner_id", "") != id) prefs.edit().putString("owner_id", id).remove("last_token").apply()
+        } else if (prefs.getString("owner_id", "").isNullOrBlank()) {
+            prefs.edit().putString("owner_id", UUID.randomUUID().toString()).apply()
+        }
         // A restored queue is not a lease. Reconcile with the server before claiming anything.
     }
 
