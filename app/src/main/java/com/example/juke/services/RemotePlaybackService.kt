@@ -53,8 +53,10 @@ class RemotePlaybackService : MediaSessionService() {
         remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
-        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
-            .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) })
+        setMediaNotificationProvider(GuardedMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
+            .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) },
+            { session != null && prefs.getString("playback_output", "PHONE") == "ALEXA" && !prefs.getBoolean("remote_controls_dismissed", false) },
+            { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }))
         session = MediaSession.Builder(this, remote).setId("alexa")
             .setBitmapLoader(SharedArtworkBitmapLoader(this, scope))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),

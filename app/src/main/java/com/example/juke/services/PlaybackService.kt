@@ -828,6 +828,9 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         activeService = java.lang.ref.WeakReference(this)
+        setListener(object : androidx.media3.session.MediaSessionService.Listener {
+            override fun onForegroundServiceStartNotAllowedException() { onPhoneForegroundDenied() }
+        })
 
         // Create notification channel for Android 8+
         // IMPORTANT: Must be created before Media3 initializes to avoid notification conflicts
@@ -850,7 +853,9 @@ class PlaybackService : MediaLibraryService() {
             .setNotificationId(1) // IMPORTANT: Must match the ID in onStartCommand
             .setChannelId("media_playback")
             .build()
-        setMediaNotificationProvider(notificationProvider)
+        setMediaNotificationProvider(GuardedMediaNotificationProvider(notificationProvider,
+            { activeService.get() === this && outputPrefs.getString("playback_output", "PHONE") == "PHONE" },
+            ::onPhoneForegroundDenied))
 
         database = MusicDatabase.getDatabase(applicationContext)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -950,7 +955,7 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     if (!online && player.currentMediaItem?.localConfiguration?.uri?.scheme in setOf("http", "https")) {
                         networkInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
-                            player.playWhenReady || recoveryShouldResume || leaseInterruption.pending)
+                            player.playWhenReady || recoveryShouldResume || leaseInterruption.pending || PhonePlaybackOwnership.remoteControlled)
                     }
                     if (online) { streamRetry.reset(); recoverAfterNetworkReconnect() }
                     updatePreloader()
@@ -1082,14 +1087,20 @@ class PlaybackService : MediaLibraryService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 e is android.app.ForegroundServiceStartNotAllowedException
             ) {
-                Log.w(
-                    TAG,
-                    "Caught ForegroundServiceStartNotAllowedException in onUpdateNotification — suppressing"
-                )
+                onPhoneForegroundDenied()
             } else {
                 Log.w(TAG, "Failed to update notification: ${e.message}")
             }
         }
+    }
+
+    private fun onPhoneForegroundDenied() {
+        // Android did not grant a background playback start. Do not keep audio running
+        // without its required foreground service or transfer it to another phone.
+        if (::player.isInitialized) player.pause()
+        recoveryShouldResume = false
+        com.example.juke.network.NetworkFeedback.notify("Open Music Box on the playback device, then tap play to resume.")
+        Log.w(TAG, "Android denied foreground playback promotion")
     }
 
     override fun onDestroy() {
