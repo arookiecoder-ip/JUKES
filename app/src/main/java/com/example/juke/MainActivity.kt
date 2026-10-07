@@ -70,6 +70,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -267,6 +268,7 @@ class MainActivity : ComponentActivity() {
 
                 val context = LocalContext.current
                 var showPlayerModal by remember { mutableStateOf(false) }
+                var showProfile by remember { mutableStateOf(false) }
                 LaunchedEffect(downloadsOpenTrigger) {
                     if (downloadsOpenTrigger > 0) {
                         showPlayerModal = false
@@ -541,7 +543,7 @@ class MainActivity : ComponentActivity() {
                 })
                 Scaffold(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                    modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility.only(WindowInsetsSides.Horizontal)),
+                    modifier = Modifier.fillMaxSize().then(if (showProfile) Modifier.blur(6.dp) else Modifier).windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility.only(WindowInsetsSides.Horizontal)),
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
@@ -552,9 +554,7 @@ class MainActivity : ComponentActivity() {
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
                                 MiniPlayer(musicViewModel = musicViewModel, onExpand = { showPlayerModal = true })
-                                if (!isExpanded) {
-                                    GlassNavBar(items = navItems)
-                                }
+                                GlassNavBar(items = navItems, modifier = if (isExpanded) Modifier.padding(horizontal = 24.dp, vertical = 4.dp) else Modifier)
                             }
                         }
                     }
@@ -574,9 +574,6 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                     Box(Modifier.fillMaxSize().background(GlassBackdrop.color(isGlassDark())))
                     Row(modifier = Modifier.fillMaxSize()) {
-                        if (isExpanded && currentRoute != "settings") {
-                            GlassNavRail(items = navItems, modifier = Modifier.stableStatusBarsPadding())
-                        }
                         Box(Modifier.weight(1f).padding(contentPadding), contentAlignment = Alignment.TopCenter) {
                         NavHost(
                             navController = navController,
@@ -588,7 +585,7 @@ class MainActivity : ComponentActivity() {
                                     jam = jamViewModel,
                                     musicViewModel = musicViewModel,
                                     homeViewModel = homeViewModel,
-                                    onSettingsClick = { navController.navigate("settings") },
+                                    onSettingsClick = { showProfile = true },
                                     onSearchClick = { onNavigate(Screen.Search) },
                                     onOpenItem = { item ->
                                         when (item.kind) {
@@ -653,7 +650,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenDownloadedCollection = { collection -> navController.navigate("downloads/${android.net.Uri.encode(collection.key)}") },
                                     downloadsOpenTrigger = downloadsOpenTrigger,
-                                    onOpenSettings = { navController.navigate("settings") },
+                                    onOpenSettings = { showProfile = true },
                                     onOpenHistory = { navController.navigate("history") },
                                     onOpenArtist = { artist ->
                                         searchViewModel.loadArtistDetails(artist)
@@ -786,6 +783,21 @@ class MainActivity : ComponentActivity() {
                     }
                     }
                 }
+                }
+
+                if (showProfile) {
+                    androidx.compose.ui.window.Dialog(onDismissRequest = { showProfile = false },
+                        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+                        androidx.compose.material3.Surface(
+                            modifier = Modifier.padding(16.dp).widthIn(max = 680.dp)
+                                .fillMaxWidth().height(LocalConfiguration.current.screenHeightDp.dp * 0.88f),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                            color = com.example.juke.ui.theme.glassSheetColor()) {
+                            SettingsScreen(account = account, music = musicViewModel, jam = jamViewModel,
+                                onNavigateBack = { showProfile = false },
+                                onNavigateToPowerTools = { showProfile = false; navController.navigate("settings/power") })
+                        }
+                    }
                 }
 
                 // Player Modal
