@@ -77,7 +77,16 @@ fun SettingsScreen(
     var versionTaps by remember { mutableIntStateOf(0) }
     var lastVersionTapAt by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(Unit) { account.refreshStatus(); music.refreshDevices() }
+    LaunchedEffect(Unit) {
+        account.refreshStatus()
+        music.refreshDevices()
+        while (true) {
+            kotlinx.coroutines.delay(5_000)
+            try { music.echo.refreshDeviceStatus() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { /* A server outage is not proof that Echo is offline. */ }
+        }
+    }
 
     if (confirmSignOut) com.example.juke.ui.components.GlassAlertDialog(
         onDismissRequest = { confirmSignOut = false },

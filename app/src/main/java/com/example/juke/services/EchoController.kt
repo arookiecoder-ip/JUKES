@@ -108,6 +108,14 @@ class EchoController(
         return loggedIn && list.isNotEmpty()
     }
 
+    /** Refresh presence without changing playback, artwork or the selected output. */
+    suspend fun refreshDeviceStatus() {
+        val response = Backend.get("/alexa/devices/").objectOrEmpty()
+        _devices.value = response.array("devices").map { it.objectOrEmpty() }.map {
+            EchoDevice(it.text("serial"), it.text("name").ifBlank { it.text("serial") }, it.flag("online"))
+        }.filter { it.serial.isNotBlank() }
+    }
+
     fun select(serial: String, refreshAfter: Boolean = true) {
         if (serial == _serial.value) return
         setSerial(serial)
@@ -130,9 +138,16 @@ class EchoController(
         if (pollJob?.isActive == true) return
         pollJob = scope.launch {
             var failures = 0
+            var lastPresenceRefresh = 0L
             while (isActive) {
                 try {
                     refresh()
+                    val presenceNow = android.os.SystemClock.elapsedRealtime()
+                    val presenceInterval = if (selectedDevice?.online == false) 5_000L else 30_000L
+                    if (pollingForeground && presenceNow - lastPresenceRefresh >= presenceInterval) {
+                        lastPresenceRefresh = presenceNow
+                        safely { refreshDeviceStatus() }
+                    }
                     failures = 0
                 } catch (e: CancellationException) {
                     throw e
