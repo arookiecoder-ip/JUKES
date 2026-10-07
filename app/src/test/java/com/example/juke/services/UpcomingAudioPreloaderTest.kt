@@ -14,6 +14,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Exercise the real cache writer after a server outage; no UI or emulator. */
 @UnstableApi
@@ -25,12 +26,14 @@ class UpcomingAudioPreloaderTest {
         val cache = SimpleCache(directory, NoOpCacheEvictor())
         val opened = AtomicInteger()
         val closed = AtomicInteger()
+        val serverAvailable = AtomicBoolean(false)
         val upstream = DataSource.Factory {
             object : DataSource {
                 private val bytes = ByteArrayDataSource(ByteArray(1_024) { 3 })
                 override fun addTransferListener(listener: TransferListener) = bytes.addTransferListener(listener)
                 override fun open(spec: DataSpec): Long {
-                    if (opened.incrementAndGet() == 1) throw IOException("Server unavailable")
+                    opened.incrementAndGet()
+                    if (!serverAvailable.get()) throw IOException("Server unavailable")
                     return bytes.open(spec)
                 }
                 override fun read(buffer: ByteArray, offset: Int, length: Int) = bytes.read(buffer, offset, length)
@@ -45,21 +48,24 @@ class UpcomingAudioPreloaderTest {
         val url = "https://audio.example/song"
         try {
             preloader.update(listOf(url))
-            withTimeout(5_000) { while (closed.get() == 0) delay(10) }
-            delay(30) // Return the IO completion to the preloader's owning coroutine.
+            withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } }
+            val failedRequests = opened.get()
+            assertTrue(failedRequests > 0)
             now = 4_000
             preloader.update(listOf(url))
-            delay(30)
-            assertEquals(1, opened.get())
+            withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } }
+            assertEquals(failedRequests, opened.get())
+            serverAvailable.set(true)
             now = 5_000
             preloader.update(listOf(url))
-            withTimeout(5_000) { while (!cache.isCached(url, 0, 1_024)) delay(10) }
-            delay(30)
-            assertEquals(2, opened.get())
+            withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } }
+            assertTrue(cache.isCached(url, 0, 1_024))
+            assertTrue(opened.get() > failedRequests)
+            val recoveredRequests = opened.get()
             now = 120_000
             preloader.update(listOf(url))
-            delay(30)
-            assertEquals(2, opened.get())
+            withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } }
+            assertEquals(recoveredRequests, opened.get())
             assertTrue(cache.isCached(url, 0, 1_024))
         } finally {
             preloader.clear()
