@@ -65,6 +65,7 @@ class EchoController(
     private var pollingForeground = false
     private val pollLock = Mutex()
     private val transportLock = Mutex()
+    private var transportIntent = 0L
     private var lastVolumeRefresh = 0L
     private var likedVersion: Long? = null
     private var mutationEpoch = 0L
@@ -212,12 +213,13 @@ class EchoController(
     }
 
     suspend fun command(action: String, refreshAfter: Boolean = true, expectedPhoneToken: String? = null) {
+        val previous = _state.value
+        val transport = action == "play" || action == "pause"
+        val intent = ++transportIntent
+        // Update before acquiring the lock: even three rapid taps must each
+        // reverse the latest requested direction, not the last HTTP response.
+        if (transport) _state.update { it.copy(playing = action == "play", positionMs = it.livePosition(), anchoredAt = SystemClock.elapsedRealtime()) }
         transportLock.withLock {
-            val previous = _state.value
-            val transport = action == "play" || action == "pause"
-            // Publish the requested direction before the HTTP round trip so a
-            // second tap reverses it; dispatch commands in the same order.
-            if (transport) _state.update { it.copy(playing = action == "play", positionMs = it.livePosition(), anchoredAt = SystemClock.elapsedRealtime()) }
             try {
                 send("/alexa/command/", buildJsonObject {
                     put("serial", requireSerial()); put("action", action)
@@ -227,7 +229,7 @@ class EchoController(
                     }
                 })
             } catch (e: Exception) {
-                if (transport) _state.value = previous
+                if (transport && intent == transportIntent) _state.value = previous
                 throw e
             } finally {
                 if (refreshAfter) refreshSoon()
