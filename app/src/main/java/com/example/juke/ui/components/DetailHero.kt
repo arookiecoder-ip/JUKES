@@ -42,3 +42,13 @@ fun DetailBackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
     }
 }
+
+/** A single backdrop spans both detail panes in landscape. */
+@Composable
+fun DetailPageBackdrop(image: String?) {
+    if (androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE) return
+    val surface = MaterialTheme.colorScheme.background
+    AsyncImage(coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+        .data(image).size(960).build(), null, Modifier.fillMaxSize().alpha(0.25f), contentScale = ContentScale.Crop)
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(surface.copy(alpha = 0.2f), surface.copy(alpha = 0.65f), surface))))
+}

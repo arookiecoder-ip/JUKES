@@ -167,6 +167,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow) { switching, requests, buffering ->
         switching || (buffering && !isAlexa)
     }
+    private val likedQueuePresentation = com.example.juke.services.TrackQueuePresentation()
+    private val echoQueuePresentation = com.example.juke.services.TrackQueuePresentation()
     private val combinedState: StateFlow<MusicUiState> = combine(
         _output,
         _uiState,
@@ -177,7 +179,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val state = if (output != PlaybackOutput.PHONE) echoUiState(echoState, lyrics) else phone
         state.copy(
             currentTrack = state.currentTrack?.withLike(liked),
-            queue = state.queue.map { it.withLike(liked) },
+            queue = likedQueuePresentation.present(state.queue, liked),
             extractedColors = colors
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
@@ -214,7 +216,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val current = state.track?.withLyrics()
         return MusicUiState(
             currentTrack = current,
-            queue = state.queue.map { if (it.uuid == current?.uuid) current else it },
+            queue = echoQueuePresentation.present(state.queue, active = current),
             queueIndex = state.index,
             isPlaying = (isRemotePhone || state.sharedOutput.mode != "phone") && state.playing,
             isLoading = (isRemotePhone || state.sharedOutput.mode != "phone") && state.loading,
@@ -709,7 +711,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         try {
             com.example.juke.services.PhonePlaybackOwnership.accept(output)
             setOutputPreference(PlaybackOutput.PHONE)
-            phoneSetQueue(queue, index, state.livePosition(), play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true)
+            coroutineScope {
+                // Stream resolution may outlive the initial transfer lease before a service exists.
+                val renewal = launch {
+                    while (isActive) {
+                        delay(3_000)
+                        try {
+                            val current = withTimeout(4_000) { AlexaBackendApi.phoneOutputRequest("heartbeat", com.example.juke.services.PhonePlaybackOwnership.ownerId, output.token) }
+                            if (!current.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId, output.token)) break
+                            com.example.juke.services.PhonePlaybackOwnership.accept(current)
+                        } catch (_: kotlinx.coroutines.TimeoutCancellationException) { /* Retry while preparing. */ }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { /* The bounded lease still prevents two outputs. */ }
+                    }
+                }
+                try { phoneSetQueue(queue, index, state.livePosition(), play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true) }
+                finally { renewal.cancel() }
+            }
             updatePolling()
         } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }

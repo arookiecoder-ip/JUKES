@@ -319,7 +319,7 @@ class PlaybackService : MediaLibraryService() {
     @OptIn(UnstableApi::class)
     private fun applyOffloadPreference(prefs: android.content.SharedPreferences) {
         if (!::player.isInitialized) return
-        val allowed = prefs.getBoolean("battery_saver_playback", false) &&
+        val allowed = prefs.getBoolean("battery_saver_playback", true) &&
             !prefs.getBoolean("skip_silence_enabled", false) &&
             !prefs.getBoolean("booster_enabled", false) &&
             !prefs.getBoolean("normalization_enabled", false)
@@ -329,7 +329,7 @@ class PlaybackService : MediaLibraryService() {
                 else TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
             )
             .setIsGaplessSupportRequired(false)
-            .setIsSpeedChangeSupportRequired(true)
+            .setIsSpeedChangeSupportRequired(false)
             .build()
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setAudioOffloadPreferences(offload)
@@ -870,6 +870,10 @@ class PlaybackService : MediaLibraryService() {
         }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
+            .setMediaCodecSelector { mime, secure, tunneling ->
+                androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT
+                    .getDecoderInfos(mime, secure, tunneling).sortedBy { !it.hardwareAccelerated }
+            }
 
         val transferListener = object : androidx.media3.datasource.TransferListener {
             private val starts = java.util.concurrent.ConcurrentHashMap<androidx.media3.datasource.DataSource, Long>()

@@ -189,7 +189,16 @@ class PlaybackManager private constructor(private val context: Context) {
             }).buildAsync()
             controllerFuture?.addListener(
                 {
-                    controller = controllerFuture?.get()
+                    val connected = try { controllerFuture?.get() }
+                    catch (e: Exception) {
+                        controllerFuture = null
+                        _isPlaying.value = false
+                        _isBuffering.value = false
+                        com.example.juke.network.NetworkFeedback.notify("Player service unavailable. Tap play to reconnect.")
+                        Log.w(TAG, "Player service connection failed: ${e.javaClass.simpleName}")
+                        return@addListener
+                    } ?: return@addListener
+                    controller = connected
                     Log.d(TAG, "MediaController connected to PlaybackService")
 
                     // Immediately sync UI with current background state
@@ -206,7 +215,8 @@ class PlaybackManager private constructor(private val context: Context) {
                     // Add a Player.Listener on the controller's underlying player
                     playerListener = object : Player.Listener {
                         override fun onEvents(player: Player, events: Player.Events) {
-                            controller?.let(::publishSnapshot)
+                            if (events.contains(Player.EVENT_TIMELINE_CHANGED) || events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION))
+                                controller?.let(::publishSnapshot)
                         }
                         override fun onTimelineChanged(
                             timeline: androidx.media3.common.Timeline,
@@ -369,7 +379,7 @@ class PlaybackManager private constructor(private val context: Context) {
                     if (queued != null) queued(requireNotNull(controller))
                     else if (!userQueueRequested) scope.launch { restorePlaybackState() }
                 },
-                MoreExecutors.directExecutor()
+                androidx.core.content.ContextCompat.getMainExecutor(context)
             )
 
             Log.d(TAG, "PlaybackManager initialized")

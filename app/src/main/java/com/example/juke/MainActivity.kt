@@ -270,6 +270,15 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 var showPlayerModal by remember { mutableStateOf(false) }
                 var showProfile by remember { mutableStateOf(false) }
+                val profileConfig = androidx.compose.ui.platform.LocalConfiguration.current
+                val tabletProfilePopup = profileConfig.smallestScreenWidthDp >= 600 &&
+                    profileConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                val openProfile: () -> Unit = {
+                    if (tabletProfilePopup) showProfile = true else navController.navigate("settings") { launchSingleTop = true }
+                }
+                LaunchedEffect(tabletProfilePopup) {
+                    if (!tabletProfilePopup && showProfile) { showProfile = false; navController.navigate("settings") { launchSingleTop = true } }
+                }
                 LaunchedEffect(downloadsOpenTrigger) {
                     if (downloadsOpenTrigger > 0) {
                         showPlayerModal = false
@@ -544,7 +553,7 @@ class MainActivity : ComponentActivity() {
                 })
                 Scaffold(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                    modifier = Modifier.fillMaxSize().then(if (showProfile) Modifier.blur(6.dp) else Modifier).windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility.only(WindowInsetsSides.Horizontal)),
+                    modifier = Modifier.fillMaxSize().then(if (showProfile) Modifier.blur(6.dp) else Modifier),
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.onBackground,
                     bottomBar = {
@@ -585,7 +594,7 @@ class MainActivity : ComponentActivity() {
                                     jam = jamViewModel,
                                     musicViewModel = musicViewModel,
                                     homeViewModel = homeViewModel,
-                                    onSettingsClick = { showProfile = true },
+                                    onSettingsClick = openProfile,
                                     onSearchClick = { onNavigate(Screen.Search) },
                                     onOpenItem = { item ->
                                         when (item.kind) {
@@ -650,7 +659,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenDownloadedCollection = { collection -> navController.navigate("downloads/${android.net.Uri.encode(collection.key)}") },
                                     downloadsOpenTrigger = downloadsOpenTrigger,
-                                    onOpenSettings = { showProfile = true },
+                                    onOpenSettings = openProfile,
                                     onOpenHistory = { navController.navigate("history") },
                                     onOpenArtist = { artist ->
                                         searchViewModel.loadArtistDetails(artist)

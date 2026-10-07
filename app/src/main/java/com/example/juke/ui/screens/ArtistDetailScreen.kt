@@ -49,6 +49,7 @@ fun ArtistDetailScreen(
     val artist = state.artist
     var expandedDescription by remember(artist?.id) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
+        if (state.error == null) DetailPageBackdrop(state.imageUrl)
         when {
             state.error != null && (artist == null || state.topTracks.isEmpty()) -> {
                 ConnectionErrorState(state.error.orEmpty(), {

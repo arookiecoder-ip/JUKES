@@ -23,9 +23,11 @@ fun ResponsivePlayerLayout(artwork: @Composable () -> Unit, controls: @Composabl
             }
             Box(Modifier.weight(1f).fillMaxHeight().stableStatusBarsPadding()) { queue() }
         } else Column(Modifier.fillMaxSize().testTag("Portrait player"), horizontalAlignment = Alignment.CenterHorizontally) {
-            val fraction = 0.6f
+            val fraction = if (paneWidth > paneHeight) 0.5f else 0.6f
             Box(Modifier.fillMaxWidth().height(paneHeight * fraction).testTag("Player artwork pane")) { artwork() }
-            Box(Modifier.weight(1f).widthIn(max = 680.dp).fillMaxWidth().testTag("Player controls pane")) { controls() }
+            Box(Modifier.weight(1f).fillMaxWidth().testTag("Player controls pane"), contentAlignment = Alignment.BottomCenter) {
+                Box(Modifier.widthIn(max = 680.dp).fillMaxWidth()) { controls() }
+            }
         }
     }
 }

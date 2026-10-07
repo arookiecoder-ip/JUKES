@@ -168,6 +168,7 @@ object Backend {
     private suspend fun performCall(method: HttpMethod, path: String, query: Map<String, String>, body: JsonObject?, audio: Boolean = false): JsonElement {
         require(path.startsWith("/") && !path.startsWith("//"))
         val requestStarted = System.nanoTime()
+        val serializedBody = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { body?.toString() }
         val response = client.request((if (audio) audioBaseUrl else baseUrl) + path) {
             this.method = method
             if (audio && apiKey.isNotBlank()) header("X-Api-Key", apiKey)
@@ -179,11 +180,11 @@ object Backend {
             query.forEach { (name, value) -> parameter(name, value) }
             if (body != null) {
                 contentType(ContentType.Application.Json)
-                setBody(body.toString())
+                setBody(serializedBody.orEmpty())
             }
         }
         val text = response.bodyAsText()
-        val parsed = runCatching { Json.parseToJsonElement(text) }.getOrNull()
+        val parsed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { Json.parseToJsonElement(text) }.getOrNull() }
         val code = response.status.value
         com.example.juke.services.PlaybackDiagnostics.record(com.example.juke.services.PlaybackDiagnostics.Stage.SERVER_REQUEST,
             (System.nanoTime() - requestStarted) / 1_000_000, code !in 200..299)

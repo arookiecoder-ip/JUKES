@@ -43,16 +43,18 @@ object MobileDeviceConnection {
             var revision = -1L
             var outputToken = ""
             var supportsWait = false
+            var failures = 0
             while (isActive && activeGeneration == generation) {
                 if (!NetworkFeedback.online.value) { delay(2_000); continue }
                 try {
-                    val reply = request("online", buildJsonObject {
+                    val reply = withTimeout(6_000) { request("online", buildJsonObject {
                         put("wait", true); put("revision", revision); put("output_token", outputToken)
                         put("volume", (audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 / audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)))
                         put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
                         put("ack", JsonArray(acknowledge.map(::JsonPrimitive)))
-                    }, activeSession)
+                    }, activeSession) }
                     if (activeGeneration != generation) return@launch
+                    failures = 0
                     acknowledge = emptyList()
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
                         .map {
@@ -82,9 +84,13 @@ object MobileDeviceConnection {
                         while (handled.size > 100) handled.remove(handled.first())
                     }
                     acknowledge = completed
-                } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { delay(2_000) /* Expiring leases bound network failures. */ }
-                delay(if (supportsWait) 100 else 2_000)
+                } catch (_: TimeoutCancellationException) { failures++ }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { failures++ }
+                if (failures > 0) { delay((2_000L shl failures.coerceAtMost(3)).coerceAtMost(15_000)); continue }
+                val visible = androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+                val activeOutput = latestOutput.mode == "phone" && latestOutput.owner == PhonePlaybackOwnership.ownerId
+                delay(if (supportsWait && (visible || activeOutput)) 100 else 3_000)
             }
         }
     }
