@@ -36,6 +36,7 @@ object MobileDeviceConnection {
         job = scope.launch {
             var revision = -1L
             var outputToken = ""
+            var supportsWait = false
             while (isActive && activeGeneration == generation) {
                 if (!NetworkFeedback.online.value) { delay(2_000); continue }
                 try {
@@ -49,6 +50,7 @@ object MobileDeviceConnection {
                     acknowledge = emptyList()
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
                         .map { MobileAudioDevice(it.text("id"), it.text("name"), (it["volume"] as? JsonPrimitive)?.intOrNull) }
+                    supportsWait = reply.containsKey("revision")
                     revision = reply.number("revision")
                     val output = rememberOutput(sharedPlaybackOutput(reply))
                     outputToken = output.token
@@ -70,7 +72,7 @@ object MobileDeviceConnection {
                     acknowledge = completed
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { delay(2_000) /* Expiring leases bound network failures. */ }
-                delay(100)
+                delay(if (supportsWait) 100 else 2_000)
             }
         }
     }

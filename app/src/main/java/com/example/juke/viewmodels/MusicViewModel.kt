@@ -684,7 +684,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         startTransferredPhone(AlexaBackendApi.phoneOutputStatus())
     }
 
-    private suspend fun startTransferredPhone(output: com.example.juke.services.SharedPlaybackOutput) {
+    private suspend fun startTransferredPhone(output: com.example.juke.services.SharedPlaybackOutput, playOverride: Boolean? = null) {
         if (output.handoffPending || output.owner != com.example.juke.services.PhonePlaybackOwnership.ownerId) return
         val snapshot = output.nowPlaying ?: AlexaBackendApi.phoneQueueSnapshot()
         val state = com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
@@ -695,7 +695,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         try {
             com.example.juke.services.PhonePlaybackOwnership.accept(output)
             setOutputPreference(PlaybackOutput.PHONE)
-            phoneSetQueue(queue, index, state.livePosition(), play = state.playing, synchronizeQueue = false, reuseOwnership = true)
+            phoneSetQueue(queue, index, state.livePosition(), play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true)
             updatePolling()
         } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
@@ -887,7 +887,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     serial = echo.serial.value, includeState = true)
                 claim = claimed
                 wasPlaying = claimed.nowPlaying?.flag("playing") ?: wasPlaying
-                startTransferredPhone(claimed)
+                startTransferredPhone(claimed, playOverride = if (claimed.nowPlaying == null) wasPlaying else null)
                 if (claimed.nowPlaying?.text("video_id")?.isNotBlank() ?: (_uiState.value.currentTrack != null)) playbackManager.awaitReady()
             },
             restoreSource = {

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.example.juke.ui.components.stableNavigationBarsPadding
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -83,7 +85,8 @@ fun SettingsScreen(
         confirmButton = { androidx.compose.material3.TextButton(onClick = { confirmSignOut = false; account.signOut() }) { Text("Sign out") } },
         dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } })
 
-    Column(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().stableNavigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().padding(horizontal = (maxWidth - 840.dp).coerceAtLeast(0.dp) / 2)) {
         GlassTopAppBar(
             title = { Text("Settings", fontWeight = FontWeight.Bold) },
             navigationIcon = {
@@ -223,5 +226,6 @@ fun SettingsScreen(
             ) { Text("Sign out") } }
 
         }
+    }
     }
 }
