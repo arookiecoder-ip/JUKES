@@ -93,7 +93,9 @@ class PlaybackService : MediaLibraryService() {
         /** Pause the actual service player before acknowledging an app-initiated handoff. */
         internal suspend fun pausePhoneForHandoff() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
             val service = checkNotNull(activeService.get()) { "Phone playback service is unavailable." }
-            val snapshot = service.player.playWhenReady to service.player.currentPosition
+            val snapshot = (service.player.playWhenReady || service.leaseInterruption.matches(
+                service.player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token) || service.recoveryShouldResume) to service.player.currentPosition
+            service.leaseInterruption.clear()
             service.player.pause()
             check(!service.player.playWhenReady && !service.player.isPlaying) { "Phone playback has not paused." }
             snapshot
@@ -227,6 +229,27 @@ class PlaybackService : MediaLibraryService() {
             com.example.juke.network.NetworkFeedback.notify(
                 "Playing with no sound. Check Bluetooth/output, then restart the app.")
         }
+    }
+    private val leaseInterruption = PlaybackInterruption()
+    private var pausingForLease = false
+    private val streamRetry = BackgroundRetry()
+    private var backgroundMaintenance: Job? = null
+
+    private fun pauseForExpiredLease() {
+        leaseInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
+            player.playWhenReady || recoveryShouldResume)
+        pausingForLease = true
+        try { player.pause() } finally { pausingForLease = false }
+    }
+
+    private fun recoverAfterLeaseRenewal() {
+        if (!leaseInterruption.canResume(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
+                PhonePlaybackOwnership.permitsPlayback(), PhonePlaybackOwnership.localHandoff, inCall()) ||
+            outputPrefs.getString("playback_output", "PHONE") != "PHONE") return
+        leaseInterruption.clear()
+        recoveryShouldResume = true
+        if (player.playerError != null || player.playbackState == Player.STATE_IDLE) recoverCurrentStream(manual = true)
+        else player.play()
     }
     private val recoveryAttempts = mutableMapOf<String, Int>()
     private val progressHandler = Handler(Looper.getMainLooper())
@@ -398,7 +421,11 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main +
+        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+            Log.e(TAG, "Background playback task failed", error)
+            com.example.juke.network.NetworkFeedback.notify("Playback task interrupted. Retry playback when connected.")
+        })
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Fix: Check if app is in background before attempting anything that might require foreground
@@ -480,11 +507,8 @@ class PlaybackService : MediaLibraryService() {
         }
         val original = player.currentMediaItem ?: return
         val trackId = original.mediaId
-        val attempt = if (manual) 1 else (recoveryAttempts[trackId] ?: 0) + 1
-        if (attempt > 2) {
-            com.example.juke.network.NetworkFeedback.notify("Playback interrupted. Tap Play to try again.")
-            return
-        }
+        val attempt = if (manual) 1 else ((recoveryAttempts[trackId] ?: 0) + 1).coerceAtMost(5)
+        if (!manual && !streamRetry.ready(android.os.SystemClock.elapsedRealtime())) return
         recoveryAttempts[trackId] = attempt
         val claim = PhonePlaybackOwnership.token
         val httpFailure = generateSequence<Throwable>(player.playerError) { it.cause }
@@ -493,8 +517,9 @@ class PlaybackService : MediaLibraryService() {
         com.example.juke.services.PlaybackDiagnostics.record(com.example.juke.services.PlaybackDiagnostics.Stage.RECOVERY, 0, true)
         val retryAfter = httpFailure?.headerFields?.entries?.firstOrNull { it.key.equals("Retry-After", true) }?.value?.firstOrNull()
         val retryDelay = com.example.juke.network.audioRetryDelay(httpFailure?.responseCode, retryAfter, attempt)
+        streamRetry.failed(android.os.SystemClock.elapsedRealtime(), retryDelay)
         val position = player.currentPosition.coerceAtLeast(0)
-        recoveryShouldResume = manual || player.playWhenReady
+        recoveryShouldResume = manual || player.playWhenReady || recoveryShouldResume
         streamRecoveryJob = serviceScope.launch {
             try {
                 val track = withContext(Dispatchers.IO) { database.trackDao().getTrackByUuid(trackId)?.toTrack() }
@@ -511,9 +536,10 @@ class PlaybackService : MediaLibraryService() {
                     outputPrefs.getString("playback_output", "PHONE") == "ALEXA") return@launch
                 withContext(Dispatchers.IO) {
                     database.trackDao().insertTrack(refreshed.toEntity())
-                    StreamCacheManager.removeTrackCache(original.localConfiguration?.uri?.toString())
+                    // Keep valid cached spans; a network interruption does not invalidate audio bytes.
                 }
-                if (player.currentMediaItem?.mediaId != trackId) return@launch
+                if (player.currentMediaItem?.mediaId != trackId || !PhonePlaybackOwnership.permitsPlayback(claim) ||
+                    outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
                 val index = player.currentMediaItemIndex
                 player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).build())
                 player.seekTo(index, position)
@@ -522,6 +548,7 @@ class PlaybackService : MediaLibraryService() {
                 if (recoveryShouldResume && inCall()) mainHandler.postDelayed(resumeAfterCall, 500)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
+                streamRetry.failed(android.os.SystemClock.elapsedRealtime(), if (httpFailure?.responseCode == 429) retryDelay else 0)
                 if (player.currentMediaItem?.mediaId == trackId) {
                     com.example.juke.network.NetworkFeedback.notify(
                         com.example.juke.network.networkErrorMessage(e) ?: "Playback interrupted. Tap Play to try again.")
@@ -630,10 +657,11 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (playWhenReady && !PhonePlaybackOwnership.permitsPlayback()) {
-                player.pause()
+                pauseForExpiredLease()
                 return
             }
-            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST && !pausingForLease) {
+                leaseInterruption.clear()
                 recoveryShouldResume = false
                 streamRecoveryJob?.cancel()
                 streamRecoveryJob = null
@@ -652,6 +680,9 @@ class PlaybackService : MediaLibraryService() {
             streamRecoveryJob = null
             recoveryAttempts.clear()
             if (::silentWatchdog.isInitialized && player.isPlaying) silentWatchdog.notePlaying()
+            streamRetry.reset()
+            leaseInterruption.clear()
+            recoveryShouldResume = false
             mediaItem?.let {
                 val trackId = it.mediaId
                 // Stable Volume memory: store where the AGC settled for the track that just ended and
@@ -742,6 +773,9 @@ class PlaybackService : MediaLibraryService() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             Log.d(TAG, "Is playing: $isPlaying")
             if (isPlaying) {
+                recoveryShouldResume = false
+                streamRetry.reset()
+                recoveryAttempts.clear()
                 reportDeviceListen()
                 progressHandler.post(progressRunnable)
                 if (::silentWatchdog.isInitialized) silentWatchdog.notePlaying()
@@ -862,7 +896,8 @@ class PlaybackService : MediaLibraryService() {
         // Keep the safety deadline independent of suspended network requests.
         PhonePlaybackSynchronizer(applicationContext, serviceScope, player,
             trackById = { database.trackDao().getTrackByUuid(it)?.toTrack() },
-            extendQueue = { maybeExtendPhoneQueue() }).start()
+            extendQueue = { maybeExtendPhoneQueue() }, pauseForLease = ::pauseForExpiredLease,
+            leaseRenewed = ::recoverAfterLeaseRenewal).start()
 
         silentWatchdog = SilentPlaybackWatchdog(
             scope = serviceScope,
@@ -881,7 +916,23 @@ class PlaybackService : MediaLibraryService() {
         getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(preloadNetworkCallback)
         preloadConnectivityJob = serviceScope.launch {
             com.example.juke.network.NetworkFeedback.online.collect { online ->
+                if (online) streamRetry.reset()
                 updatePreloader()
+            }
+        }
+        backgroundMaintenance = serviceScope.launch {
+            while (isActive) {
+                delay(5_000)
+                try {
+                    updatePreloader() // Retry failed warming even without a new UI/player event.
+                    recoverAfterLeaseRenewal()
+                    if (recoveryShouldResume && player.playerError != null &&
+                        com.example.juke.network.NetworkFeedback.online.value &&
+                        PhonePlaybackOwnership.permitsPlayback() && !PhonePlaybackOwnership.localHandoff && !inCall()) {
+                        recoverCurrentStream()
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { Log.w(TAG, "Background playback maintenance failed: ${e.javaClass.simpleName}") }
             }
         }
         player.addListener(object : Player.Listener {
@@ -950,9 +1001,12 @@ class PlaybackService : MediaLibraryService() {
         // Keep the notification heart in step with likes made anywhere (player, library, web).
         serviceScope.launch {
             AccountRepository.liked.collect { liked ->
-                val currentId = withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId } ?: return@collect
-                val videoId = database.trackDao().getTrackByUuid(currentId)?.ytVideoId
-                withContext(Dispatchers.Main) { updateCustomLayout(videoId != null && videoId in liked) }
+                try {
+                    val currentId = player.currentMediaItem?.mediaId ?: return@collect
+                    val videoId = database.trackDao().getTrackByUuid(currentId)?.ytVideoId
+                    updateCustomLayout(videoId != null && videoId in liked)
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { Log.w(TAG, "Notification like refresh failed: ${e.javaClass.simpleName}") }
             }
         }
     }
@@ -983,7 +1037,8 @@ class PlaybackService : MediaLibraryService() {
         // Media3 owns foreground promotion, including starts from media controls.
         // Keep the session foreground while playback continues with the app hidden.
         try {
-            super.onUpdateNotification(session, startInForegroundRequired)
+            super.onUpdateNotification(session, startInForegroundRequired ||
+                recoveryShouldResume || leaseInterruption.pending)
         } catch (e: Exception) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 e is android.app.ForegroundServiceStartNotAllowedException
@@ -1020,6 +1075,9 @@ class PlaybackService : MediaLibraryService() {
         // The process owns the stream cache; rebuilt services reuse its valid spans.
 
         streamRecoveryJob?.cancel()
+        backgroundMaintenance?.cancel()
+        getSharedPreferences("audio_effects_prefs", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(audioSettingsListener)
+        progressHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
         Log.d(TAG, "PlaybackService destroyed")
     }
@@ -1161,6 +1219,7 @@ class PlaybackService : MediaLibraryService() {
             @Player.Command playerCommand: Int
         ): Int {
             rememberManualTrackChangeRequest(playerCommand)
+            if (playerCommand == Player.COMMAND_PLAY_PAUSE) leaseInterruption.clear()
             if (playerCommand == Player.COMMAND_PLAY_PAUSE && !player.isPlaying &&
                 (player.playerError != null || player.playbackState == Player.STATE_IDLE)) {
                 recoverCurrentStream(manual = true)

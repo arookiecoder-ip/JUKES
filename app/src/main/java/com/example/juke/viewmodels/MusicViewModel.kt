@@ -52,6 +52,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -916,6 +917,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
             pauseSource = {
+                if (originalClaim.isNotBlank()) {
+                    val renewed = withTimeout(5_000) { AlexaBackendApi.phoneOutputRequest("heartbeat",
+                        com.example.juke.services.PhonePlaybackOwnership.ownerId, originalClaim) }
+                    check(renewed.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId, originalClaim)) {
+                        "Playback moved to another device. Refresh and try again."
+                    }
+                    com.example.juke.services.PhonePlaybackOwnership.accept(renewed)
+                }
                 val snapshot = com.example.juke.services.PlaybackService.pausePhoneForHandoff()
                 wasPlaying = snapshot.first
                 position = snapshot.second

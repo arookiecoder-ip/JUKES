@@ -11,7 +11,8 @@ import kotlinx.coroutines.*
 @UnstableApi
 class PhonePlaybackSynchronizer(private val applicationContext: Context,
     private val serviceScope: CoroutineScope, private val player: Player,
-    private val trackById: suspend (String) -> Track?, private val extendQueue: () -> Unit) {
+    private val trackById: suspend (String) -> Track?, private val extendQueue: () -> Unit,
+    private val pauseForLease: () -> Unit, private val leaseRenewed: () -> Unit) {
     private val outputPrefs = applicationContext.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
     private val TAG = "PhonePlaybackSync"
     fun start() {
@@ -23,7 +24,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     PhonePlaybackOwnership.forget(allowOffline = true)
                 }
                 if (PhonePlaybackOwnership.token.isNotBlank() && player.playWhenReady &&
-                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) player.pause()
+                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) pauseForLease()
             }
         }
         // Ownership remains enforced by the foreground service when the Activity is closed.
@@ -38,7 +39,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     // Keep a preparing phone target's lease alive, without publishing the
                     // paused source cursor over the queue being installed on Alexa.
                     try {
-                        val renewed = kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                        val renewed = kotlinx.coroutines.withTimeoutOrNull(4_000) {
                             com.example.juke.network.AlexaBackendApi.phoneOutputRequest("heartbeat", PhonePlaybackOwnership.ownerId, claim)
                         }
                         if (PhonePlaybackOwnership.token == claim && renewed != null) {
@@ -49,12 +50,12 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     catch (_: Exception) { /* Existing lease expiry still enforces exclusivity. */ }
                     continue
                 }
-                extendQueue()
                 try {
+                    extendQueue()
                     val attemptAt = android.os.SystemClock.elapsedRealtime()
                     if (attemptAt - lastOwnershipAttempt < 2_000) continue
                     lastOwnershipAttempt = attemptAt
-                    val status = kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                    val status = kotlinx.coroutines.withTimeoutOrNull(4_000) {
                         try {
                             com.example.juke.network.AlexaBackendApi.phoneOutputRequest("heartbeat", PhonePlaybackOwnership.ownerId, claim)
                         } catch (e: com.example.juke.network.BackendHttpException) {
@@ -79,7 +80,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                         }
                         continue
                     }
-                    if (status != null) PhonePlaybackOwnership.accept(status)
+                    if (status != null) { PhonePlaybackOwnership.accept(status); leaseRenewed() }
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (status != null && now - lastReport >= 3_000) {
                         val renewed = status
@@ -91,7 +92,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                             val current = mediaId?.let { trackById(it) }
                             if (player.currentMediaItem?.mediaId != mediaId || !canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                             current?.ytVideoId?.takeIf { it.isNotBlank() }?.let { video ->
-                                kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                                kotlinx.coroutines.withTimeoutOrNull(4_000) {
                                     com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
                                         player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
                                         buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim, currentEntryId = current.uuid)
@@ -108,7 +109,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                 if (PhonePlaybackOwnership.token.isNotBlank() &&
                     android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) {
                     // During a partition, never keep streaming beyond our exclusive lease.
-                    player.pause()
+                    pauseForLease()
                 }
             }
         }

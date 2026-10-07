@@ -22,8 +22,10 @@ internal suspend fun transferPlayback(
 ) {
     val startedAt = System.nanoTime()
     var failed = false
+    var targetAttempted = false
     try {
         pauseSource()
+        targetAttempted = true
         val started = kotlinx.coroutines.withTimeoutOrNull(targetTimeoutMs) {
             // Return failures across the coroutine boundary before throwing, preserving their identity.
             runCatching { startTarget() }
@@ -33,7 +35,7 @@ internal suspend fun transferPlayback(
     } catch (failure: Exception) {
         failed = true
         withContext(NonCancellable) {
-            runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { stopTarget() } }.exceptionOrNull()?.let(failure::addSuppressed)
+            if (targetAttempted) runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { stopTarget() } }.exceptionOrNull()?.let(failure::addSuppressed)
             runCatching { kotlinx.coroutines.withTimeout(recoveryTimeoutMs) { restoreSource() } }.exceptionOrNull()?.let(failure::addSuppressed)
         }
         throw failure

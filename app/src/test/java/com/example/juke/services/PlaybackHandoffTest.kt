@@ -2,6 +2,7 @@ package com.example.juke.services
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.fail
@@ -132,5 +133,15 @@ class PlaybackHandoffTest {
                 targetTimeoutMs = 20, recoveryTimeoutMs = 20)
             fail("Recovery must finish")
         } catch (error: IllegalStateException) { assertEquals(1, error.suppressed.size) }
+    }
+    @Test fun failedSourceValidationCannotPauseAnUntouchedAlexaDestination() = runBlocking {
+        var targetTouched = false
+        val failure = IllegalStateException("Server unavailable during lease validation")
+        try {
+            transferPlayback({ throw failure }, { targetTouched = true }, {},
+                { targetTouched = true }, { fail("Must not commit") })
+            fail("Validation failure must propagate")
+        } catch (actual: IllegalStateException) { assertSame(failure, actual) }
+        assertFalse(targetTouched)
     }
 }

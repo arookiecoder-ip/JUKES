@@ -13,32 +13,44 @@ import kotlinx.coroutines.sync.withPermit
 
 /** Keep the next five streams warm without creating Library downloads or notifications. */
 @UnstableApi
-class UpcomingAudioPreloader(private val factory: DataSource.Factory, private val scope: CoroutineScope, private val context: android.content.Context? = null) {
+class UpcomingAudioPreloader(private val factory: DataSource.Factory, private val scope: CoroutineScope, private val context: android.content.Context? = null,
+    private val policyOverride: ((Boolean) -> PreloadPolicy)? = null,
+    private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }) {
     private data class Work(val writer: CacheWriter, val source: CacheDataSource, val job: Job)
     private val work = mutableMapOf<String, Work>()
     private val completed = mutableSetOf<String>()
     private val slots = Semaphore(2)
+    private val retries = mutableMapOf<String, BackgroundRetry>()
     fun update(urls: List<String>, buffering: Boolean = false) {
         val connectivity = context?.getSystemService(android.net.ConnectivityManager::class.java)
-        val policy = preloadPolicy(com.example.juke.network.NetworkFeedback.online.value,
+        val policy = policyOverride?.invoke(buffering) ?: preloadPolicy(com.example.juke.network.NetworkFeedback.online.value,
             connectivity?.isActiveNetworkMetered ?: true,
             context?.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)?.getBoolean("prefetch_mobile_data", false) ?: false, buffering)
         val wanted = urls.distinct().filter { Uri.parse(it).scheme in listOf("https", "http") }.take(policy.tracks).toSet()
         (work.keys - wanted).forEach { key -> work.remove(key)?.let { obsolete ->
             obsolete.writer.cancel(); obsolete.job.cancel()
-            scope.launch(Dispatchers.IO + NonCancellable) { runCatching { obsolete.source.close() } }
         } }
         completed.retainAll(wanted)
-        wanted.filter { it !in work && it !in completed }.forEach { url ->
+        retries.keys.retainAll(wanted)
+        wanted.filter { it !in work && it !in completed &&
+            retries[it]?.ready(nowMs()) != false }.forEach { url ->
             val source = factory.createDataSource() as CacheDataSource
             val writer = CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setLength(policy.bytesPerTrack).build(), null, null)
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     slots.withPermit { withContext(Dispatchers.IO) { writer.cache() } }
                     completed.add(url)
+                    retries.remove(url)
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Playback may still stream; a later queue update retries preloading. */ }
-                finally { if (work[url]?.writer === writer) work.remove(url) }
+                catch (error: Exception) {
+                    val limited = generateSequence<Throwable>(error) { it.cause }.take(8)
+                        .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
+                        .firstOrNull()?.responseCode == 429
+                    retries.getOrPut(url) { BackgroundRetry() }.failed(nowMs(), if (limited) 60_000 else 0)
+                } finally {
+                    withContext(Dispatchers.IO + NonCancellable) { runCatching { source.close() } }
+                    if (work[url]?.writer === writer) work.remove(url)
+                }
             }
             work[url] = Work(writer, source, job); job.start()
         }

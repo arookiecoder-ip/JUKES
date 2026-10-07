@@ -256,7 +256,7 @@ class DownloadRepository private constructor(private val context: Context) {
                 val percentages = mutableMapOf<String, Int>()
                 var changed = false
                 for (entry in pending.toList()) {
-                    val result = withContext(Dispatchers.IO) {
+                    val result = try { withContext(Dispatchers.IO) {
                         manager.query(DownloadManager.Query().setFilterById(entry.id)).use { cursor ->
                             if (!cursor.moveToFirst()) DownloadResult(DownloadManager.STATUS_FAILED, 0L, 0L, 0)
                             else DownloadResult(cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
@@ -264,6 +264,12 @@ class DownloadRepository private constructor(private val context: Context) {
                                 cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
                                 cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)))
                         }
+                    }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) {
+                        com.example.juke.utils.SafeLog.w("Downloads", "Download status unavailable: ${e.javaClass.simpleName}")
+                        delay(5_000)
+                        continue
                     }
                     if (entry !in pending) continue
                     val (status, bytes, total, reason) = result

@@ -31,7 +31,11 @@ import kotlinx.coroutines.*
 /** A remote media session: no audio renderer or audio focus on this phone. */
 @UnstableApi
 class RemotePlaybackService : MediaSessionService() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate +
+        CoroutineExceptionHandler { _, error ->
+            com.example.juke.utils.SafeLog.e("RemotePlaybackService", "Remote notification task failed", error)
+            com.example.juke.network.NetworkFeedback.notify("Couldn't update Alexa controls. Retry when connected.")
+        })
     private lateinit var echo: EchoController
     private lateinit var remote: EchoPlayer
     private var session: MediaSession? = null
