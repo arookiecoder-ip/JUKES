@@ -89,6 +89,8 @@ class AudioEffectController private constructor(private val context: Context) {
      * Should be called when ExoPlayer's audio session ID changes.
      */
     fun attachToAudioSession(audioSessionId: Int) {
+        // Session 0 is the global output mix: never attach there.
+        if (audioSessionId == 0) return
         if (audioSessionId == currentAudioSessionId && equalizer != null) {
             return
         }

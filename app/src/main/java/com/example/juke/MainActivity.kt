@@ -267,6 +267,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                val visualizerPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                val watchdogState by musicViewModel.uiState.collectAsStateWithLifecycle()
+                LaunchedEffect(watchdogState.isPlaying) {
+                    if (watchdogState.isPlaying && musicViewModel.output.value == com.example.juke.viewmodels.PlaybackOutput.PHONE &&
+                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        val prefs = getSharedPreferences("audio_visualizer_permission", MODE_PRIVATE)
+                        if (!prefs.getBoolean("requested", false)) {
+                            prefs.edit().putBoolean("requested", true).apply()
+                            visualizerPermission.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                }
                 val activeDownloads by musicViewModel.downloads.status.collectAsStateWithLifecycle()
                 val currentOutput by musicViewModel.output.collectAsStateWithLifecycle()
                 LaunchedEffect(activeDownloads.active > 0, currentOutput) {
@@ -811,6 +823,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isFinishing) com.example.juke.services.MobileDeviceConnection.stop()
         super.onDestroy()
         // Track app closed and end session
         AnalyticsManager.getIfInitialized()?.let { analytics ->

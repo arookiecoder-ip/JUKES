@@ -213,6 +213,8 @@ fun PlayerScreen(
     val output by musicViewModel.output.collectAsStateWithLifecycle()
     val isSwitching by musicViewModel.isSwitchingOutput.collectAsStateWithLifecycle()
     val echoVolume by musicViewModel.echoVolume.collectAsStateWithLifecycle()
+    val mobileDevices by musicViewModel.mobileDevices.collectAsStateWithLifecycle()
+    val remoteMobileOutput by musicViewModel.remoteMobileOutput.collectAsStateWithLifecycle()
     val echoDevices by musicViewModel.echo.devices.collectAsStateWithLifecycle()
     val echoSerial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
     val isAlexa = output == com.example.juke.viewmodels.PlaybackOutput.ALEXA
@@ -393,7 +395,7 @@ fun PlayerScreen(
                             PlayerAction(icon = rememberVectorPainter(if (currentTrack.isFavourite) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp),
                                 label = if (currentTrack.isFavourite) "Unlike" else "Like", active = currentTrack.isFavourite, iconSize = 24.dp) { musicViewModel.toggleFavorite(currentTrack) }
                             PlayerAction(icon = rememberVectorPainter(androidx.compose.material.icons.Icons.Filled.Radio), label = "Radio", iconSize = 24.dp) { musicViewModel.startRadio() }
-                            PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = if (isAlexa) "Alexa" else "Phone", active = isAlexa, iconSize = 24.dp) { showOutputSheet = true }
+                            PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = if (isAlexa) "Alexa" else mobileDevices.firstOrNull { it.id == remoteMobileOutput.owner }?.name?.takeIf { output == com.example.juke.viewmodels.PlaybackOutput.REMOTE_PHONE } ?: "Phone", active = output != com.example.juke.viewmodels.PlaybackOutput.PHONE, iconSize = 24.dp) { showOutputSheet = true }
                             PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
                         PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel, modifier = Modifier.padding(top = 10.dp))
@@ -401,7 +403,7 @@ fun PlayerScreen(
                             modifier = Modifier.padding(top = 8.dp), playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
                         Spacer(Modifier.height(16.dp))
                         if (isAlexa) EchoVolumeRow(volume = echoVolume, enabled = musicViewModel.echo.serial.value.isNotBlank(), onVolumeChange = musicViewModel::setEchoVolume)
-                        else PhoneVolumeRow()
+                        else if (output == com.example.juke.viewmodels.PlaybackOutput.PHONE) PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
                     }
                 })
@@ -463,6 +465,10 @@ fun PlayerScreen(
             OutputPickerContent(
                 isAlexa = isAlexa,
                 devices = echoDevices,
+                mobileDevices = mobileDevices,
+                ownDeviceId = com.example.juke.services.PhonePlaybackOwnership.ownerId,
+                selectedMobileId = if (output == com.example.juke.viewmodels.PlaybackOutput.PHONE) com.example.juke.services.PhonePlaybackOwnership.ownerId else remoteMobileOutput.owner.takeIf { output == com.example.juke.viewmodels.PlaybackOutput.REMOTE_PHONE },
+                onSelectMobile = { id -> showOutputSheet = false; musicViewModel.switchToMobile(id) },
                 selectedSerial = echoSerial,
                 busy = isSwitching,
                 onSelectPhone = { showOutputSheet = false; musicViewModel.switchOutput(null) },
@@ -688,6 +694,10 @@ private fun EchoVolumeRow(volume: Int?, enabled: Boolean = true, onVolumeChange:
 private fun OutputPickerContent(
     isAlexa: Boolean,
     devices: List<com.example.juke.services.EchoDevice>,
+    mobileDevices: List<com.example.juke.services.MobileAudioDevice>,
+    ownDeviceId: String,
+    selectedMobileId: String?,
+    onSelectMobile: (String) -> Unit,
     selectedSerial: String,
     busy: Boolean,
     onSelectPhone: () -> Unit,
@@ -702,8 +712,12 @@ private fun OutputPickerContent(
         )
         OutputRow(
             icon = Icons.Outlined.PhoneAndroid, title = "This phone", detail = null,
-            selected = !isAlexa, enabled = true, onClick = onSelectPhone
+            selected = selectedMobileId == ownDeviceId, enabled = !busy, onClick = onSelectPhone
         )
+        mobileDevices.filter { it.id != ownDeviceId }.forEach { device ->
+            OutputRow(icon = Icons.Outlined.PhoneAndroid, title = device.name, detail = "Online",
+                selected = selectedMobileId == device.id, enabled = !busy, onClick = { onSelectMobile(device.id) })
+        }
         if (devices.isEmpty()) {
             Text(
                 "No Echo found. Connect Amazon in Settings to play on an Echo.",

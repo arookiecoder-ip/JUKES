@@ -59,4 +59,8 @@ class SharedPlaybackOutputTest {
         org.junit.Assert.assertFalse(canContinueDownloadedOffline(true, "file"))
         org.junit.Assert.assertFalse(canContinueDownloadedOffline(false, null))
     }
+    @org.junit.Test fun pendingHandoffNeverGrantsTargetPlayback() {
+        val output = SharedPlaybackOutput("phone", "target", "lease", 12_000, handoffPending = true)
+        org.junit.Assert.assertFalse(output.belongsToPhone("target", "lease"))
+    }
 }

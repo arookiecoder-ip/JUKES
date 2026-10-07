@@ -58,6 +58,17 @@ class PlaylistRemainderTest {
         }
     }
 
+    @Test fun tappingSecondDuplicateUsesThatOccurrence() {
+        val dupes = listOf(track("vid-a", "first"), track("vid-b"), track("vid-a", "second"), track("vid-c"))
+        assertEquals(listOf("vid-c"), playlistRemainder(dupes, "vid-a", false, selectedIndex = 2).map { it.ytVideoId })
+    }
+
+    @Test fun shuffledDuplicateSelectionExcludesOnlyTappedOccurrence() {
+        val dupes = listOf(track("vid-a", "first"), track("vid-b"), track("vid-a", "second"))
+        val remainder = playlistRemainder(dupes, "vid-a", true, selectedIndex = 2)
+        assertEquals(setOf("first", "vid-b"), remainder.map { it.title }.toSet())
+    }
+
     @Test fun emptyPlaylistStaysEmpty() {
         assertTrue(playlistRemainder(emptyList(), "vid-a", shuffle = false).isEmpty())
         assertTrue(playlistRemainder(emptyList(), "vid-a", shuffle = true).isEmpty())

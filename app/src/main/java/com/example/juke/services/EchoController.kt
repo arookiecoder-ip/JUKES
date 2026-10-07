@@ -70,7 +70,17 @@ class EchoController(
     private var refreshedAt = 0L
     // Monotonic play-intent sequence: lets the server drop a superseded switch
     // that arrives out of order instead of playing stale tracks in turn.
-    private var playIntentSeq = 0L
+    var playQueueSession = ""
+        private set
+    private var playIntentSeq = prefs.getLong("play_intent_seq", 0L)
+    private val intentClient = prefs.getString("play_intent_client", null) ?: java.util.UUID.randomUUID().toString().also {
+        prefs.edit().putString("play_intent_client", it).apply()
+    }
+    private fun nextPlayIntent(): Long {
+        playIntentSeq = maxOf(System.currentTimeMillis(), playIntentSeq + 1)
+        prefs.edit().putLong("play_intent_seq", playIntentSeq).apply()
+        return playIntentSeq
+    }
 
     // Volume slider: a drag is debounced, and server echoes are ignored for a grace window so
     // a stale poll can't snap the slider back (same rules as the web remote).
@@ -253,13 +263,14 @@ class EchoController(
         val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
         val start = tracks.getOrNull(index)
         require(playable.isNotEmpty()) { "Nothing to play" }
-        val seq = ++playIntentSeq
+        val seq = nextPlayIntent()
         send("/alexa/play_queue/", buildJsonObject {
             put("serial", requireSerial())
             put("queue_items", JsonArray(playable.map { it.metadata() }))
             put("start_index", playable.indexOf(start).coerceAtLeast(0))
             put("suppress_radio", playable.size > 1)
             put("intent_seq", seq)
+            put("intent_client", intentClient)
             // The app never reads this response body (state arrives via polling).
             put("brief_response", true)
         })
@@ -293,37 +304,42 @@ class EchoController(
      *  [suppressRadio] leaves the queue as just this song: used for fast playlist
      *  starts where the remainder is backfilled right after (see MusicViewModel). */
     suspend fun playSong(track: Track, radio: Boolean, suppressRadio: Boolean = false) {
-        val seq = ++playIntentSeq
+        val seq = nextPlayIntent()
+        playQueueSession = java.util.UUID.randomUUID().toString()
         send("/alexa/play_queue/", JsonObject(track.metadata() + mapOf(
+            "queue_session_id" to JsonPrimitive(playQueueSession),
             "serial" to JsonPrimitive(requireSerial()),
             "force_radio" to JsonPrimitive(radio),
             "suppress_radio" to JsonPrimitive(suppressRadio),
-            "intent_seq" to JsonPrimitive(seq)
+            "intent_seq" to JsonPrimitive(seq),
+            "intent_client" to JsonPrimitive(intentClient)
         )))
         refreshSoon()
     }
 
     /** Jump to a song already in the Echo queue. */
     suspend fun playQueueIndex(track: Track, index: Int) {
-        val seq = ++playIntentSeq
+        val seq = nextPlayIntent()
         send("/alexa/play_queue/", JsonObject(track.metadata() + mapOf(
             "serial" to JsonPrimitive(requireSerial()),
             "queue_index" to JsonPrimitive(index),
-            "intent_seq" to JsonPrimitive(seq)
+            "intent_seq" to JsonPrimitive(seq),
+            "intent_client" to JsonPrimitive(intentClient)
         )))
         refreshSoon()
     }
 
     suspend fun playPlaylist(playlistId: String) {
-        val seq = ++playIntentSeq
+        val seq = nextPlayIntent()
         send("/alexa/play_queue/", buildJsonObject {
             put("serial", requireSerial()); put("playlist_id", playlistId)
             put("intent_seq", seq)
+            put("intent_client", intentClient)
         })
         refreshSoon()
     }
 
-    suspend fun queueAdd(tracks: List<Track>, next: Boolean) {
+    suspend fun queueAdd(tracks: List<Track>, next: Boolean, expectedSession: String? = null) {
         val playable = tracks.filter { !it.ytVideoId.isNullOrBlank() }
         if (playable.isEmpty()) return
         val body = if (playable.size == 1) JsonObject(playable.single().metadata() + mapOf(
@@ -334,7 +350,7 @@ class EchoController(
             put("position", if (next) "next" else "last")
             put("queue_items", JsonArray(playable.map { it.metadata() }))
         }
-        send("/alexa/queue_add/", body)
+        send("/alexa/queue_add/", if (expectedSession == null) body else JsonObject(body + ("expected_queue_session" to JsonPrimitive(expectedSession))))
         refreshSoon()
     }
 

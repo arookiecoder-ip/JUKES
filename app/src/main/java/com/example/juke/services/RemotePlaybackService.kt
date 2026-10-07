@@ -108,6 +108,7 @@ class RemotePlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
     override fun onTaskRemoved(rootIntent: Intent?) {
+        MobileDeviceConnection.stop()
         PlaybackCoordinator.dismiss(this)
         // Only remove the remote controls; never send a pause to Alexa.
         getSharedPreferences("music_settings_prefs", MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()

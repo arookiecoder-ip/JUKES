@@ -13,6 +13,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import java.net.URLEncoder
 import java.util.UUID
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * - `POST /api/app/queue/`
  */
 object AlexaBackendApi {
+    private val queueWriteLock = kotlinx.coroutines.sync.Mutex()
     private val phoneQueueVersion = java.util.concurrent.atomic.AtomicLong(-1)
 
     fun isConfigured(): Boolean = Backend.audioBaseUrl.isNotEmpty()
@@ -148,7 +150,7 @@ object AlexaBackendApi {
         action: String, afterVideoId: String, tracks: List<BackendTrack>,
         playing: Boolean? = null, positionMs: Long? = null, queueIndex: Int? = null, buffering: Boolean = false,
         expectedToken: String = com.example.juke.services.PhonePlaybackOwnership.token, currentEntryId: String? = null
-    ) {
+    ) = queueWriteLock.withLock {
         requireConfigured()
         val update = QueueUpdate(action, afterVideoId, tracks, playing, positionMs, queueIndex,
             com.example.juke.services.PhonePlaybackOwnership.ownerId, expectedToken, buffering,
