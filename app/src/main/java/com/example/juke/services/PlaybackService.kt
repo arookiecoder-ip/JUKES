@@ -97,6 +97,7 @@ class PlaybackService : MediaLibraryService() {
             val snapshot = (service.player.playWhenReady || service.leaseInterruption.matches(
                 service.player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token) || service.recoveryShouldResume) to service.player.currentPosition
             service.leaseInterruption.clear()
+            service.networkInterruption.clear()
             service.player.pause()
             check(!service.player.playWhenReady && !service.player.isPlaying) { "Phone playback has not paused." }
             snapshot
@@ -232,6 +233,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
     private val leaseInterruption = PlaybackInterruption()
+    private val networkInterruption = PlaybackInterruption()
     private var pausingForLease = false
     private val streamRetry = BackgroundRetry()
     private var backgroundMaintenance: Job? = null
@@ -251,6 +253,18 @@ class PlaybackService : MediaLibraryService() {
         recoveryShouldResume = true
         if (player.playerError != null || player.playbackState == Player.STATE_IDLE) recoverCurrentStream(manual = true)
         else player.play()
+        recoverAfterNetworkReconnect()
+    }
+
+    private fun recoverAfterNetworkReconnect() {
+        if (!com.example.juke.network.NetworkFeedback.online.value ||
+            !networkInterruption.canResume(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
+                PhonePlaybackOwnership.permitsPlayback(), PhonePlaybackOwnership.localHandoff, inCall()) ||
+            outputPrefs.getString("playback_output", "PHONE") != "PHONE") return
+        // Reopen the broken socket now, rather than waiting for the 180-second audio read timeout.
+        // Cached spans and the current cursor survive the source rebuild.
+        networkInterruption.clear()
+        recoverCurrentStream(manual = true)
     }
     private val recoveryAttempts = mutableMapOf<String, Int>()
     private val progressHandler = Handler(Looper.getMainLooper())
@@ -663,6 +677,7 @@ class PlaybackService : MediaLibraryService() {
             }
             if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST && !pausingForLease) {
                 leaseInterruption.clear()
+                networkInterruption.clear()
                 recoveryShouldResume = false
                 streamRecoveryJob?.cancel()
                 streamRecoveryJob = null
@@ -686,6 +701,7 @@ class PlaybackService : MediaLibraryService() {
             if (::silentWatchdog.isInitialized && player.isPlaying) silentWatchdog.notePlaying()
             streamRetry.reset()
             leaseInterruption.clear()
+            networkInterruption.clear()
             recoveryShouldResume = false
             mediaItem?.let {
                 val trackId = it.mediaId
@@ -920,8 +936,15 @@ class PlaybackService : MediaLibraryService() {
         getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(preloadNetworkCallback)
         preloadConnectivityJob = serviceScope.launch {
             com.example.juke.network.NetworkFeedback.online.collect { online ->
-                if (online) streamRetry.reset()
-                updatePreloader()
+                try {
+                    if (!online && player.currentMediaItem?.localConfiguration?.uri?.scheme in setOf("http", "https")) {
+                        networkInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
+                            player.playWhenReady || recoveryShouldResume || leaseInterruption.pending)
+                    }
+                    if (online) { streamRetry.reset(); recoverAfterNetworkReconnect() }
+                    updatePreloader()
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { Log.e(TAG, "Connectivity recovery failed", e) }
             }
         }
         backgroundMaintenance = serviceScope.launch {
@@ -930,6 +953,7 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     updatePreloader() // Retry failed warming even without a new UI/player event.
                     recoverAfterLeaseRenewal()
+                    recoverAfterNetworkReconnect()
                     if (recoveryShouldResume && player.playerError != null &&
                         com.example.juke.network.NetworkFeedback.online.value &&
                         PhonePlaybackOwnership.permitsPlayback() && !PhonePlaybackOwnership.localHandoff && !inCall()) {
@@ -1223,7 +1247,10 @@ class PlaybackService : MediaLibraryService() {
             @Player.Command playerCommand: Int
         ): Int {
             rememberManualTrackChangeRequest(playerCommand)
-            if (playerCommand == Player.COMMAND_PLAY_PAUSE) leaseInterruption.clear()
+            if (playerCommand == Player.COMMAND_PLAY_PAUSE) {
+                leaseInterruption.clear()
+                networkInterruption.clear()
+            }
             if (playerCommand == Player.COMMAND_PLAY_PAUSE && !player.isPlaying &&
                 (player.playerError != null || player.playbackState == Player.STATE_IDLE)) {
                 recoverCurrentStream(manual = true)
