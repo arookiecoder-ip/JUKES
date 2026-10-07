@@ -9,6 +9,7 @@ import com.example.juke.network.BackendAuthException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,6 +21,11 @@ import kotlinx.serialization.json.contentOrNull
  */
 object AccountRepository {
     private const val TAG = "AccountRepository"
+    private val _subscriptions = kotlinx.coroutines.flow.MutableSharedFlow<ArtistSubscriptionChange>(extraBufferCapacity = 4)
+    val subscriptions = _subscriptions.asSharedFlow()
+    fun subscriptionAccepted(artist: com.example.juke.network.BrowseItem, subscribed: Boolean) {
+        _subscriptions.tryEmit(ArtistSubscriptionChange(artist, subscribed))
+    }
 
     private val _liked = MutableStateFlow<Set<String>>(emptySet())
     val liked: StateFlow<Set<String>> = _liked.asStateFlow()

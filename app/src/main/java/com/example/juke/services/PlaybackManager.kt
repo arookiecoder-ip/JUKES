@@ -436,6 +436,7 @@ class PlaybackManager private constructor(private val context: Context) {
         playWhenReady: Boolean = true
     ) {
         userQueueRequested = true
+        if (controller == null && controllerFuture == null) connectionFailures = 0
         initialize()
 
         if (!keepShuffleMode) {

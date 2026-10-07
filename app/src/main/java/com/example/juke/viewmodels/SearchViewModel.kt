@@ -581,6 +581,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 val body = JsonObject(mapOf("channel_id" to kotlinx.serialization.json.JsonPrimitive(channelId)))
                 if (subscribe) Backend.post("/api/subscribed_artists/", body) else Backend.delete("/api/subscribed_artists/", body, mapOf("channel_id" to channelId))
+                AccountRepository.subscriptionAccepted(artist.copy(id = channelId), subscribe)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

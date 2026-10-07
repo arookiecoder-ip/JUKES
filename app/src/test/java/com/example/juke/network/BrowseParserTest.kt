@@ -85,4 +85,24 @@ class BrowseParserTest {
         assertEquals("https://i.ytimg.com/vi/song/maxresdefault.jpg", largeArtworkUrl("https://i.ytimg.com/vi/song/mqdefault.jpg"))
     }
 
+
+    @org.junit.Test fun acceptedUnsubscribeDoesNotReappearDuringAStaleLibraryRead() {
+        val artist = BrowseParser.item(kotlinx.serialization.json.Json.parseToJsonElement("""{"channel_id":"UC_ONE","artist":"Artist"}""") as kotlinx.serialization.json.JsonObject, "artists")
+        val overlay = com.example.juke.services.ArtistSubscriptionPresentation()
+        overlay.accepted(com.example.juke.services.ArtistSubscriptionChange(artist, false), 1000)
+        org.junit.Assert.assertTrue(overlay.present(listOf(artist), 2000).isEmpty())
+        org.junit.Assert.assertTrue(overlay.present(listOf(artist), 3000).isEmpty())
+        org.junit.Assert.assertTrue(overlay.present(emptyList(), 4000).isEmpty())
+        // Once YouTube confirms the removal, a subsequent independent subscription is authoritative.
+        org.junit.Assert.assertEquals(listOf(artist), overlay.present(listOf(artist), 5000))
+    }
+    @org.junit.Test fun subscriptionOverlayReconcilesRapidReversalAndExpires() {
+        val artist = BrowseParser.item(kotlinx.serialization.json.Json.parseToJsonElement("""{"channel_id":"UC_ONE","artist":"Artist"}""") as kotlinx.serialization.json.JsonObject, "artists")
+        val overlay = com.example.juke.services.ArtistSubscriptionPresentation()
+        overlay.accepted(com.example.juke.services.ArtistSubscriptionChange(artist, true), 1000)
+        org.junit.Assert.assertEquals(listOf(artist), overlay.present(emptyList(), 2000))
+        overlay.accepted(com.example.juke.services.ArtistSubscriptionChange(artist, false), 3000)
+        org.junit.Assert.assertTrue(overlay.present(listOf(artist), 4000).isEmpty())
+        org.junit.Assert.assertEquals(listOf(artist), overlay.present(listOf(artist), 123000))
+    }
 }

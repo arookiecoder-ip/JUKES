@@ -77,8 +77,15 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private var viewJob: Job? = null
     private var started = false
     private var playlistsJob: Job? = null
+    private val subscriptionPresentation = com.example.juke.services.ArtistSubscriptionPresentation()
 
     init {
+        viewModelScope.launch {
+            AccountRepository.subscriptions.collect { change ->
+                subscriptionPresentation.accepted(change, android.os.SystemClock.elapsedRealtime())
+                _uiState.update { it.copy(artists = subscriptionPresentation.present(it.artists, android.os.SystemClock.elapsedRealtime(), confirmSnapshot = false)) }
+            }
+        }
         viewModelScope.launch {
             AccountRepository.liked.collect { publishTracks() }
         }
@@ -90,6 +97,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         loadedTracks = emptyList()
         nextOffset = 0
         started = false
+        subscriptionPresentation.clear()
         _uiState.value = LibraryUiState()
     }
 
@@ -135,7 +143,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                         }.filter { it.id.isNotBlank() }.distinctBy { it.id }
                         _uiState.update { it.copy(
                             playlists = listOf(liked) + collections.filter { item -> item.kind != "album" && item.playlistId != "LM" && item.id != "LM" }.distinctBy { item -> item.id },
-                            albums = albums, artists = artists, isLoading = false, needsYouTube = false
+                            albums = albums, artists = subscriptionPresentation.present(artists, android.os.SystemClock.elapsedRealtime()), isLoading = false, needsYouTube = false
                         ) }
                     }
                 }
@@ -231,7 +239,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val data = Backend.get("/api/subscribed_artists/").objectOrEmpty()
                 val artists = data.array("artists").mapNotNull { (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "artists") } }
                     .filter { it.id.isNotBlank() }
-                _uiState.update { it.copy(artists = artists, isLoading = false) }
+                _uiState.update { it.copy(artists = subscriptionPresentation.present(artists, android.os.SystemClock.elapsedRealtime()), isLoading = false) }
             }
         }
     }
