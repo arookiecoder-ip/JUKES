@@ -134,6 +134,8 @@ import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.LibraryViewModel
 import com.example.juke.viewmodels.MusicViewModel
 import com.example.juke.viewmodels.MusicUiState
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -204,7 +206,10 @@ fun PlayerScreen(
             catch (e: Exception) { android.widget.Toast.makeText(playerContext, e.message ?: "Artist not found", android.widget.Toast.LENGTH_SHORT).show() }
         }
     }
-    val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
+    val presentation = remember(musicViewModel) {
+        musicViewModel.uiState.map { it.copy(position = 0L) }.distinctUntilChanged()
+    }
+    val uiState by presentation.collectAsStateWithLifecycle(initialValue = musicViewModel.uiState.value.copy(position = 0L))
     val currentTrack = uiState.currentTrack
     var showQueue by remember { mutableStateOf(false) }
     LaunchedEffect(showQueue) { if (showQueue) musicViewModel.refreshQueue() }
@@ -414,9 +419,7 @@ fun PlayerScreen(
                 val compact = maxHeight < 680.dp
                 com.example.juke.ui.components.player.ResponsivePlayerLayout(artwork = {
                     Box(Modifier.fillMaxSize()) {
-                        PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
-                            currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
-                            isTablet = tabletLandscape, onToggleLyrics = { showLyrics = !showLyrics })
+                        ClockedPlayerArtwork(uiState, displayTrack, showLyrics, musicViewModel, tabletLandscape) { showLyrics = !showLyrics }
                         Box(Modifier.align(Alignment.TopCenter).stableStatusBarsPadding().padding(horizontal = 20.dp)) {
                         PlayerHeader(
                             onDismiss = onDismiss,
@@ -435,11 +438,7 @@ fun PlayerScreen(
                         }
                         if (!showLyrics) PlayerBannerMetadata(currentTrack, compact,
                             onArtistClick = {
-                                val artists = currentTrack.artistCredits()
-                                if (artists.size > 1) showArtists = true
-                                else artists.firstOrNull()?.let { artist ->
-                                    openArtist(artist)
-                                }
+                                showArtists = true
                             }, modifier = Modifier.align(Alignment.BottomStart))
                     }
                 }, controls = {
@@ -453,7 +452,7 @@ fun PlayerScreen(
                                 currentTrack.ytVideoId?.let { shareSong("Share ${currentTrack.title}", "https://music.youtube.com/watch?v=$it") }
                             } else PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
-                        PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel, modifier = Modifier.padding(top = 10.dp))
+                        ClockedPlayerProgress(uiState, musicViewModel, Modifier.padding(top = 10.dp))
                         PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = tabletLandscape,
                             modifier = Modifier.padding(top = 8.dp), playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
                         Spacer(Modifier.height(16.dp))
@@ -469,6 +468,8 @@ fun PlayerScreen(
         }
         }
     }
+
+    com.example.juke.ui.components.RemoteVolumeFeedback()
 
     if (showArtists) {
         com.example.juke.ui.components.ArtistPickerSheet(currentTrack.artistCredits(), onDismiss = { showArtists = false }) { artist ->
@@ -846,4 +847,22 @@ internal fun PlayerBannerMetadata(track: Track, compact: Boolean, onArtistClick:
             maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onArtistClick).padding(vertical = 4.dp))
     }
+}
+
+/** Playback clocks redraw lyrics/progress, never the whole tablet player and queue. */
+@Composable
+private fun ClockedPlayerArtwork(state: MusicUiState, track: Track, lyrics: Boolean,
+    music: MusicViewModel, tablet: Boolean, toggleLyrics: () -> Unit) {
+    val positionFlow = remember(music) { music.uiState.map { it.position }.distinctUntilChanged() }
+    val position = if (lyrics) positionFlow.collectAsStateWithLifecycle(initialValue = music.uiState.value.position).value else 0L
+    PlayerArtwork(queue = state.queue, queueIndex = state.queueIndex, currentTrack = track,
+        currentPosition = position, showLyrics = lyrics, musicViewModel = music,
+        isTablet = tablet, onToggleLyrics = toggleLyrics)
+}
+
+@Composable
+private fun ClockedPlayerProgress(state: MusicUiState, music: MusicViewModel, modifier: Modifier) {
+    val positionFlow = remember(music) { music.uiState.map { it.position }.distinctUntilChanged() }
+    val position by positionFlow.collectAsStateWithLifecycle(initialValue = music.uiState.value.position)
+    PlayerProgress(currentPosition = position, uiState = state.copy(position = position), musicViewModel = music, modifier = modifier)
 }

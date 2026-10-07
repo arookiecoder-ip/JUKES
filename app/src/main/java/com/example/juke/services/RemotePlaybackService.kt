@@ -56,7 +56,8 @@ class RemotePlaybackService : MediaSessionService() {
         setMediaNotificationProvider(GuardedMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
             .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) },
             { session != null && prefs.getString("playback_output", "PHONE") in setOf("ALEXA", "REMOTE_PHONE") && !prefs.getBoolean("remote_controls_dismissed", false) },
-            { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }))
+            { PlaybackService.leaveRemoteForeground(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() },
+            onUpdated = ::updateForegroundBridge))
         session = MediaSession.Builder(this, remote).setId("alexa")
             .setBitmapLoader(SharedArtworkBitmapLoader(this, scope))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
@@ -117,7 +118,8 @@ class RemotePlaybackService : MediaSessionService() {
         .getString("playback_output", "PHONE") == "REMOTE_PHONE"
 
     private suspend fun command(action: String) {
-        if (isRemotePhone()) MobileDeviceConnection.control(MobileDeviceConnection.output.value, action)
+        if (isRemotePhone() || getSharedPreferences("music_settings_prefs", MODE_PRIVATE).getString("playback_output", "PHONE") == "PHONE")
+            MobileDeviceConnection.control(MobileDeviceConnection.output.value, action)
         else echo.command(action)
     }
 
@@ -128,8 +130,16 @@ class RemotePlaybackService : MediaSessionService() {
             .setSessionCommand(SessionCommand(LIKE, Bundle.EMPTY)).build()))
     }
 
+    private fun updateForegroundBridge() {
+        if (isPlaybackOngoing) {
+            val notification = getSystemService(NotificationManager::class.java).activeNotifications
+                .firstOrNull { it.id == 1002 }?.notification ?: return
+            PlaybackService.joinRemoteForeground(notification)
+        } else PlaybackService.leaveRemoteForeground()
+    }
+
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        try { super.onUpdateNotification(session, startInForegroundRequired) }
+        try { super.onUpdateNotification(session, startInForegroundRequired); updateForegroundBridge() }
         catch (e: Exception) {
             if (android.os.Build.VERSION.SDK_INT >= 31 && e is android.app.ForegroundServiceStartNotAllowedException) {
                 // A remote Echo can resume while Android no longer permits a background service start.
@@ -147,6 +157,7 @@ class RemotePlaybackService : MediaSessionService() {
         PlaybackCoordinator.dismiss(this)
         // Only remove the remote controls; never send a pause to Alexa.
         getSharedPreferences("music_settings_prefs", MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
+        PlaybackService.leaveRemoteForeground()
         PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
         remote.refresh()
@@ -157,6 +168,7 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        PlaybackService.leaveRemoteForeground()
         PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
         remote.refresh()
@@ -176,11 +188,12 @@ class RemotePlaybackService : MediaSessionService() {
         fun refresh() = invalidateState()
         override fun getState(): State {
             val track = snapshot.track
-            val queue = if (track == null) emptyList() else snapshot.queue.takeIf {
-                snapshot.index in it.indices && it[snapshot.index].ytVideoId == track.ytVideoId
-            } ?: listOf(track)
-            val index = if (queue.isEmpty()) C.INDEX_UNSET else snapshot.index.takeIf { it in queue.indices } ?: 0
-            val playlist = if (cachedTrack == track && cachedQueue === queue && cachedIndex == index && cachedDuration == snapshot.durationMs) cachedPlaylist
+            // Android controls need the current item and its immediate neighbors, not
+            // thousands of artwork/metadata objects rebuilt on the main thread.
+            val window = notificationQueueWindow(snapshot)
+            val queue = window.first
+            val index = window.second
+            val playlist = if (cachedTrack == track && cachedQueue == queue && cachedIndex == index && cachedDuration == snapshot.durationMs) cachedPlaylist
                 else queue.mapIndexed { i, song ->
                 val duration = if (i == index) snapshot.durationMs else song.durationSec * 1000L
                 MediaItemData.Builder("$i:${song.ytVideoId ?: song.uuid}")

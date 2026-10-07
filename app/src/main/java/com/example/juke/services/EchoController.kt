@@ -211,7 +211,7 @@ class EchoController(
         val previous = _state.value
         val preserveVolume = now < volumeGraceUntil
         val parsed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            parseEchoSnapshot(np, now, previous.volume, preserveVolume, previous.queue)
+            parseEchoSnapshot(np, now, previous.volume, preserveVolume, previous.queue, previous)
         }
         if (parsed.sharedOutput.olderThan(MobileDeviceConnection.output.value)) return
         // A pause, close or volume preview during decoding wins over this response.

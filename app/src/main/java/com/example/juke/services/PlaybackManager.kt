@@ -589,12 +589,12 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     /** A handoff commits only after the destination has prepared its selected track. */
-    suspend fun awaitReady() {
+    suspend fun awaitReady(expectedId: String? = null) {
         kotlinx.coroutines.withTimeout(30_000) {
             while (true) {
                 val ready = controller
                 ready?.playerError?.let { throw it }
-                if (ready?.playbackState == Player.STATE_READY) return@withTimeout
+                if (ready?.playbackState == Player.STATE_READY && (expectedId == null || ready.currentMediaItem?.mediaId == expectedId)) return@withTimeout
                 kotlinx.coroutines.delay(50)
             }
         }

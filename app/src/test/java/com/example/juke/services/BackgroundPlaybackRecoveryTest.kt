@@ -114,4 +114,37 @@ class BackgroundPlaybackRecoveryTest {
         ledger.delivered(ledger.snapshot())
         assertEquals(9, ledger.snapshot().size)
     }
+
+    @Test fun preparingDestinationDoesNotAcknowledgeUnexecutedControls() {
+        assertTrue(deferDeviceCommand(true, false, false))
+        assertTrue(deferDeviceCommand(true, true, true))
+        assertFalse(deferDeviceCommand(true, true, false))
+        assertFalse(deferDeviceCommand(false, false, true))
+    }
+    @Test fun bufferingWithoutProgressRecoversButAdvancingBufferDoesNot() {
+        val stall = BufferingStall()
+        assertFalse(stall.shouldRecover("song", true, true, true, 0, 4000, 4000))
+        assertFalse(stall.shouldRecover("song", true, true, true, 29999, 4000, 4000))
+        assertTrue(stall.shouldRecover("song", true, true, true, 30000, 4000, 4000))
+        assertFalse(stall.shouldRecover("song", true, true, true, 31000, 4000, 4000))
+        assertFalse(stall.shouldRecover("song", true, true, true, 59000, 4000, 6000))
+        assertFalse(stall.shouldRecover("song", true, true, true, 60000, 4000, 6000))
+    }
+    @Test fun stallDetectionNeverRestartsPausedPlayingOrUnownedAudio() {
+        for (flags in listOf(Triple(false, true, true), Triple(true, false, true), Triple(true, true, false))) {
+            val stall = BufferingStall()
+            assertFalse(stall.shouldRecover("song", flags.first, flags.second, flags.third, 0, 0, 0))
+            assertFalse(stall.shouldRecover("song", flags.first, flags.second, flags.third, 60000, 0, 0))
+        }
+        val changed = BufferingStall()
+        changed.shouldRecover("song", true, true, true, 0, 0, 0)
+        assertFalse(changed.shouldRecover("new-song", true, true, true, 60000, 0, 0))
+    }
+    @Test fun foregroundBridgeNeverPromotesAnUnapprovedBackgroundService() {
+        assertTrue(canJoinRemoteForeground(true, false, false, false))
+        assertTrue(canJoinRemoteForeground(false, true, false, false))
+        assertTrue(canJoinRemoteForeground(false, false, true, false))
+        assertFalse(canJoinRemoteForeground(false, false, false, false))
+        assertFalse(canJoinRemoteForeground(true, true, true, true))
+    }
 }

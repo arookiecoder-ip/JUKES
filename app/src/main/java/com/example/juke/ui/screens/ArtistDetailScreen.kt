@@ -69,9 +69,9 @@ fun ArtistDetailScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Button(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.random()) }) { Icon(Icons.Default.Shuffle, "Shuffle artist songs") }
                             OutlinedButton(enabled = state.topTracks.isNotEmpty(), onClick = { musicViewModel.startRadio(state.topTracks.first()) }) { Icon(Icons.Default.Radio, "Artist radio") }
-                            TextButton(enabled = state.isSubscribed != null && !state.subscriptionBusy, onClick = searchViewModel::toggleSubscription) {
+                            TextButton(enabled = !state.subscriptionBusy, onClick = searchViewModel::toggleSubscription) {
                                 if (state.subscriptionBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                else Text(if (state.isSubscribed == true) "Subscribed" else "Subscribe")
+                                else Text(if (state.isSubscribed == null) "Check subscription" else if (state.isSubscribed == true) "Subscribed" else "Subscribe")
                             }
                         }
                     }

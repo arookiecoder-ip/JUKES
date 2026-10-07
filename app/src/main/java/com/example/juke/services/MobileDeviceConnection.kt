@@ -51,10 +51,11 @@ object MobileDeviceConnection {
                     val command = raw.objectOrEmpty()
                     val id = command.text("id")
                     if (id in handled) { acknowledgments.completed(id); continue }
-                    if (latestOutput.belongsToPhone(PhonePlaybackOwnership.ownerId, command.text("token")) &&
-                        PhonePlaybackOwnership.permitsPlayback(command.text("token"))) {
-                        onCommand(command.text("action"), command["payload"].objectOrEmpty())
-                    }
+                    val addressedToThisPhone = latestOutput.belongsToPhone(PhonePlaybackOwnership.ownerId, command.text("token"))
+                    // Keep commands queued while the asynchronous handoff is preparing.
+                    // A pause/play arriving here must not be acknowledged without executing it.
+                    if (deferDeviceCommand(addressedToThisPhone, PhonePlaybackOwnership.permitsPlayback(command.text("token")), PhonePlaybackOwnership.localHandoff)) continue
+                    if (addressedToThisPhone) onCommand(command.text("action"), command["payload"].objectOrEmpty())
                     handled += id
                     acknowledgments.completed(id)
                     while (handled.size > 100) handled.remove(handled.first())
@@ -130,6 +131,16 @@ object MobileDeviceConnection {
             put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
         })
         val reply = try { send(output) } catch (error: BackendHttpException) {
+            // Older deployed servers do not implement the atomic resume action yet.
+            // Their existing command route still safely checks the exact owner/token.
+            if (error.statusCode == 400 && error.message.orEmpty().contains("invalid device action", true)) {
+                val fresh = AlexaBackendApi.phoneOutputStatus()
+                check(fresh.mode == "phone" && fresh.owner.isNotBlank() && fresh.owner == output.owner && fresh.token == output.token && !fresh.handoffPending) {
+                    "Update the backend to recover a disconnected playback device."
+                }
+                control(fresh, "play")
+                return null
+            }
             if (error.statusCode != 409) throw error
             val fresh = AlexaBackendApi.phoneOutputStatus()
             // A close can race the tap before presence delivers the new token.

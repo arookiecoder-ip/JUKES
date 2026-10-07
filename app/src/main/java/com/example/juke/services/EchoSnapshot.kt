@@ -41,11 +41,12 @@ data class EchoState(
 }
 
 /** Decode the shared web-remote snapshot without turning unknown fields into real values. */
-internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, preserveVolume: Boolean, previousQueue: List<Track> = emptyList()): EchoState {
-    val queue = if (np["queue"] == null) previousQueue else np.array("queue").mapIndexedNotNull { i, raw ->
+internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, preserveVolume: Boolean, previousQueue: List<Track> = emptyList(), previous: EchoState? = null): EchoState {
+    val decodedQueue = if (np["queue"] == null) previousQueue else np.array("queue").mapIndexedNotNull { i, raw ->
         val item = BrowseParser.item(raw.objectOrEmpty())
         item.takeIf { it.videoId.isNotBlank() }?.toTrack()?.copy(uuid = raw.objectOrEmpty().text("entry_id").ifBlank { "echo:$i:${item.videoId}" })
     }
+    val queue = if (decodedQueue == previousQueue) previousQueue else decodedQueue
     val index = (np["queue_index"] as? JsonPrimitive)?.intOrNull ?: -1
     val videoId = np.text("video_id")
     // Current now-playing metadata wins over queued thumbnail/title snapshots for the same video.
@@ -69,7 +70,9 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
         playing = np.flag("playing"),
         positionMs = np.number("position_ms").coerceAtLeast(0),
         anchoredAt = now,
-        durationMs = np.number("duration_ms").takeIf { it > 0 } ?: (track?.durationSec?.times(1000L) ?: 0),
+        durationMs = np.number("duration_ms").takeIf { it > 0 }
+            ?: (track?.durationSec?.times(1000L))?.takeIf { it > 0 }
+            ?: previous?.takeIf { videoId.isNotBlank() && it.track?.ytVideoId == videoId }?.durationMs ?: 0,
         volume = if (preserveVolume) previousVolume else volume ?: previousVolume,
         confirmed = np.flag("playback_confirmed"),
         processing = np.flag("playback_processing"),
@@ -87,3 +90,13 @@ internal fun EchoState.withDisconnectedPhone(output: SharedPlaybackOutput, now: 
     if (output.mode != "phone" || output.owner.isNotBlank()) this else copy(
         positionMs = livePosition(now), anchoredAt = now, playing = false,
         confirmed = true, processing = false, sharedOutput = output)
+
+/** Keep the notification timeline bounded while retaining previous/next controls. */
+internal fun notificationQueueWindow(state: EchoState): Pair<List<Track>, Int> {
+    val track = state.track ?: return emptyList<Track>() to androidx.media3.common.C.INDEX_UNSET
+    val index = state.index
+    if (index !in state.queue.indices || state.queue[index].ytVideoId != track.ytVideoId) return listOf(track) to 0
+    val start = (index - 1).coerceAtLeast(0)
+    val end = (index + 2).coerceAtMost(state.queue.size)
+    return state.queue.subList(start, end).mapIndexed { i, song -> if (start + i == index) track else song } to (index - start)
+}

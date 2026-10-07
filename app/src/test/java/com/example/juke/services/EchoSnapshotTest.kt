@@ -89,4 +89,29 @@ class EchoSnapshotTest {
         assertSame(original, original.withDisconnectedPhone(SharedPlaybackOutput(mode = "alexa"), 2000))
         assertSame(original, original.withDisconnectedPhone(SharedPlaybackOutput(mode = "phone", owner = "live-phone"), 2000))
     }
+
+    @Test fun notificationDurationSurvivesSlimHandoffSnapshotsOnlyForTheSameSong() {
+        val first = snapshot("""{"video_id":"AAAAAAAAAAA","duration_ms":180000}""")
+        val same = parseEchoSnapshot(Json.parseToJsonElement("""{"video_id":"AAAAAAAAAAA"}""") as JsonObject,
+            2000, null, false, first.queue, first)
+        assertEquals(180000L, same.durationMs)
+        val next = parseEchoSnapshot(Json.parseToJsonElement("""{"video_id":"BBBBBBBBBBB"}""") as JsonObject,
+            2000, null, false, first.queue, first)
+        assertEquals(0L, next.durationMs)
+    }
+    @Test fun unchangedQueueReusesThePreviousDecodedList() {
+        val raw = Json.parseToJsonElement("""{"video_id":"AAAAAAAAAAA","queue_index":0,"queue":[{"video_id":"AAAAAAAAAAA","entry_id":"entry"}]}""") as JsonObject
+        val first = parseEchoSnapshot(raw, 1000, null, false)
+        val next = parseEchoSnapshot(raw, 2000, null, false, first.queue, first)
+        assertSame(first.queue, next.queue)
+    }
+    @Test fun notificationTimelineStaysBoundedForLargeQueuesAndTheirEdges() {
+        val songs = (0 until 1000).map { com.example.juke.models.Track(uuid = "entry$it", title = "Song $it", artist = "Artist", durationSec = 180, ytVideoId = "video$it") }
+        for (index in listOf(0, 1, 500, 999)) {
+            val (window, active) = notificationQueueWindow(EchoState(track = songs[index], queue = songs, index = index))
+            assertTrue(window.size <= 3)
+            assertEquals(songs[index], window[active])
+            assertEquals((index - 1).coerceAtLeast(0), songs.indexOf(window.first()))
+        }
+    }
 }

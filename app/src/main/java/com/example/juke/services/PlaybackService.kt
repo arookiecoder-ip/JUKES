@@ -112,6 +112,37 @@ class PlaybackService : MediaLibraryService() {
             snapshot
         }
 
+        /** Share the existing remote foreground notification while the app is eligible.
+         * This preserves the playback service across a later background phone handoff. */
+        internal fun joinRemoteForeground(notification: android.app.Notification) {
+            val service = activeService.get() ?: return
+            val visible = androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState
+                .isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            if (!canJoinRemoteForeground(visible, service.isPlaybackOngoing, service.remoteForegroundBridge,
+                    service.outputPrefs.getString("playback_output", "PHONE") == "PHONE")) return
+            try {
+                service.startForeground(1002, notification)
+                service.remoteForegroundBridge = true
+            } catch (e: Exception) {
+                Log.w(service.TAG, "Remote foreground bridge unavailable: ${e.javaClass.simpleName}")
+            }
+        }
+
+        internal fun leaveRemoteForeground() {
+            val service = activeService.get() ?: return
+            if (!service.remoteForegroundBridge || service.outputPrefs.getString("playback_output", "PHONE") == "PHONE") return
+            service.remoteForegroundBridge = false
+            // The remote service owns this shared notification; do not remove its controls.
+            service.stopForeground(android.app.Service.STOP_FOREGROUND_DETACH)
+        }
+
+        internal fun finishPhoneNotificationHandoff() {
+            val service = activeService.get() ?: return
+            if (!service.remoteForegroundBridge) return
+            service.remoteForegroundBridge = false
+            service.mediaSession?.let { service.onUpdateNotification(it, service.player.isPlaying) }
+        }
+
         /** Audio prefs that decide whether offloaded (battery saver) playback can engage. */
         private val OFFLOAD_KEYS = setOf(
             "battery_saver_playback", "skip_silence_enabled", "booster_enabled", "normalization_enabled"
@@ -217,6 +248,7 @@ class PlaybackService : MediaLibraryService() {
     private var lastReportedListen: String? = null
     private var streamRecoveryJob: Job? = null
     private var recoveryShouldResume = false
+    private var remoteForegroundBridge = false
     private lateinit var silentWatchdog: SilentPlaybackWatchdog
 
     /**
@@ -233,6 +265,7 @@ class PlaybackService : MediaLibraryService() {
     private val networkInterruption = PlaybackInterruption()
     private var pausingForLease = false
     private val streamRetry = BackgroundRetry()
+    private val bufferingStall = BufferingStall()
     private var backgroundMaintenance: Job? = null
 
     private fun pauseForExpiredLease() {
@@ -424,8 +457,10 @@ class PlaybackService : MediaLibraryService() {
             if (outputPrefs.getString(key, "PHONE") == "ALEXA") {
                 mainHandler.removeCallbacks(resumeAfterCall)
                 player.pause()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                getSystemService(NotificationManager::class.java).cancel(1)
+                if (!remoteForegroundBridge) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    getSystemService(NotificationManager::class.java).cancel(1)
+                }
             } else {
                 if (player.isPlaying) reportDeviceListen()
                 mediaSession?.let { onUpdateNotification(it, player.isPlaying) }
@@ -858,7 +893,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         setMediaNotificationProvider(GuardedMediaNotificationProvider(notificationProvider,
             { activeService.get() === this && outputPrefs.getString("playback_output", "PHONE") == "PHONE" },
-            ::onPhoneForegroundDenied, ::holdRecoveryNotification))
+            ::onPhoneForegroundDenied, { holdNotificationHandoff() || holdRecoveryNotification() }))
 
         database = MusicDatabase.getDatabase(applicationContext)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -975,6 +1010,15 @@ class PlaybackService : MediaLibraryService() {
                     updatePreloader() // Retry failed warming even without a new UI/player event.
                     recoverAfterLeaseRenewal()
                     recoverAfterNetworkReconnect()
+                    if (bufferingStall.shouldRecover(player.currentMediaItem?.mediaId,
+                            player.playbackState == Player.STATE_BUFFERING, player.playWhenReady,
+                            outputPrefs.getString("playback_output", "PHONE") == "PHONE" &&
+                                PhonePlaybackOwnership.permitsPlayback() && !PhonePlaybackOwnership.localHandoff &&
+                                com.example.juke.network.NetworkFeedback.online.value && !inCall(),
+                            android.os.SystemClock.elapsedRealtime(), player.currentPosition, player.bufferedPosition)) {
+                        Log.w(TAG, "Buffering stalled without progress; reopening the current stream")
+                        recoverCurrentStream(manual = true)
+                    }
                     if (recoveryShouldResume && player.playerError != null &&
                         com.example.juke.network.NetworkFeedback.online.value &&
                         PhonePlaybackOwnership.permitsPlayback() && !PhonePlaybackOwnership.localHandoff && !inCall()) {
@@ -1065,6 +1109,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        remoteForegroundBridge = false
         MobileDeviceConnection.stop()
         PhonePlaybackOwnership.forget()
         // Closing the task stops this phone, never the Echo.
@@ -1075,6 +1120,10 @@ class PlaybackService : MediaLibraryService() {
         stopSelf()
         super.onTaskRemoved(rootIntent)
     }
+
+    private fun holdNotificationHandoff(): Boolean = remoteForegroundBridge &&
+        (outputPrefs.getString("playback_output", "PHONE") != "PHONE" ||
+            (!player.isPlaying && PhonePlaybackOwnership.localHandoff))
 
     @OptIn(UnstableApi::class)
     private fun holdRecoveryNotification(): Boolean {
@@ -1103,6 +1152,12 @@ class PlaybackService : MediaLibraryService() {
 
     @OptIn(UnstableApi::class)
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        // The already-authorized foreground service must survive preparation. It
+        // adopts the normal local media notification as soon as audio actually starts.
+        if (remoteForegroundBridge) {
+            if (holdNotificationHandoff()) return
+            remoteForegroundBridge = false
+        }
         if (outputPrefs.getString("playback_output", "PHONE") != "PHONE") {
             stopForeground(STOP_FOREGROUND_REMOVE)
             getSystemService(NotificationManager::class.java).cancel(1)

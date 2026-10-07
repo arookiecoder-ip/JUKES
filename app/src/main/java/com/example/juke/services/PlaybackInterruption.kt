@@ -32,3 +32,32 @@ internal fun retainRecoveryNotification(phoneOutput: Boolean, alreadyForeground:
     playing: Boolean, leasePending: Boolean, networkPending: Boolean, streamPending: Boolean,
     handingOff: Boolean): Boolean = phoneOutput && alreadyForeground && !playing && !handingOff &&
     (leasePending || networkPending || streamPending)
+
+/** A hung buffering loader is different from silence in real, advancing playback. */
+internal class BufferingStall(private val timeoutMs: Long = 30_000) {
+    private var mediaId: String? = null
+    private var since: Long? = null
+    private var position = 0L
+    private var buffered = 0L
+    fun shouldRecover(id: String?, buffering: Boolean, wantsPlayback: Boolean, permitted: Boolean,
+        now: Long, positionMs: Long, bufferedMs: Long): Boolean {
+        if (id == null || !buffering || !wantsPlayback || !permitted) {
+            mediaId = null; since = null
+            return false
+        }
+        if (mediaId != id || positionMs != position || bufferedMs > buffered || since == null) {
+            mediaId = id; since = now; position = positionMs; buffered = bufferedMs
+            return false
+        }
+        if (now - requireNotNull(since) < timeoutMs) return false
+        since = now
+        return true
+    }
+}
+
+internal fun deferDeviceCommand(addressedToThisPhone: Boolean, permitted: Boolean, preparing: Boolean): Boolean =
+    addressedToThisPhone && (!permitted || preparing)
+
+/** Only a visible app or an already foreground playback service may join the bridge. */
+internal fun canJoinRemoteForeground(visible: Boolean, localForeground: Boolean, alreadyJoined: Boolean, phoneOutput: Boolean): Boolean =
+    !phoneOutput && (visible || localForeground || alreadyJoined)

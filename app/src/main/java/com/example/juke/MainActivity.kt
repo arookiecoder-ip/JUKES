@@ -840,6 +840,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                if (!showPlayerModal) com.example.juke.ui.components.RemoteVolumeFeedback()
+
                 // Player Modal
                 if (showPlayerModal) {
                     CompositionLocalProvider(com.example.juke.ui.components.LocalMediaMenu provides mediaMenu) {

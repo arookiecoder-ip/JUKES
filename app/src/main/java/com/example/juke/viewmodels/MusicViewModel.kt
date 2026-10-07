@@ -765,11 +765,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         catch (_: Exception) { /* The bounded lease still prevents two outputs. */ }
                     }
                 }
-                try { phoneSetQueue(queue, index, state.livePosition(), play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true) }
-                finally { renewal.cancel() }
+                try {
+                    phoneSetQueue(queue, index, state.livePosition(), play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true)
+                    // Preserve remote foreground controls while the minimized destination
+                    // connects/prepares; the previous READY track is not a completion signal.
+                    playbackManager.awaitReady(requireNotNull(_uiState.value.currentTrack).uuid)
+                } finally { renewal.cancel() }
+
             }
             updatePolling()
-        } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
+        } finally {
+            com.example.juke.services.PhonePlaybackOwnership.localHandoff = false
+            com.example.juke.services.PlaybackService.finishPhoneNotificationHandoff()
+            updatePolling()
+        }
     }
 
     private var remotePhoneRefreshJob: Job? = null

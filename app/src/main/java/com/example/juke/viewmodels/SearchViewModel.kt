@@ -69,6 +69,7 @@ data class ArtistDetailUiState(
     val singles: List<BrowseItem> = emptyList(),
     val playlists: List<BrowseItem> = emptyList(),
     val related: List<BrowseItem> = emptyList(),
+    val subscriptionChannelId: String = "",
     val subscriptionBusy: Boolean = false,
     val allSongsLoaded: Boolean = false,
     val songsNextOffset: Long = 0,
@@ -429,6 +430,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                     artist = artist.copy(title = name),
                     imageUrl = imageUrl(info["thumbnails"]).ifBlank { artist.image },
                     subscribers = info.text("subscribers"),
+                    subscriptionChannelId = info.text("canonicalChannelId", "channelId", "channel_id").ifBlank { artist.id },
                     description = info.text("description"),
                     topTracks = data.array("topSongs").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
                         .filter { it.videoId.isNotBlank() }.map { it.toTrack(liked) },
@@ -444,7 +446,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 loadAllArtistSongs()
                 if (_artistDetailState.value.topSongsBrowseId.isBlank()) enrichPreviewDurations(artist.id)
-                val subscribed = subscribedArtists()?.contains(artist.id)
+                val subscribed = subscribedArtists()?.contains(_artistDetailState.value.subscriptionChannelId.ifBlank { artist.id })
                 _artistDetailState.update { it.copy(isSubscribed = subscribed) }
             } catch (e: CancellationException) {
                 throw e
@@ -549,7 +551,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     private suspend fun subscribedArtists(): Set<String>? = try {
         Backend.get("/api/subscribed_artists/").objectOrEmpty().array("artists")
-            .map { it.objectOrEmpty().text("channel_id") }.filter { it.isNotBlank() }.toSet()
+            .map { it.objectOrEmpty().text("channel_id", "browseId", "id") }.filter { it.isNotBlank() }.toSet()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -560,19 +562,31 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleSubscription() {
         val state = _artistDetailState.value
         val artist = state.artist ?: return
-        if (state.subscriptionBusy || state.isSubscribed == null) return
+        if (state.subscriptionBusy) return
+        if (state.isSubscribed == null) {
+            viewModelScope.launch {
+                _artistDetailState.update { it.copy(subscriptionBusy = true) }
+                val ids = subscribedArtists()
+                if (_artistDetailState.value.artist?.id == artist.id) _artistDetailState.update {
+                    it.copy(subscriptionBusy = false, isSubscribed = ids?.contains(it.subscriptionChannelId.ifBlank { artist.id }),
+                        error = if (ids == null) "Couldn't read subscriptions. Check your connection and retry." else null)
+                }
+            }
+            return
+        }
+        val channelId = state.subscriptionChannelId.ifBlank { artist.id }
         val subscribe = state.isSubscribed != true
         viewModelScope.launch {
             _artistDetailState.update { it.copy(isSubscribed = subscribe, subscriptionBusy = true) }
             try {
-                val body = JsonObject(mapOf("channel_id" to kotlinx.serialization.json.JsonPrimitive(artist.id)))
-                if (subscribe) Backend.post("/api/subscribed_artists/", body) else Backend.delete("/api/subscribed_artists/", body)
+                val body = JsonObject(mapOf("channel_id" to kotlinx.serialization.json.JsonPrimitive(channelId)))
+                if (subscribe) Backend.post("/api/subscribed_artists/", body) else Backend.delete("/api/subscribed_artists/", body, mapOf("channel_id" to channelId))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _artistDetailState.update { it.copy(isSubscribed = !subscribe, error = e.message) }
+                _artistDetailState.update { if (it.artist?.id == artist.id) it.copy(isSubscribed = !subscribe, error = e.message) else it }
             } finally {
-                _artistDetailState.update { it.copy(subscriptionBusy = false) }
+                _artistDetailState.update { if (it.artist?.id == artist.id) it.copy(subscriptionBusy = false) else it }
             }
         }
     }

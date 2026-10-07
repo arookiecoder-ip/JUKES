@@ -2,6 +2,7 @@ package com.example.juke.services
 
 import android.content.Context
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -9,6 +10,20 @@ import kotlinx.serialization.json.put
 object RemoteVolumeControl {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
+    data class Feedback(val value: Int, val target: String, val sequence: Long)
+    private val _feedback = kotlinx.coroutines.flow.MutableStateFlow<Feedback?>(null)
+    val feedback = _feedback.asStateFlow()
+    private var feedbackSequence = 0L
+    private var feedbackHide: Job? = null
+    private fun preview(value: Int, target: String) {
+        val sequence = ++feedbackSequence
+        _feedback.value = Feedback(value.coerceIn(0, 100), target, sequence)
+        feedbackHide?.cancel()
+        feedbackHide = scope.launch {
+            delay(1_200)
+            if (_feedback.value?.sequence == sequence) _feedback.value = null
+        }
+    }
     fun current(context: Context): Int? = when (mode(context)) {
         "ALEXA" -> PlaybackCoordinator.echo(context).state.value.volume
         "REMOTE_PHONE" -> MobileDeviceConnection.devices.value.firstOrNull { it.id == MobileDeviceConnection.output.value.owner }?.volume
@@ -30,10 +45,11 @@ object RemoteVolumeControl {
         val app = context.applicationContext
         val selected = mode(app)
         job?.cancel()
-        if (selected == "ALEXA") { PlaybackCoordinator.echo(app).setVolume(value); return }
+        if (selected == "ALEXA") { preview(value, "Alexa"); PlaybackCoordinator.echo(app).setVolume(value); return }
         if (selected != "REMOTE_PHONE") return
         val target = MobileDeviceConnection.output.value
         if (target.mode != "phone" || target.owner.isBlank() || target.token.isBlank() || target.handoffPending) return
+        preview(value, MobileDeviceConnection.devices.value.firstOrNull { it.id == target.owner }?.name ?: "Device")
         MobileDeviceConnection.previewVolume(target.owner, value)
         job = scope.launch {
             delay(150)

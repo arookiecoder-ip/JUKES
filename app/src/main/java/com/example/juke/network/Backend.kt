@@ -106,8 +106,8 @@ object Backend {
         call(HttpMethod.Patch, path, emptyMap(), body)
 
     // Session writes must be JSON (the server's CSRF guard), so DELETE always carries a body.
-    suspend fun delete(path: String, body: JsonObject = JsonObject(emptyMap())): JsonElement =
-        call(HttpMethod.Delete, path, emptyMap(), body)
+    suspend fun delete(path: String, body: JsonObject = JsonObject(emptyMap()), query: Map<String, String> = emptyMap()): JsonElement =
+        call(HttpMethod.Delete, path, query, body)
 
     /**
      * Step 1 of the web login. Returns [LoginStep.NeedsCode] when the owner account has an

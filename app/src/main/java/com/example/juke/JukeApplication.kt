@@ -19,8 +19,11 @@ class JukeApplication : Application(), ImageLoaderFactory {
         com.example.juke.services.DownloadRepository.get(this)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
+            // Limit simultaneous decoding so dense shelves do not compete with UI/render threads.
+            .decoderDispatcher(kotlinx.coroutines.Dispatchers.Default.limitedParallelism(2))
             .memoryCache {
                 MemoryCache.Builder(this)
                     // 25% of heap — keep aggressive in-memory caching for fast track switches
