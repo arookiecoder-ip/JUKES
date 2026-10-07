@@ -21,7 +21,13 @@ object PhonePlaybackOwnership {
     @Volatile var remoteControlled = false
         private set
     @Volatile private var relinquishing = false
-    @Volatile var localHandoff = false
+    @Volatile private var handingOff = false
+    private val preparation = PhonePreparationGuard()
+    var localHandoff: Boolean
+        get() = handingOff || preparation.active
+        set(value) { handingOff = value }
+    fun beginSongPreparation() = preparation.begin()
+    fun endSongPreparation() = preparation.end()
     private data class PendingPauseAck(val token: String, val position: Long?, val playing: Boolean?)
     private var pendingPauseAck: PendingPauseAck? = null
     val ownerId: String get() = prefs.getString("owner_id", "").orEmpty()

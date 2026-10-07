@@ -4,6 +4,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun aNewSongBlocksOldOwnershipReportsUntilItsClaimAndQueueAreInstalled() {
+        val preparation = PhonePreparationGuard()
+        preparation.begin()
+        assertFalse(canApplyPhoneOwnershipPoll("old", "old", preparation.active))
+        assertFalse(canApplyPhoneOwnershipPoll("old", "new", preparation.active))
+        assertTrue(deferDeviceCommand(true, true, preparation.active))
+        preparation.end()
+        assertFalse(canApplyPhoneOwnershipPoll("old", "new", preparation.active))
+        assertTrue(canApplyPhoneOwnershipPoll("new", "new", preparation.active))
+        assertFalse(deferDeviceCommand(true, true, preparation.active))
+    }
+
+    @Test fun cancellingOnePreparationDoesNotUnblockItsReplacement() {
+        val preparation = PhonePreparationGuard()
+        preparation.begin()
+        preparation.begin()
+        preparation.end()
+        assertTrue(preparation.active)
+        preparation.end()
+        assertFalse(preparation.active)
+    }
+
+    @Test fun switchingOutputsNeverAnimatesSongArtworkEvenWithDifferentSavedSongs() {
+        assertFalse(animateSongChange("old-device-song", "transferred-song", true))
+        assertFalse(animateSongChange("song", "song", false))
+        assertTrue(animateSongChange("song", "next", false))
+    }
+
     @Test fun expiredLeaseResumesOnlyAfterRenewalOfTheSameIntent() {
         val interruption = PlaybackInterruption()
         interruption.remember("song", "lease", true)

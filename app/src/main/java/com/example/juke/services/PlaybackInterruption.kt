@@ -61,3 +61,14 @@ internal fun deferDeviceCommand(addressedToThisPhone: Boolean, permitted: Boolea
 /** Only a visible app or an already foreground playback service may join the bridge. */
 internal fun canJoinRemoteForeground(visible: Boolean, localForeground: Boolean, alreadyJoined: Boolean, phoneOutput: Boolean): Boolean =
     !phoneOutput && (visible || localForeground || alreadyJoined)
+
+/** Overlapping/cancelled song starts cannot release a newer preparation barrier. */
+internal class PhonePreparationGuard {
+    private var starts = 0
+    val active: Boolean @Synchronized get() = starts > 0
+    @Synchronized fun begin() { starts++ }
+    @Synchronized fun end() { check(starts > 0); starts-- }
+}
+
+internal fun animateSongChange(previousVideo: String?, nextVideo: String?, switching: Boolean): Boolean =
+    !switching && previousVideo != nextVideo

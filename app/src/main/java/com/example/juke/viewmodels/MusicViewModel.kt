@@ -137,6 +137,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val outputSwitchRequests = com.example.juke.services.OutputSwitchRequests()
     private val _isSwitchingOutput = MutableStateFlow(false)
     val isSwitchingOutput: StateFlow<Boolean> = _isSwitchingOutput.asStateFlow()
+    private val _artworkHandoff = MutableStateFlow(0L)
+    val artworkHandoff = _artworkHandoff.asStateFlow()
 
     /** Short messages for the user (Echo errors, queue failures). */
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -478,13 +480,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             playbackManager.snapshot.collectLatest { snapshot ->
                 if (snapshot.currentId == null || snapshot.queueIds.isEmpty()) return@collectLatest
+                if (com.example.juke.services.PhonePlaybackOwnership.localHandoff &&
+                    snapshot.currentId != _uiState.value.currentTrack?.uuid) return@collectLatest
                 val old = _uiState.value.queue.associateBy { it.uuid }
                 val tracks = withContext(Dispatchers.IO) {
                     val missing = snapshot.queueIds.filter { it !in old }.chunked(500)
                         .flatMap { trackDao.getTracksByUuids(it) }.associate { it.uuid to it.toTrack() }
                     snapshot.queueIds.mapNotNull { old[it] ?: missing[it] }
                 }
-                if (snapshot != playbackManager.snapshot.value) return@collectLatest
+                if (snapshot != playbackManager.snapshot.value ||
+                    (com.example.juke.services.PhonePlaybackOwnership.localHandoff && snapshot.currentId != _uiState.value.currentTrack?.uuid)) return@collectLatest
                 val previous = _uiState.value
                 val state = reconcilePhonePlayback(previous, tracks, snapshot.currentId)
                 _uiState.value = state
@@ -696,7 +701,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun remoteControl(action: String, payload: JsonObject = buildJsonObject {}) {
+    private fun remoteControl(action: String, payload: JsonObject = buildJsonObject {}, requestedTrack: Track? = null) {
+        if (requestedTrack != null) {
+            launchPlayback(requestedTrack) {
+                com.example.juke.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload)
+            }
+            return
+        }
         viewModelScope.launch { runEcho {
             if (action == "play") {
                 com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
@@ -714,6 +725,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (_isSwitchingOutput.value) { outputSwitchRequests.request("mobile:$deviceId"); return }
         outputSwitchRequests.request("mobile:$deviceId")
         _isSwitchingOutput.value = true
+        ++playbackRequestId
+        pendingPlaybackJob?.cancel()
+        pendingPlayback.value = null
         playlistBackfillJob?.cancel()
         viewModelScope.launch {
             try {
@@ -742,6 +756,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun startTransferredPhone(output: com.example.juke.services.SharedPlaybackOutput, playOverride: Boolean? = null) {
         if (output.handoffPending || output.owner != com.example.juke.services.PhonePlaybackOwnership.ownerId) return
+        _artworkHandoff.update { it + 1 }
         val snapshot = output.nowPlaying ?: AlexaBackendApi.phoneQueueSnapshot()
         val state = com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
         val track = state.track ?: run { com.example.juke.services.PhonePlaybackOwnership.accept(output); setOutputPreference(PlaybackOutput.PHONE); return }
@@ -750,6 +765,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try {
             com.example.juke.services.PhonePlaybackOwnership.accept(output)
+            _uiState.update { it.copy(currentTrack = track, queue = queue, queueIndex = index,
+                position = state.positionMs, duration = state.durationMs, isPlaying = false, isLoading = true) }
             setOutputPreference(PlaybackOutput.PHONE)
             coroutineScope {
                 // Stream resolution may outlive the initial transfer lease before a service exists.
@@ -766,7 +783,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 try {
-                    phoneSetQueue(queue, index, state.livePosition(), play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true)
+                    phoneSetQueue(queue, index, state.positionMs, play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true)
                     // Preserve remote foreground controls while the minimized destination
                     // connects/prepares; the previous READY track is not a completion signal.
                     playbackManager.awaitReady(requireNotNull(_uiState.value.currentTrack).uuid)
@@ -872,6 +889,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         val metadata = Backend.get("/api/track/$video/metadata").objectOrEmpty()
                         val selected = BrowseParser.item(JsonObject(metadata + mapOf("video_id" to JsonPrimitive(video)))).toTrack()
                         playPlaylist(payload.text("playlist_id"), listOf(selected), 0)
+                    } else if (payload["tracks"] != null && !payload.flag("shuffle")) {
+                        val items = tracks()
+                        val index = payload.number("index").toInt()
+                        if (index in items.indices) playPlaylist(payload.text("playlist_id"), items, index)
                     } else playCollection(BrowseParser.item(buildJsonObject { put("playlistId", payload.text("playlist_id")); put("title", "Playlist") }), payload.flag("shuffle"))
                 }
                 else -> {
@@ -1153,7 +1174,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         pendingPlayback.value = track
         pendingPlaybackJob = viewModelScope.launch {
             try {
-                if (isAlexa) {
+                if (isRemotePhone) {
+                    block()
+                    val confirmed = withTimeoutOrNull(45_000) {
+                        echo.state.first { it.track?.ytVideoId == track.ytVideoId && it.confirmed && it.playing && !it.processing }
+                        true
+                    }
+                    if (confirmed != true) _messages.tryEmit("The other device hasn't confirmed playback yet")
+                } else if (isAlexa) {
                     runEcho {
                         block()
                         val videoId = requireNotNull(track.ytVideoId)
@@ -1195,7 +1223,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playTrack(track: Track) {
-        if (isRemotePhone) { remoteControl("song", buildJsonObject { put("track", kotlinx.serialization.json.Json.encodeToJsonElement(Track.serializer(), track)); put("radio", true) }); return }
+        if (isRemotePhone) { remoteControl("song", buildJsonObject { put("track", kotlinx.serialization.json.Json.encodeToJsonElement(Track.serializer(), track)); put("radio", true) }, requestedTrack = track); return }
         if (isAlexa) {
             launchPlayback(track) { echo.playSong(track, radio = false) }
             return
@@ -1204,7 +1232,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startRadio(track: Track) {
-        if (isRemotePhone) { remoteControl("song", buildJsonObject { put("track", kotlinx.serialization.json.Json.encodeToJsonElement(Track.serializer(), track)); put("radio", true) }); return }
+        if (isRemotePhone) { remoteControl("song", buildJsonObject { put("track", kotlinx.serialization.json.Json.encodeToJsonElement(Track.serializer(), track)); put("radio", true) }, requestedTrack = track); return }
         if (isAlexa) { launchPlayback(track) { echo.playSong(track, radio = true) }; return }
         launchPlayback(track) {
             phoneSetQueue(listOf(track), 0, throwOnFailure = true)
@@ -1351,7 +1379,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playTrackFromQueue(track: Track) {
-        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("queue_index", uiState.value.queue.indexOfFirst { it.uuid == track.uuid }) }); return }
+        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("queue_index", uiState.value.queue.indexOfFirst { it.uuid == track.uuid }) }, requestedTrack = track); return }
         if (isAlexa) {
             val index = uiState.value.queue.indexOfFirst { it.uuid == track.uuid }
             if (index >= 0) launchPlayback(track) { echo.playQueueIndex(track, index) }
@@ -1370,6 +1398,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     currentTrack = track,
                     queueIndex = trackIndex,
+                    position = 0L,
                     isPlaying = shouldResumePlayback,
                     duration = track.durationSec.toLong() * 1000
                 )
@@ -1385,8 +1414,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Play [tracks] (a shelf, album, playlist or list) starting at [startIndex]. */
     fun setQueue(tracks: List<Track>, startIndex: Int = 0) {
-        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("tracks", kotlinx.serialization.json.Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Track.serializer()), tracks)); put("index", startIndex) }); return }
         if (startIndex !in tracks.indices) return
+        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("tracks", kotlinx.serialization.json.Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Track.serializer()), tracks)); put("index", startIndex) }, requestedTrack = tracks[startIndex]); return }
         if (isAlexa) {
             launchPlayback(tracks[startIndex]) { echo.playQueue(tracks, startIndex) }
             return
@@ -1402,8 +1431,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * immediately while the remaining songs backfill Up Next in the background.
      */
     fun playPlaylist(playlistId: String, tracks: List<Track>, startIndex: Int = 0) {
-        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("playlist_id", playlistId); put("tracks", kotlinx.serialization.json.Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Track.serializer()), tracks)); put("index", startIndex) }); return }
         val selected = tracks.getOrNull(startIndex) ?: return
+        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("playlist_id", playlistId); put("tracks", kotlinx.serialization.json.Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Track.serializer()), tracks)); put("index", startIndex) }, requestedTrack = selected); return }
         if (isAlexa) launchPlayback(selected) {
             echo.playSong(selected, radio = false, suppressRadio = true)
             startPlaylistBackfill(playlistId, selected, shuffle = false, selectedIndex = startIndex)
@@ -1614,10 +1643,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun phoneSetQueue(tracks: List<Track>, startIndex: Int, positionMs: Long = 0, play: Boolean = true, throwOnFailure: Boolean = true, synchronizeQueue: Boolean = true,
         deferRadioSeed: Boolean = false, reuseOwnership: Boolean = false, onPublished: (suspend () -> Unit)? = null) {
         idlePhoneSelection = false
-        downloads.awaitReady()
+        com.example.juke.services.PhonePlaybackOwnership.beginSongPreparation()
         _uiState.update { it.copy(isLoading = true, error = null) }
         var startupClaim = ""
         try {
+            downloads.awaitReady()
             phoneQueueSyncJob?.cancel()
             sharedPhoneQueueReady = !synchronizeQueue
             queueManager.clearQueue()
@@ -1654,7 +1684,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         startPositionMs = if (positionMs > 0) positionMs else androidx.media3.common.C.TIME_UNSET,
                         playWhenReady = play)
                     _uiState.update { it.copy(queue = playable, queueIndex = startIndex, currentTrack = start,
-                        isPlaying = play, duration = start.durationSec * 1000L) }
+                        isPlaying = play, position = positionMs.coerceAtLeast(0), duration = start.durationSec * 1000L) }
                 },
                 synchronize = sync@{ playable ->
                     if (!synchronizeQueue || !com.example.juke.network.NetworkFeedback.online.value) return@sync
@@ -1677,6 +1707,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(error = "Playback failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}") }
             _messages.tryEmit("Playback failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
         } finally {
+            com.example.juke.services.PhonePlaybackOwnership.endSongPreparation()
             _uiState.update { it.copy(isLoading = false) }
         }
     }
@@ -1691,7 +1722,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }.also { resolved -> trackDao.insertTracks(resolved.map { it.toEntity() }) }
 
     fun togglePlayPause() {
-        if (isRemotePhone) { remoteControl(if (_remoteMobileOutput.value.owner.isNotBlank() && echo.state.value.playing) "pause" else "play"); return }
+        if (isRemotePhone) { remoteControl(if (_remoteMobileOutput.value.owner.isNotBlank() && uiState.value.isPlaying) "pause" else "play"); return }
         if (isAlexa) {
             val playing = echo.state.value.playing
             launchEcho { echo.command(if (playing) "pause" else "play") }
@@ -1848,6 +1879,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _tick.value++
             return
         }
+        // The destination's previous Media3 item is not the transferred song's clock.
+        if (com.example.juke.services.PhonePlaybackOwnership.localHandoff ||
+            playbackManager.snapshot.value.currentId != _uiState.value.currentTrack?.uuid) return
         val currentPos = playbackManager.getCurrentPosition()
         val durationMs = playbackManager.getDuration()
         _uiState.update { state ->
@@ -2231,7 +2265,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
 internal fun withPendingPlayback(state: MusicUiState, pending: Track?): MusicUiState =
     if (pending == null) state else state.copy(currentTrack = pending, position = 0L,
-        duration = pending.durationSec * 1000L, isLoading = true)
+        duration = pending.durationSec * 1000L, isPlaying = false, isLoading = true)
 
 /**
  * Songs that backfill Up Next behind an already-playing fast start.

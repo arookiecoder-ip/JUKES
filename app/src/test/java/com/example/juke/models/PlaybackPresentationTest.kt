@@ -13,15 +13,24 @@ class PlaybackPresentationTest {
     @Test fun requestedSongStaysLoadingUntilPlaybackIsConfirmed() {
         val old = Track("old", "Old", "Artist", durationSec = 100)
         val next = Track("next", "Next", "Artist", durationSec = 200)
-        val actual = MusicUiState(currentTrack = old, queue = listOf(old, next), position = 8000L)
+        val actual = MusicUiState(currentTrack = old, queue = listOf(old, next), position = 8000L, isPlaying = true)
         val pending = withPendingPlayback(actual, next)
         assertEquals(next, pending.currentTrack)
         assertTrue(pending.isLoading)
+        assertFalse(pending.isPlaying)
         assertEquals(0L, pending.position)
         assertEquals(200000L, pending.duration)
         assertEquals(actual.queue, pending.queue)
         assertSame(actual, withPendingPlayback(actual, null))
     }
+    @Test fun handoffKeepsTheTransferredCursorWhenTheSameItemIsPrepared() {
+        val song = Track("entry", "Song", "Artist", durationSec = 200)
+        val handedOff = MusicUiState(currentTrack = song, queue = listOf(song), queueIndex = 0, position = 75000L)
+        val prepared = com.example.juke.viewmodels.reconcilePhonePlayback(handedOff, listOf(song), "entry")
+        assertEquals(75000L, prepared.position)
+        assertEquals(song, prepared.currentTrack)
+    }
+
     @Test fun accountArtistCreditsKeepEveryNameAndId() {
         val raw = Json.parseToJsonElement("""{"videoId":"song","title":"Song","artists":[{"name":"First","id":"UCfirst"},{"name":"Second","id":"UCsecond"}]}""").jsonObject
         val credits = BrowseParser.item(raw).toTrack().artistCredits()

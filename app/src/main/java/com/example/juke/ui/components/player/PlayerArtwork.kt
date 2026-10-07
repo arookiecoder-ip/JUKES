@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +56,9 @@ fun PlayerArtwork(
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberJukeHaptics()
+    val switching by musicViewModel.isSwitchingOutput.collectAsState()
+    val handoff by musicViewModel.artworkHandoff.collectAsState()
+    var alignedHandoff by remember { mutableStateOf(handoff) }
 
     val pagerState = rememberPagerState(
         initialPage = queueIndex.coerceAtLeast(0),
@@ -65,15 +69,16 @@ fun PlayerArtwork(
     var userSwipe by remember { mutableStateOf(false) }
     LaunchedEffect(dragged) { if (dragged) userSwipe = true }
     var alignedSong by remember { mutableStateOf(currentTrack.ytVideoId ?: currentTrack.uuid) }
-    LaunchedEffect(queueIndex, currentTrack.ytVideoId) {
+    LaunchedEffect(queueIndex, currentTrack.ytVideoId, handoff) {
         if (!dragged && queueIndex in queue.indices && pagerState.currentPage != queueIndex) {
             userSwipe = false
             // An output handoff may rebuild/reorder the same queue. A changed
             // page index alone is not a new song and must not animate artwork.
-            if (alignedSong == (currentTrack.ytVideoId ?: currentTrack.uuid)) pagerState.scrollToPage(queueIndex)
+            if (!com.example.juke.services.animateSongChange(alignedSong, currentTrack.ytVideoId ?: currentTrack.uuid, switching || handoff != alignedHandoff)) pagerState.scrollToPage(queueIndex)
             else pagerState.animateScrollToPage(queueIndex)
         }
         alignedSong = currentTrack.ytVideoId ?: currentTrack.uuid
+        alignedHandoff = handoff
     }
     LaunchedEffect(pagerState.isScrollInProgress, pagerState.settledPage) {
         if (!pagerState.isScrollInProgress && userSwipe) {
@@ -136,8 +141,13 @@ private fun ArtworkCard(
     onToggleLyrics: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val switching by musicViewModel.isSwitchingOutput.collectAsState()
+    val handoff by musicViewModel.artworkHandoff.collectAsState()
+    var alignedHandoff by remember { mutableStateOf(handoff) }
+    val suppressTransition = switching || handoff != alignedHandoff
+    LaunchedEffect(track.ytVideoId, handoff) { alignedHandoff = handoff }
     AnimatedContent(targetState = track, contentKey = { it.ytVideoId }, modifier = modifier.fillMaxSize(),
-        transitionSpec = { (slideInHorizontally { it } togetherWith slideOutHorizontally { -it }).using(SizeTransform(sizeAnimationSpec = { _, _ -> androidx.compose.animation.core.snap() })) },
+        transitionSpec = { (slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(if (suppressTransition) 0 else 220)) { it } togetherWith slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(if (suppressTransition) 0 else 220)) { -it }).using(SizeTransform(sizeAnimationSpec = { _, _ -> androidx.compose.animation.core.snap() })) },
         label = "Song artwork transition") { shownTrack ->
         ArtworkCardContent(shownTrack, showLyrics && shownTrack.ytVideoId == track.ytVideoId,
             currentPosition, musicViewModel, isTablet, onToggleLyrics, Modifier.fillMaxSize())
