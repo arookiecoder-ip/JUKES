@@ -34,7 +34,7 @@ data class EchoState(
 
     /** Live position: the server anchor plus the time since, while playing (like the web progress bar). */
     fun livePosition(now: Long = SystemClock.elapsedRealtime()): Long {
-        val elapsed = if (playing && confirmed) (now - anchoredAt).coerceAtLeast(0) else 0
+        val elapsed = if (playing && confirmed && !processing && !sharedOutput.handoffPending) (now - anchoredAt).coerceAtLeast(0) else 0
         val position = positionMs + elapsed
         return if (durationMs > 0) position.coerceAtMost(durationMs) else position
     }

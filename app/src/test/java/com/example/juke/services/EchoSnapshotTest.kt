@@ -6,6 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class EchoSnapshotTest {
+    @Test fun transferringOrBufferingPhoneDoesNotAdvanceTheRemoteClock() {
+        val playing = EchoState(positionMs = 75000, anchoredAt = 1000, playing = true, confirmed = true)
+        assertEquals(79000L, playing.livePosition(5000))
+        assertEquals(75000L, playing.copy(processing = true).livePosition(5000))
+        assertEquals(75000L, playing.copy(sharedOutput = SharedPlaybackOutput(handoffPending = true)).livePosition(5000))
+        assertEquals(75000L, playing.copy(confirmed = false).livePosition(5000))
+    }
+
     @Test fun pauseAcknowledgmentNeverShowsPlaybackLoading() {
         assertFalse(EchoState(playing = false, processing = true, confirmed = false).loading)
         assertFalse(EchoState(playing = false, processing = true, confirmed = true).loading)

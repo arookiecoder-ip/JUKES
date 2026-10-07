@@ -768,6 +768,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(currentTrack = track, queue = queue, queueIndex = index,
                 position = state.positionMs, duration = state.durationMs, isPlaying = false, isLoading = true) }
             setOutputPreference(PlaybackOutput.PHONE)
+            // Freeze remote clocks while the destination prepares, without delaying
+            // its audio connection on a queue request. The ready report follows this
+            // write, so a delayed buffering report cannot overwrite ready playback.
+            val preparationReport = viewModelScope.launch {
+                try {
+                    withTimeoutOrNull(1_500) {
+                        AlexaBackendApi.updateQueue("current", requireNotNull(track.ytVideoId), emptyList(),
+                            playing = playOverride ?: state.playing, positionMs = state.positionMs,
+                            queueIndex = index, buffering = true, expectedToken = output.token,
+                            currentEntryId = queue[index].uuid)
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* The service retries its actual cursor. */ }
+            }
             coroutineScope {
                 // Stream resolution may outlive the initial transfer lease before a service exists.
                 val renewal = launch {
@@ -789,6 +803,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     playbackManager.awaitReady(requireNotNull(_uiState.value.currentTrack).uuid)
                 } finally { renewal.cancel() }
 
+            }
+            viewModelScope.launch {
+                preparationReport.join()
+                if (!com.example.juke.services.PhonePlaybackOwnership.permitsPlayback(output.token) ||
+                    playbackManager.snapshot.value.currentId != _uiState.value.currentTrack?.uuid) return@launch
+                val current = _uiState.value.currentTrack ?: return@launch
+                try {
+                    withTimeoutOrNull(1_500) {
+                        AlexaBackendApi.updateQueue("current", requireNotNull(current.ytVideoId), emptyList(),
+                            playing = playbackManager.isPlayingFlow.value, positionMs = playbackManager.getCurrentPosition(),
+                            queueIndex = _uiState.value.queueIndex, buffering = playbackManager.isBufferingFlow.value,
+                            expectedToken = output.token, currentEntryId = current.uuid)
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Periodic cursor reporting recovers. */ }
             }
             updatePolling()
         } finally {
