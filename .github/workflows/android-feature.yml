@@ -42,7 +42,7 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: Check playback, queue and device protocol (no emulator)
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.services.SilentPlaybackWatchdogTest' --tests 'com.example.juke.services.PhonePlaylistBackfillTest' --tests 'com.example.juke.viewmodels.PlaylistRemainderTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.services.QueueInstallationTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.services.SilentPlaybackWatchdogTest' --tests 'com.example.juke.services.PhonePlaylistBackfillTest' --tests 'com.example.juke.viewmodels.PlaylistRemainderTest' --no-daemon
 
       - name: Upload focused device protocol test results
         if: always()

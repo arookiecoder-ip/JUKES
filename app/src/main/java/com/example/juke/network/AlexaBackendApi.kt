@@ -169,13 +169,14 @@ object AlexaBackendApi {
         return com.example.juke.services.sharedPlaybackOutput(Backend.get("/api/app/output/").jsonObject)
     }
 
-    suspend fun phoneOutputRequest(action: String, owner: String, token: String = "", serial: String = "", positionMs: Long? = null, playing: Boolean? = null): com.example.juke.services.SharedPlaybackOutput {
+    suspend fun phoneOutputRequest(action: String, owner: String, token: String = "", serial: String = "", positionMs: Long? = null, playing: Boolean? = null, includeState: Boolean = false): com.example.juke.services.SharedPlaybackOutput {
         requireConfigured()
         val body = kotlinx.serialization.json.buildJsonObject {
             put("action", JsonPrimitive(action)); put("output_owner", JsonPrimitive(owner))
             put("output_token", JsonPrimitive(token)); put("serial", JsonPrimitive(serial))
             positionMs?.let { put("position_ms", JsonPrimitive(it.coerceAtLeast(0))) }
             playing?.let { put("playing", JsonPrimitive(it)) }
+            if (includeState) put("include_state", JsonPrimitive(true))
         }
         return com.example.juke.services.sharedPlaybackOutput(Backend.post("/api/app/output/", body).jsonObject)
     }

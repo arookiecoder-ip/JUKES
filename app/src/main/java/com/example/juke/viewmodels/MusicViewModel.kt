@@ -686,7 +686,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun startTransferredPhone(output: com.example.juke.services.SharedPlaybackOutput) {
         if (output.handoffPending || output.owner != com.example.juke.services.PhonePlaybackOwnership.ownerId) return
-        val snapshot = AlexaBackendApi.phoneQueueSnapshot()
+        val snapshot = output.nowPlaying ?: AlexaBackendApi.phoneQueueSnapshot()
         val state = com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
         val track = state.track ?: run { com.example.juke.services.PhonePlaybackOwnership.accept(output); setOutputPreference(PlaybackOutput.PHONE); return }
         val queue = state.queue.ifEmpty { listOf(track) }
@@ -875,28 +875,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun moveEchoToPhone() {
-        if (android.os.SystemClock.elapsedRealtime() - echo.state.value.anchoredAt > 1_000) echo.refresh(stateOnly = true)
-        val state = echo.state.value
-        val wasPlaying = state.playing
-        val track = state.track
-        if (track == null) {
-            setOutputPreference(PlaybackOutput.PHONE)
-            updatePolling()
-            return
-        }
-        val queue = state.queue.ifEmpty { listOf(track) }
-        val index = state.index.takeIf { it in queue.indices } ?: 0
+        var wasPlaying = echo.state.value.playing
+        var claim: com.example.juke.services.SharedPlaybackOutput? = null
         com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
         try { transferPlayback(
-            // The ownership claim below performs and confirms the Echo pause.
-            // Sending a separate pause first caused two serial Amazon requests.
             pauseSource = { },
             startTarget = {
-                phoneSetQueue(queue, index,
-                    positionMs = state.livePosition(), play = wasPlaying, throwOnFailure = true)
-                playbackManager.awaitReady()
+                // One authoritative response contains the stopped cursor and current queue.
+                // No preliminary Echo poll or second queue fetch is needed, even after voice changes.
+                val claimed = AlexaBackendApi.phoneOutputRequest("claim", com.example.juke.services.PhonePlaybackOwnership.ownerId,
+                    serial = echo.serial.value, includeState = true)
+                claim = claimed
+                wasPlaying = claimed.nowPlaying?.flag("playing") ?: wasPlaying
+                startTransferredPhone(claimed)
+                if (claimed.nowPlaying?.text("video_id")?.isNotBlank() ?: (_uiState.value.currentTrack != null)) playbackManager.awaitReady()
             },
-            restoreSource = { if (wasPlaying) echo.command("play") },
+            restoreSource = {
+                val current = AlexaBackendApi.phoneOutputStatus()
+                val owned = claim
+                if (wasPlaying && owned != null && current.belongsToPhone(com.example.juke.services.PhonePlaybackOwnership.ownerId, owned.token))
+                    echo.command("play", expectedPhoneToken = owned.token)
+            },
             stopTarget = { playbackManager.pause() },
             commit = { setOutputPreference(PlaybackOutput.PHONE); updatePolling() }
         ) } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
@@ -938,7 +937,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val items = queue.ifEmpty { listOf(track) }
         val start = index.takeIf { it in items.indices && items[it].ytVideoId == track.ytVideoId }
             ?: items.indexOfFirst { it.ytVideoId == track.ytVideoId }.coerceAtLeast(0)
-        echo.transferQueue(items, start, positionMs, play, expectedPhoneToken)
+        echo.transferQueue(items, start, positionMs, play, expectedPhoneToken, reuseSharedQueue = expectedPhoneToken != null && sharedPhoneQueueReady)
     }
 
     // ---------- Colors ----------

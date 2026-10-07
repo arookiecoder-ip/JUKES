@@ -45,7 +45,8 @@ object PhonePlaybackOwnership {
 
     fun accept(output: SharedPlaybackOutput) {
         check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank() && !output.handoffPending)
-        MobileDeviceConnection.rememberOutput(output)
+        val current = MobileDeviceConnection.rememberOutput(output)
+        check(current.token == output.token && !output.olderThan(current)) { "A newer device switch superseded this lease." }
         token = output.token
         remoteControlled = output.controller.isNotBlank() && output.controller != ownerId
         relinquishing = false

@@ -430,8 +430,24 @@ class PlaybackManager private constructor(private val context: Context) {
             if (!keepShuffleMode) {
                 shuffleModeEnabled = false
             }
-            setMediaItems(mediaItems, startIndex, startPositionMs)
-            prepare()
+            val reusable = mediaItemCount == mediaItems.size && mediaItems.indices.all { index ->
+                val old = getMediaItemAt(index)
+                val next = mediaItems[index]
+                old.mediaId == next.mediaId && old.localConfiguration?.uri == next.localConfiguration?.uri &&
+                    old.mediaMetadata.title?.toString() == next.mediaMetadata.title?.toString() &&
+                    old.mediaMetadata.artist?.toString() == next.mediaMetadata.artist?.toString() &&
+                    old.mediaMetadata.artworkUri == next.mediaMetadata.artworkUri
+            }
+            if (reusable) {
+                val position = startPositionMs.takeIf { it != C.TIME_UNSET } ?: 0
+                if (currentMediaItemIndex != startIndex || kotlin.math.abs(currentPosition - position) > 250)
+                    seekTo(startIndex, position)
+            } else if (mediaItems.size > 200) {
+                installQueueInBatches(mediaItems, startIndex,
+                    seed = { item -> setMediaItems(listOf(item), 0, startPositionMs) },
+                    insert = { index, batch -> addMediaItems(index, batch) })
+            } else setMediaItems(mediaItems, startIndex, startPositionMs)
+            if (!reusable || playbackState != Player.STATE_READY) prepare()
             if (playWhenReady) play() else pause()
         } }
         val ready = controller
