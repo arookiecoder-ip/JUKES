@@ -35,14 +35,14 @@ fun AlbumDetailScreen(albumDetailViewModel: AlbumDetailViewModel = viewModel(), 
             }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
         } else if (album == null || (state.isLoading && state.tracks.isEmpty())) {
             MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
-        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
-            item(key = "hero") {
+        } else AdaptiveDetailLayout(bottomPadding = bottomPadding, hero = {
                 CollectionDetailHero(album, state.title, state.imageUrl, state.artist,
                     listOf("Album", state.year, "${state.tracks.size} tracks").filter { it.isNotBlank() }.joinToString(" · "),
                     onCreditClick = if (state.artistId.isNotBlank()) ({ onNavigateToArtist(state.artistId) }) else null,
                     onPlay = { musicViewModel.playCollection(album) }, onShuffle = { musicViewModel.playCollection(album, shuffle = true) },
                     onQueue = { musicViewModel.queueCollection(album, next = false) })
-            }
+
+            }) {
             state.error?.let { message ->
                 item(key = "load-error") {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {

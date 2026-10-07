@@ -1,184 +1,79 @@
 package com.example.juke.ui.components
 
-import android.annotation.SuppressLint
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
-import kotlin.math.abs
-import com.example.juke.ui.theme.LocalGlassAccent
-import com.example.juke.ui.theme.isGlassDark
 import com.example.juke.utils.rememberJukeHaptics
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Horizontal intent must win before consuming movement from a vertical list. */
 @Composable
-fun SwipeToAddNextContainer(
-    onAddNext: () -> Unit,
-    onAddToQueue: () -> Unit,
-    @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit
-) {
+fun SwipeToAddNextContainer(onAddNext: () -> Unit, onAddToQueue: () -> Unit,
+    modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    val next by rememberUpdatedState(onAddNext)
+    val queue by rememberUpdatedState(onAddToQueue)
     val haptic = rememberJukeHaptics()
-
-    // Guard flag: ensures the action fires only ONCE per swipe gesture.
-    // confirmValueChange can be called multiple times during a single drag
-    // (every time the item crosses the threshold), which caused rapid-fire
-    // duplicate insertions. Resetting on Settled prevents cross-gesture leakage.
-    val actionFired = remember { mutableStateOf(false) }
-
-    val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { distance -> distance * 0.35f },
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    if (!actionFired.value) {
-                        actionFired.value = true
-                        haptic.confirm()
-                        onAddToQueue()
+    val scope = rememberCoroutineScope()
+    val offset = remember { Animatable(0f) }
+    var width by remember { mutableFloatStateOf(0f) }
+    Box(modifier.fillMaxWidth().clipToBounds().onSizeChanged { width = it.width.toFloat() }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                var dx = 0f; var dy = 0f; var horizontal = false
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.isConsumed) break
+                    val delta = change.positionChange()
+                    dx += delta.x; dy += delta.y
+                    if (!horizontal) {
+                        if (abs(dy) > viewConfiguration.touchSlop && abs(dy) >= abs(dx) / 1.8f) break
+                        horizontal = abs(dx) > viewConfiguration.touchSlop * 2 && abs(dx) > abs(dy) * 1.8f
                     }
-                    false // Reset swipe position after action
-                }
-
-                SwipeToDismissBoxValue.EndToStart -> {
-                    if (!actionFired.value) {
-                        actionFired.value = true
-                        haptic.confirm()
-                        onAddNext()
+                    if (horizontal) {
+                        change.consume()
+                        val position = dx.coerceIn(-width, width)
+                        scope.launch { offset.snapTo(position) }
                     }
-                    false // Reset swipe position after action
+                    if (!change.pressed) {
+                        if (horizontal && abs(dx) > width * 0.35f) {
+                            haptic.confirm()
+                            if (dx > 0) queue() else next()
+                        }
+                        break
+                    }
                 }
-
-                SwipeToDismissBoxValue.Settled -> {
-                    // Swipe returned to neutral — allow the next swipe to fire
-                    actionFired.value = false
-                    false
-                }
+                scope.launch { offset.animateTo(0f) }
+            }
+        }) {
+        if (abs(offset.value) > 1f) {
+            val right = offset.value > 0
+            Row(Modifier.matchParentSize().background(MaterialTheme.colorScheme.primaryContainer)
+                .padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (right) Arrangement.Start else Arrangement.End) {
+                Icon(if (right) Icons.Default.QueueMusic else Icons.Default.PlayArrow, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (right) "Add to queue" else "Play next")
             }
         }
-    )
-
-    LaunchedEffect(dismissState) {
-        snapshotFlow { runCatching { dismissState.requireOffset() }.getOrDefault(0f) }
-            .collect { offset -> if (abs(offset) < 1f) actionFired.value = false }
+        Row(Modifier.fillMaxWidth().graphicsLayer { translationX = offset.value }
+            .background(MaterialTheme.colorScheme.background), content = content)
     }
-
-    val shape = RoundedCornerShape(12.dp)
-    val dark = isGlassDark()
-    val accent = LocalGlassAccent.current
-
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromEndToStart = true,
-        backgroundContent = {
-            // No opaque fill: a tinted glow that lights up from behind the sliding glass card.
-            val direction = dismissState.dismissDirection
-            val glow = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
-                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.primary
-                else -> null
-            }
-            if (glow != null) {
-                val toEnd = direction == SwipeToDismissBoxValue.StartToEnd
-                val strength = dismissState.progress.coerceIn(0f, 1f)
-                val onGlow = if (dark) Color.White else MaterialTheme.colorScheme.onSurface
-                // Only the strip the card has slid away from may show the label; anything under the
-                // card would bleed through the glass and clash with the song title.
-                val offsetPx = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
-                val revealed = with(LocalDensity.current) { abs(offsetPx).toDp() }
-                Box(Modifier.fillMaxSize().clip(shape)) {
-                    // Light source behind the glass: blurred so it reads as a glow, never as shapes.
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .blur(18.dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    if (toEnd) listOf(glow.copy(alpha = 0.55f * strength + 0.15f), glow.copy(alpha = 0.04f))
-                                    else listOf(glow.copy(alpha = 0.04f), glow.copy(alpha = 0.55f * strength + 0.15f))
-                                )
-                            )
-                    )
-                    Box(
-                        Modifier
-                            .width(revealed)
-                            .fillMaxHeight()
-                            .align(if (toEnd) Alignment.CenterStart else Alignment.CenterEnd)
-                            .clipToBounds(),
-                        contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .wrapContentWidth(if (toEnd) Alignment.Start else Alignment.End, unbounded = true)
-                                .padding(horizontal = 20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            if (toEnd) {
-                                Icon(Icons.Filled.QueueMusic, contentDescription = "Add to queue", tint = onGlow)
-                                Text("Add to queue", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
-                            } else {
-                                Text("Play next", style = MaterialTheme.typography.bodyLarge, color = onGlow, maxLines = 1, softWrap = false)
-                                Icon(Icons.Filled.PlayArrow, contentDescription = "Play next", tint = onGlow)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        content = {
-            // The row turns into tinted glass as it is dragged, so the glow reads through it.
-            val dragging = dismissState.dismissDirection != SwipeToDismissBoxValue.Settled
-            val glass by animateFloatAsState(
-                targetValue = if (dragging) 1f else 0f,
-                label = "swipeGlass"
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(
-                        (if (dark) Color(0xFF14141A) else Color.White).copy(alpha = 0.55f * glass)
-                    )
-                    .background(accent.copy(alpha = (if (dark) 0.14f else 0.10f) * glass))
-                    .border(0.6.dp, Color.White.copy(alpha = (if (dark) 0.22f else 0.5f) * glass), shape),
-                content = content
-            )
-        },
-        modifier = modifier
-    )
 }

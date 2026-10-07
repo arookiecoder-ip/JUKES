@@ -34,13 +34,13 @@ fun PlaylistDetailScreen(playlistDetailViewModel: PlaylistDetailViewModel = view
             }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
         } else if (playlist == null || (state.isLoading && state.tracks.isEmpty())) {
             MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
-        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
-            item(key = "hero") {
+        } else AdaptiveDetailLayout(bottomPadding = bottomPadding, hero = {
                 CollectionDetailHero(playlist, state.title, state.imageUrl, state.author.takeIf { it.isNotBlank() }?.let { "By $it" }.orEmpty(),
                     "${state.trackCount} tracks", state.description,
                     onPlay = { musicViewModel.playCollection(playlist) }, onShuffle = { musicViewModel.playCollection(playlist, shuffle = true) },
                     onQueue = { musicViewModel.queueCollection(playlist, next = false) })
-            }
+
+            }) {
             state.error?.let { message ->
                 item(key = "load-error") {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {

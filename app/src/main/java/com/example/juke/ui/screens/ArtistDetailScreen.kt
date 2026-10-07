@@ -56,12 +56,7 @@ fun ArtistDetailScreen(
                 }, Modifier.fillMaxSize().padding(bottom = bottomPadding))
             }
             state.isLoading || artist == null -> MediaDetailSkeleton(modifier = Modifier.stableStatusBarsPadding(), contentPadding = PaddingValues(20.dp))
-            else -> LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp + bottomPadding),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                item(key = "hero") {
+            else -> AdaptiveDetailLayout(bottomPadding = bottomPadding, spacing = 16.dp, hero = {
                     DetailHero(state.imageUrl, artist = true) {
                     Column(Modifier.fillMaxWidth().heightIn(min = 380.dp).padding(top = 170.dp, start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.Bottom) {
                         Text(artist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
@@ -81,7 +76,8 @@ fun ArtistDetailScreen(
                         }
                     }
                     }
-                }
+
+            }) {
                 state.error?.let { error -> item { Text(error, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error) } }
                 if (state.topTracks.isNotEmpty()) {
                     item { Text("Top songs", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge) }

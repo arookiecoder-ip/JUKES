@@ -480,7 +480,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val isExpanded = LocalConfiguration.current.screenWidthDp >= 600
+                val isExpanded = LocalConfiguration.current.smallestScreenWidthDp >= 600 &&
+                    LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
                 // Artist/album/playlist are child screens: they can be opened on top of any tab
                 // (and on top of each other), so a tab tap must first dispose of all of them.
                 fun isDetailRoute(route: String?) =

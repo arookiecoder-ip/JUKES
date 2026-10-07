@@ -59,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -154,8 +155,8 @@ fun MiniPlayer(
         val currentUuid by rememberUpdatedState(currentTrack.uuid)
         val queue = uiState.queue
         val queueIdx = uiState.queueIndex
-        val nextTrack = queue.getOrNull(queueIdx + 1)
-        val prevTrack = queue.getOrNull(queueIdx - 1)
+        val nextTrack by rememberUpdatedState(queue.getOrNull(queueIdx + 1))
+        val prevTrack by rememberUpdatedState(queue.getOrNull(queueIdx - 1))
 
         var romanizedSyncedLyrics by remember(
             currentTrack.uuid,
@@ -258,6 +259,7 @@ fun MiniPlayer(
             modifier = modifier
                 .fillMaxWidth()
                 .glassFloat(GlassShapes.Bar, GlassLevel.Regular)
+                .clipToBounds()
                 .combinedClickable(
                     onClickLabel = "Open player",
                     role = Role.Button,
@@ -270,7 +272,6 @@ fun MiniPlayer(
                         onExpand()
                     }
                 )
-                .onSizeChanged { cardWidthPx = it.width.toFloat() }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -296,7 +297,7 @@ fun MiniPlayer(
                                 offsetX.animateTo(if (toNext) -w else w, tween(190, easing = FastOutSlowInEasing))
                                 if (toNext) musicViewModel.skipToNext() else musicViewModel.skipToPrevious()
                                 // Hold the neighbour in place until the real card shows the new track.
-                                withTimeoutOrNull(900) { snapshotFlow { currentUuid }.first { it != before } }
+                                withTimeoutOrNull(5_000) { snapshotFlow { currentUuid }.first { it != before } }
                                 offsetX.snapTo(0f)
                             }
                         },
@@ -312,10 +313,8 @@ fun MiniPlayer(
                     )
                 }
         ) {
-            Box(modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { translationX = offsetX.value }
-            ) {
+            Box(modifier = Modifier.fillMaxWidth().padding(end = 46.dp).clipToBounds().onSizeChanged { cardWidthPx = it.width.toFloat() }) {
+            Box(modifier = Modifier.fillMaxWidth().graphicsLayer { translationX = offsetX.value }) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -386,7 +385,22 @@ fun MiniPlayer(
                         }
                     }
 
-                    // Play / Pause
+                }
+            }
+            // The track a swipe is gliding to, sliding in from the side the card is leaving.
+            // Only the drag direction is read here, so the frame-by-frame offset never recomposes this.
+            val direction by remember { derivedStateOf { sign(offsetX.value) } }
+            val glideTo = if (direction < 0f) nextTrack else if (direction > 0f) prevTrack else null
+            if (glideTo != null && cardWidthPx > 0f) {
+                MiniPlayerGlideCard(
+                    track = glideTo,
+                    modifier = Modifier.graphicsLayer {
+                        translationX = offsetX.value + if (offsetX.value < 0f) cardWidthPx else -cardWidthPx
+                    }
+                )
+            }
+            }
+            Box(Modifier.align(Alignment.CenterEnd).padding(end = 6.dp)) {
                     val miniPlayScale = remember { Animatable(1f) }
                     LaunchedEffect(uiState.isPlaying) {
                         miniPlayScale.animateTo(0.85f, tween(90, easing = FastOutSlowInEasing))
@@ -423,23 +437,6 @@ fun MiniPlayer(
                             )
                         }
                     }
-                }
-
-
-            }
-
-            // The track a swipe is gliding to, sliding in from the side the card is leaving.
-            // Only the drag direction is read here, so the frame-by-frame offset never recomposes this.
-            val direction by remember { derivedStateOf { sign(offsetX.value) } }
-            val glideTo = if (direction < 0f) nextTrack else if (direction > 0f) prevTrack else null
-            if (glideTo != null && cardWidthPx > 0f) {
-                MiniPlayerGlideCard(
-                    track = glideTo,
-                    isPlaying = isPlaying,
-                    modifier = Modifier.graphicsLayer {
-                        translationX = offsetX.value + if (offsetX.value < 0f) cardWidthPx else -cardWidthPx
-                    }
-                )
             }
             // Keep the line fixed to both dock edges, including during a track swipe.
             val progress = if (uiState.duration > 0)
@@ -455,7 +452,7 @@ fun MiniPlayer(
 
 /** Static preview of a neighbouring track, laid out exactly like the live mini player row. */
 @Composable
-private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modifier = Modifier) {
+private fun MiniPlayerGlideCard(track: Track, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     Row(
         modifier = modifier
@@ -489,14 +486,6 @@ private fun MiniPlayerGlideCard(track: Track, isPlaying: Boolean, modifier: Modi
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Icon(
-            painter = painterResource(
-                if (isPlaying) com.example.juke.R.drawable.baseline_pause_24
-                else com.example.juke.R.drawable.baseline_play_24
-            ),
-            contentDescription = null,
-            modifier = Modifier.padding(8.dp).size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurface
-        )
+
     }
 }

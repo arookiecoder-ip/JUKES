@@ -116,28 +116,39 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         action("Play now", actions.play)
                         actions.select?.let { action("Select", it) }
                     }
-                    action("Go to artist") {
+                    fun openArtist() {
                         resolve {
                             val id = track.artistId ?: Backend.get("/api/artist/resolve/", mapOf("name" to track.artist)).objectOrEmpty().text("channel_id", "artist_id", "id")
                             check(id.isNotBlank()) { "Artist unavailable for this song" }
                             onOpen(BrowseParser.item(JsonObject(mapOf("channel_id" to kotlinx.serialization.json.JsonPrimitive(id), "name" to kotlinx.serialization.json.JsonPrimitive(track.artist))), "artists"))
                         }
                     }
-                    action("Go to album") {
+                    fun openAlbum() {
                         resolve {
                             val id = track.albumId ?: Backend.get("/api/album/resolve/${track.ytVideoId}").objectOrEmpty().text("album_id")
                             check(id.isNotBlank()) { "Album unavailable for this song" }
                             onOpen(BrowseParser.item(JsonObject(mapOf("browseId" to kotlinx.serialization.json.JsonPrimitive(id))), "albums"))
                         }
                     }
+                    fun shareTrack() { track.ytVideoId?.takeIf { it.isNotBlank() }?.let { share("Share ${track.title}", "https://music.youtube.com/watch?v=$it") } }
+                    if (menu.playerOnly) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                            MusicQuickAction(Icons.Default.Person, "Artist", Modifier.weight(1f)) { quick { openArtist() } }
+                            MusicQuickAction(Icons.Default.Lyrics, "Lyrics", Modifier.weight(1f)) { quick { extraOptions.firstOrNull { it.label == "Lyrics" }?.action?.invoke() } }
+                            MusicQuickAction(Icons.Default.Album, "Album", Modifier.weight(1f)) { quick { openAlbum() } }
+                            MusicQuickAction(Icons.Default.Share, "Share", Modifier.weight(1f)) { quick { shareTrack() } }
+                        }
+                        HorizontalDivider()
+                    } else {
+                        action("Go to artist") { openArtist() }
+                        action("Go to album") { openAlbum() }
+                    }
                     val saved = downloaded.any { it.ytVideoId == track.ytVideoId }
                     val downloading = track.ytVideoId in downloadProgress
                     action(if (saved) "Remove download" else if (downloading) "Downloading…" else "Download") {
                         if (saved) music.removeDownload(track) else if (!downloading) music.download(track)
                     }
-                    action("Share") {
-                        track.ytVideoId?.takeIf { it.isNotBlank() }?.let { share("Share ${track.title}", "https://music.youtube.com/watch?v=$it") }
-                    }
+                    if (!menu.playerOnly) action("Share") { shareTrack() }
                     if (!menu.playerOnly) action("Save to Playlist") {
                         saveTrack = track; playlists = null; playlistError = null
                         resolve {
@@ -153,7 +164,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                     }
                     if (extraOptions.isNotEmpty()) {
                         HorizontalDivider()
-                        extraOptions.forEach { extra -> MusicMenuOption(extra.icon, extra.label) { menu.dismiss(); extra.action() } }
+                        extraOptions.filterNot { menu.playerOnly && it.label == "Lyrics" }.forEach { extra -> MusicMenuOption(extra.icon, extra.label) { menu.dismiss(); extra.action() } }
                     }
                 } else if (item != null) {
                     if (item.kind in listOf("album", "playlist")) {
@@ -172,7 +183,7 @@ fun MediaActionMenuHost(menu: MediaMenuController, music: MusicViewModel, librar
                         val route = if (item.kind == "artist") "channel/${item.id}" else if (item.kind == "album") "browse/${item.id}" else "playlist?list=${item.playlistId.ifBlank { item.id }.removePrefix("VL")}"
                         share("Share ${item.title}", "https://music.youtube.com/$route")
                     }
-                    extraOptions.forEach { extra -> MusicMenuOption(extra.icon, extra.label) { menu.dismiss(); extra.action() } }
+                    extraOptions.filterNot { menu.playerOnly && it.label == "Lyrics" }.forEach { extra -> MusicMenuOption(extra.icon, extra.label) { menu.dismiss(); extra.action() } }
                 }
             }
         }

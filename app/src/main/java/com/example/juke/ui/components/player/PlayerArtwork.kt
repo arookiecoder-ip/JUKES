@@ -64,11 +64,16 @@ fun PlayerArtwork(
     val dragged by pagerState.interactionSource.collectIsDraggedAsState()
     var userSwipe by remember { mutableStateOf(false) }
     LaunchedEffect(dragged) { if (dragged) userSwipe = true }
+    var alignedSong by remember { mutableStateOf(currentTrack.ytVideoId ?: currentTrack.uuid) }
     LaunchedEffect(queueIndex, currentTrack.ytVideoId) {
         if (!dragged && queueIndex in queue.indices && pagerState.currentPage != queueIndex) {
             userSwipe = false
-            pagerState.animateScrollToPage(queueIndex)
+            // An output handoff may rebuild/reorder the same queue. A changed
+            // page index alone is not a new song and must not animate artwork.
+            if (alignedSong == (currentTrack.ytVideoId ?: currentTrack.uuid)) pagerState.scrollToPage(queueIndex)
+            else pagerState.animateScrollToPage(queueIndex)
         }
+        alignedSong = currentTrack.ytVideoId ?: currentTrack.uuid
     }
     LaunchedEffect(pagerState.isScrollInProgress, pagerState.settledPage) {
         if (!pagerState.isScrollInProgress && userSwipe) {

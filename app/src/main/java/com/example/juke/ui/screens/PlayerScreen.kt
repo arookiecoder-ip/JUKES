@@ -248,6 +248,9 @@ fun PlayerScreen(
     val screenWidth = configuration.screenWidthDp.dp
     configuration.screenHeightDp.dp
     val isTablet = minOf(configuration.screenWidthDp, configuration.screenHeightDp) >= 600
+    val tabletLandscape = isTablet && configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val shareSong = com.example.juke.ui.components.rememberShareAction()
+
 
     val lifecycleOwner = LocalLifecycleOwner.current
     // Poll the position only while playing; paused, one read is enough (no 300 ms wakeups).
@@ -335,6 +338,30 @@ fun PlayerScreen(
 
     val displayTrack = if (romanizeLyrics) romanizedTrack ?: currentTrack else currentTrack
 
+    val queueContent: @Composable () -> Unit = {
+        val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
+        val queueError by musicViewModel.queueLoadError.collectAsStateWithLifecycle()
+            QueueBottomSheetContent(
+                statusText = when {
+                    rec.reserve > 0 -> "${rec.reserve} more songs ready from the radio"
+                    else -> null
+                },
+                error = queueError, onRetry = musicViewModel::refreshQueue,
+                currentTrack = currentTrack,
+                queue = uiState.queue,
+                queueIndex = uiState.queueIndex,
+                uiState = uiState,
+                onClose = { showQueue = false }, showClose = !tabletLandscape,
+                onMoveTrack = { from, to -> musicViewModel.moveInQueue(from, to) },
+                onRemoveTrack = { id, complete -> musicViewModel.removeFromQueue(id, complete) },
+                onPlayTrack = { track -> musicViewModel.playTrackFromQueue(track) },
+                onShuffleUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SHUFFLE_UPCOMING) },
+                onSortUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SORT_UPCOMING) },
+                onClearPlayed = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.CLEAR_PLAYED) },
+                onSaveAsPlaylist = { musicViewModel.saveQueueAsPlaylist() }
+            )
+    }
+
     // Modal Sheet for Player
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -396,7 +423,9 @@ fun PlayerScreen(
                                 label = if (currentTrack.isFavourite) "Unlike" else "Like", active = currentTrack.isFavourite, iconSize = 24.dp) { musicViewModel.toggleFavorite(currentTrack) }
                             PlayerAction(icon = rememberVectorPainter(androidx.compose.material.icons.Icons.Filled.Radio), label = "Radio", iconSize = 24.dp) { musicViewModel.startRadio() }
                             PlayerAction(icon = rememberVectorPainter(if (isAlexa) Icons.Outlined.Speaker else Icons.Outlined.PhoneAndroid), label = if (isAlexa) "Alexa" else mobileDevices.firstOrNull { it.id == remoteMobileOutput.owner }?.name?.takeIf { output == com.example.juke.viewmodels.PlaybackOutput.REMOTE_PHONE } ?: "Phone", active = output != com.example.juke.viewmodels.PlaybackOutput.PHONE, iconSize = 24.dp) { showOutputSheet = true }
-                            PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
+                            if (tabletLandscape) PlayerAction(icon = rememberVectorPainter(Icons.Default.Share), label = "Share", iconSize = 24.dp) {
+                                currentTrack.ytVideoId?.let { shareSong("Share ${currentTrack.title}", "https://music.youtube.com/watch?v=$it") }
+                            } else PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
                         PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel, modifier = Modifier.padding(top = 10.dp))
                         PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = isTablet,
@@ -409,7 +438,7 @@ fun PlayerScreen(
                         else if (output == com.example.juke.viewmodels.PlaybackOutput.PHONE) PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
                     }
-                })
+                }, queue = queueContent)
             }
         }
         }
@@ -436,25 +465,7 @@ fun PlayerScreen(
             val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
             val queueError by musicViewModel.queueLoadError.collectAsStateWithLifecycle()
             Box(Modifier.fillMaxWidth().height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.75f)) {
-            QueueBottomSheetContent(
-                statusText = when {
-                    rec.reserve > 0 -> "${rec.reserve} more songs ready from the radio"
-                    else -> null
-                },
-                error = queueError, onRetry = musicViewModel::refreshQueue,
-                currentTrack = currentTrack,
-                queue = uiState.queue,
-                queueIndex = uiState.queueIndex,
-                uiState = uiState,
-                onClose = { showQueue = false },
-                onMoveTrack = { from, to -> musicViewModel.moveInQueue(from, to) },
-                onRemoveTrack = { id, complete -> musicViewModel.removeFromQueue(id, complete) },
-                onPlayTrack = { track -> musicViewModel.playTrackFromQueue(track) },
-                onShuffleUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SHUFFLE_UPCOMING) },
-                onSortUpcoming = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.SORT_UPCOMING) },
-                onClearPlayed = { musicViewModel.applyQueueTool(com.example.juke.viewmodels.MusicViewModel.QueueTool.CLEAR_PLAYED) },
-                onSaveAsPlaylist = { musicViewModel.saveQueueAsPlaylist() }
-            )
+            queueContent()
             }
         }
     }

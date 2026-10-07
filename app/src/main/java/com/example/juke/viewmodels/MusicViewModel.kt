@@ -165,7 +165,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _echoRequests = MutableStateFlow(0)
     private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow) { switching, requests, buffering ->
-        switching || requests > 0 || (buffering && !isAlexa)
+        switching || (buffering && !isAlexa)
     }
     private val combinedState: StateFlow<MusicUiState> = combine(
         _output,
@@ -194,7 +194,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
         val presented = withPendingPlayback(state.copy(isLoading = state.isLoading || busy), pending)
         presented.copy(phase = com.example.juke.services.playbackPhase(presented.currentTrack != null,
-            _isSwitchingOutput.value, pending != null || _echoRequests.value > 0,
+            _isSwitchingOutput.value, pending != null,
             presented.isLoading, presented.isPlaying, presented.error != null))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MusicUiState())
 
@@ -217,7 +217,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             queue = state.queue.map { if (it.uuid == current?.uuid) current else it },
             queueIndex = state.index,
             isPlaying = (isRemotePhone || state.sharedOutput.mode != "phone") && state.playing,
-            isLoading = (isRemotePhone || state.sharedOutput.mode != "phone") && (state.processing || (state.playing && !state.confirmed)),
+            isLoading = (isRemotePhone || state.sharedOutput.mode != "phone") && (state.playing && (state.processing || !state.confirmed)),
             position = state.livePosition(),
             duration = state.durationMs
         )
@@ -1790,6 +1790,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var remoteVolumeJob: Job? = null
     fun setRemotePhoneVolume(volume: Int) {
         val output = _remoteMobileOutput.value
+        com.example.juke.services.MobileDeviceConnection.previewVolume(output.owner, volume)
         remoteVolumeJob?.cancel()
         remoteVolumeJob = viewModelScope.launch {
             delay(150)

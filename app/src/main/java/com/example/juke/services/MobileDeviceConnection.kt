@@ -21,6 +21,12 @@ object MobileDeviceConnection {
     private val handled = linkedSetOf<String>()
     private var acknowledge = emptyList<String>()
     private var latestOutput = SharedPlaybackOutput()
+    private data class PendingVolume(val value: Int, val until: Long)
+    private val pendingVolumes = mutableMapOf<String, PendingVolume>()
+    fun previewVolume(id: String, value: Int) {
+        pendingVolumes[id] = PendingVolume(value.coerceIn(0, 100), android.os.SystemClock.elapsedRealtime() + 5_000)
+        _devices.value = _devices.value.map { if (it.id == id) it.copy(volume = value.coerceIn(0, 100)) else it }
+    }
     fun rememberOutput(output: SharedPlaybackOutput): SharedPlaybackOutput {
         if (!output.olderThan(latestOutput)) latestOutput = output
         return latestOutput
@@ -49,7 +55,13 @@ object MobileDeviceConnection {
                     if (activeGeneration != generation) return@launch
                     acknowledge = emptyList()
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
-                        .map { MobileAudioDevice(it.text("id"), it.text("name"), (it["volume"] as? JsonPrimitive)?.intOrNull) }
+                        .map {
+                            val id = it.text("id")
+                            val reported = (it["volume"] as? JsonPrimitive)?.intOrNull
+                            val pending = pendingVolumes[id]
+                            if (pending != null && (reported == pending.value || android.os.SystemClock.elapsedRealtime() >= pending.until)) pendingVolumes.remove(id)
+                            MobileAudioDevice(id, it.text("name"), pendingVolumes[id]?.value ?: reported)
+                        }
                     supportsWait = reply.containsKey("revision")
                     revision = reply.number("revision")
                     val output = rememberOutput(sharedPlaybackOutput(reply))
@@ -83,6 +95,7 @@ object MobileDeviceConnection {
         ++generation
         job?.cancel(); job = null
         _devices.value = emptyList()
+        pendingVolumes.clear()
         scope.launch { runCatching { withTimeout(2_000) {
             if (wasOwner) PlaybackService.pausePhoneForHandoff()
             request("offline", presenceSession = closingSession)

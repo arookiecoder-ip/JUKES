@@ -11,18 +11,19 @@ import androidx.compose.ui.unit.dp
 
 /** Keep artwork beside controls on wide screens, and above them in portrait. */
 @Composable
-fun ResponsivePlayerLayout(artwork: @Composable () -> Unit, controls: @Composable () -> Unit, modifier: Modifier = Modifier) {
+fun ResponsivePlayerLayout(artwork: @Composable () -> Unit, controls: @Composable () -> Unit, modifier: Modifier = Modifier, queue: (@Composable () -> Unit)? = null) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val paneWidth = maxWidth
         val paneHeight = maxHeight
-        val wide = paneWidth >= 600.dp && paneWidth > paneHeight
-        if (wide) Row(Modifier.fillMaxSize().testTag("Landscape player")) {
-            Box(Modifier.weight(1f).fillMaxHeight().testTag("Player artwork pane")) { artwork() }
-            Box(Modifier.weight(0.9f).fillMaxHeight().stableStatusBarsPadding().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.widthIn(max = 640.dp).fillMaxSize().testTag("Player controls pane")) { controls() }
+        val wide = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= 600 && paneWidth > paneHeight
+        if (wide && queue != null) Row(Modifier.fillMaxSize().testTag("Landscape player")) {
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                Box(Modifier.weight(1f).fillMaxWidth()) { artwork() }
+                Box(Modifier.heightIn(max = paneHeight * 0.52f).fillMaxWidth()) { controls() }
             }
+            Box(Modifier.weight(1f).fillMaxHeight().stableStatusBarsPadding()) { queue() }
         } else Column(Modifier.fillMaxSize().testTag("Portrait player"), horizontalAlignment = Alignment.CenterHorizontally) {
-            val fraction = if (paneWidth >= 600.dp) 0.55f else 0.6f
+            val fraction = 0.6f
             Box(Modifier.fillMaxWidth().height(paneHeight * fraction).testTag("Player artwork pane")) { artwork() }
             Box(Modifier.weight(1f).widthIn(max = 680.dp).fillMaxWidth().testTag("Player controls pane")) { controls() }
         }

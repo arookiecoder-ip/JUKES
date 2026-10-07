@@ -45,7 +45,7 @@ import kotlin.math.roundToInt
 fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex: Int, uiState: MusicUiState,
     onClose: () -> Unit, onMoveTrack: (Int, Int) -> Unit, onRemoveTrack: (String, (Boolean) -> Unit) -> Unit,
     onPlayTrack: (Track) -> Unit, statusText: String? = null, onShuffleUpcoming: () -> Unit = {},
-    error: String? = null, onRetry: () -> Unit = {}, onSortUpcoming: () -> Unit = {}, onClearPlayed: () -> Unit = {}, onSaveAsPlaylist: () -> Unit = {}) {
+    error: String? = null, onRetry: () -> Unit = {}, onSortUpcoming: () -> Unit = {}, onClearPlayed: () -> Unit = {}, onSaveAsPlaylist: () -> Unit = {}, showClose: Boolean = true) {
     val haptics = com.example.juke.utils.rememberJukeHaptics()
     val menu = LocalMediaMenu.current
     val scope = rememberCoroutineScope()
@@ -115,7 +115,7 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
                     DropdownMenuItem(text = { Text("Save queue to playlist") }, onClick = { toolsOpen = false; onSaveAsPlaylist() })
                 }
             }
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close queue") }
+            if (showClose) IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close queue") }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         if (uiState.isQueueOperationInProgress) LinearProgressIndicator(Modifier.fillMaxWidth())
