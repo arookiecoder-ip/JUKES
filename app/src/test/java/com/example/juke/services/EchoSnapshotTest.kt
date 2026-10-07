@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class EchoSnapshotTest {
+    @Test fun pauseAcknowledgmentNeverShowsPlaybackLoading() {
+        assertFalse(EchoState(playing = false, processing = true, confirmed = false).loading)
+        assertFalse(EchoState(playing = false, processing = true, confirmed = true).loading)
+    }
+    @Test fun realResumeAndNewSongPreparationStillShowLoading() {
+        assertTrue(EchoState(playing = true, processing = true, confirmed = false).loading)
+        assertTrue(EchoState(playing = true, processing = false, confirmed = false).loading)
+    }
+    @Test fun confirmedPlaybackDoesNotLoadWhenVolumeChanges() {
+        assertFalse(EchoState(playing = true, processing = false, confirmed = true, volume = 70).loading)
+    }
+
     private fun snapshot(json: String) = parseEchoSnapshot(Json.parseToJsonElement(json) as JsonObject, 1_000, null, false)
 
     @Test fun unknownVolumeStaysUnknownInsteadOfBecomingZero() {

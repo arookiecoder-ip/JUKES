@@ -217,7 +217,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             queue = state.queue.map { if (it.uuid == current?.uuid) current else it },
             queueIndex = state.index,
             isPlaying = (isRemotePhone || state.sharedOutput.mode != "phone") && state.playing,
-            isLoading = (isRemotePhone || state.sharedOutput.mode != "phone") && (state.playing && (state.processing || !state.confirmed)),
+            isLoading = (isRemotePhone || state.sharedOutput.mode != "phone") && state.loading,
             position = state.livePosition(),
             duration = state.durationMs
         )

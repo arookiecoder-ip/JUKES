@@ -29,6 +29,9 @@ data class EchoState(
     val sharedOutput: SharedPlaybackOutput = SharedPlaybackOutput(),
     val queueVersion: Long = -1
 ) {
+    /** Pause is not buffering, even while its acknowledgment is pending. */
+    val loading: Boolean get() = playing && (processing || !confirmed)
+
     /** Live position: the server anchor plus the time since, while playing (like the web progress bar). */
     fun livePosition(now: Long = SystemClock.elapsedRealtime()): Long {
         val elapsed = if (playing && confirmed) (now - anchoredAt).coerceAtLeast(0) else 0
