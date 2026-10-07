@@ -655,7 +655,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     /** Select another online phone without starting the same song on this phone. */
     fun switchToMobile(deviceId: String) {
         if (deviceId == com.example.juke.services.PhonePlaybackOwnership.ownerId) { switchOutput(null); return }
-        if (_isSwitchingOutput.value) return
+        if (_isSwitchingOutput.value) { outputSwitchRequests.request("mobile:$deviceId"); return }
+        outputSwitchRequests.request("mobile:$deviceId")
         _isSwitchingOutput.value = true
         playlistBackfillJob?.cancel()
         viewModelScope.launch {
@@ -669,7 +670,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 updatePolling()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { _messages.tryEmit(com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't switch devices") }
-            finally { _isSwitchingOutput.value = false }
+            finally {
+                _isSwitchingOutput.value = false
+                val next = outputSwitchRequests.finish()
+                if (signedIn && next != null) switchOutput(next.serial)
+            }
         }
     }
 
@@ -763,6 +768,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * and play/pause state move with it.
      */
     fun switchOutput(serial: String?) {
+        if (serial?.startsWith("mobile:") == true) { switchToMobile(serial.removePrefix("mobile:")); return }
         if (_isSwitchingOutput.value) {
             outputSwitchRequests.request(serial)
             return
