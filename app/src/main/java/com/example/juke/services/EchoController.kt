@@ -206,15 +206,27 @@ class EchoController(
         }
     }
 
-    private fun apply(np: JsonObject) {
+    private suspend fun apply(np: JsonObject) {
         val now = SystemClock.elapsedRealtime()
-        _state.update { old -> parseEchoSnapshot(np, now, old.volume, now < volumeGraceUntil, old.queue) }
+        val previous = _state.value
+        val preserveVolume = now < volumeGraceUntil
+        val parsed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            parseEchoSnapshot(np, now, previous.volume, preserveVolume, previous.queue)
+        }
+        if (parsed.sharedOutput.olderThan(MobileDeviceConnection.output.value)) return
+        // A pause, close or volume preview during decoding wins over this response.
+        _state.compareAndSet(previous, parsed)
     }
 
     suspend fun refreshSharedPhone() {
         val np = Backend.get("/alexa/now_playing/", mapOf("serial" to "phone",
             "queue_version" to _state.value.queueVersion.toString())).objectOrEmpty()
         apply(np)
+    }
+
+    fun phoneDisconnected(output: SharedPlaybackOutput) {
+        val now = SystemClock.elapsedRealtime()
+        _state.update { old -> old.withDisconnectedPhone(output, now) }
     }
 
     private fun requireSerial(): String =

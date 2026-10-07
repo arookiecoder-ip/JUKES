@@ -346,7 +346,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         playbackManager.initialize()
         viewModelScope.launch {
             com.example.juke.services.PhonePlaybackOwnership.queueNeedsSync.collect {
-                if (!isAlexa && !_isSwitchingOutput.value && signedIn && phoneQueueSyncJob?.isActive != true) synchronizePhoneQueue()
+                if (!isAlexa && !isRemotePhone && !_isSwitchingOutput.value && signedIn && phoneQueueSyncJob?.isActive != true) synchronizePhoneQueue()
             }
         }
         viewModelScope.launch {
@@ -697,7 +697,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun remoteControl(action: String, payload: JsonObject = buildJsonObject {}) {
-        viewModelScope.launch { runEcho { com.example.juke.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload) } }
+        viewModelScope.launch { runEcho {
+            if (action == "play") {
+                com.example.juke.services.PhonePlaybackOwnership.localHandoff = true
+                try {
+                    val selected = com.example.juke.services.MobileDeviceConnection.resume(_remoteMobileOutput.value)
+                    if (selected != null) startTransferredPhone(selected, playOverride = true)
+                } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
+            } else com.example.juke.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload)
+        } }
     }
 
     /** Select another online phone without starting the same song on this phone. */
@@ -785,7 +793,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     finally { _isSwitchingOutput.value = false }
                 }
             }
-        } else if (output.mode == "phone" && output.owner.isNotBlank() && output.owner != ownId) {
+        } else if (output.mode == "phone" && output.owner != ownId) {
             // A downloaded track may have continued without a token while offline.
             // On reconnection it must stop before following another phone's ownership.
             playbackManager.pause()
@@ -794,6 +802,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             playlistBackfillJob?.cancel()
             _remoteMobileOutput.value = output
             setOutputPreference(PlaybackOutput.REMOTE_PHONE)
+            echo.phoneDisconnected(output)
             if (remotePhoneRefreshJob?.isActive != true) remotePhoneRefreshJob = viewModelScope.launch {
                 runEcho { echo.refreshSharedPhone() }
             }
@@ -1673,7 +1682,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }.also { resolved -> trackDao.insertTracks(resolved.map { it.toEntity() }) }
 
     fun togglePlayPause() {
-        if (isRemotePhone) { remoteControl(if (echo.state.value.playing) "pause" else "play"); return }
+        if (isRemotePhone) { remoteControl(if (_remoteMobileOutput.value.owner.isNotBlank() && echo.state.value.playing) "pause" else "play"); return }
         if (isAlexa) {
             val playing = echo.state.value.playing
             launchEcho { echo.command(if (playing) "pause" else "play") }

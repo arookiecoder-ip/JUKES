@@ -17,6 +17,9 @@ import com.example.juke.services.DownloadRepository
 
 @Composable
 fun DownloadedBadge(videoId: String?, modifier: Modifier = Modifier) {
+    // Album/artist cards have no song id. They cannot show this badge and
+    // should not attach two download-flow collectors while scrolling.
+    if (videoId.isNullOrBlank()) return
     val context = LocalContext.current
     val repository = remember { DownloadRepository.get(context) }
     val downloadedFlow = remember(repository, videoId) { repository.downloadedIds.map { ids -> videoId != null && videoId in ids }.distinctUntilChanged() }

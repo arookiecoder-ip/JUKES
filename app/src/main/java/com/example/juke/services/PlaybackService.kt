@@ -220,26 +220,14 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var silentWatchdog: SilentPlaybackWatchdog
 
     /**
-     * Silent-but-advancing playback confirmed by the watchdog. The first strike
-     * re-prepares the player in place (same position) since a wedged renderer
-     * or sink is the usual cause and an app restart was the only remedy; if it
-     * is still silent afterwards the output route is the likely culprit.
+     * A flat Visualizer waveform is diagnostic only: quiet intros and offloaded
+     * audio can both return silence while playback is healthy. Restarting here
+     * caused an audible interruption and cursor jump. Real player errors and
+     * network/lease interruptions retain their separate recovery paths.
      */
     private fun onSilentPlayback(trackId: String, firstStrike: Boolean) {
         if (!::player.isInitialized || player.currentMediaItem?.mediaId != trackId || !player.isPlaying) return
-        if (firstStrike) {
-            Log.w(TAG, "No audible output for $trackId; re-preparing in place")
-            val position = player.currentPosition.coerceAtLeast(0)
-            player.stop()
-            player.seekTo(position)
-            player.prepare()
-            player.play()
-            silentWatchdog.notePlaying()
-        } else {
-            Log.w(TAG, "Still no audible output for $trackId after re-prepare")
-            com.example.juke.network.NetworkFeedback.notify(
-                "Playing with no sound. Check Bluetooth/output, then restart the app.")
-        }
+        Log.d(TAG, "Flat waveform for $trackId (first=$firstStrike); retaining uninterrupted playback")
     }
     private val leaseInterruption = PlaybackInterruption()
     private val networkInterruption = PlaybackInterruption()

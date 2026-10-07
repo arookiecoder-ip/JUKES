@@ -81,3 +81,9 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
 /** Mirrored phone metadata is never proof that an Echo handoff started. */
 internal fun EchoState.confirmedOnAlexa(videoId: String): Boolean = sharedOutput.mode != "phone" &&
     confirmed && playing && track?.ytVideoId == videoId
+
+/** Presence confirms a close before the slower now-playing refresh arrives. */
+internal fun EchoState.withDisconnectedPhone(output: SharedPlaybackOutput, now: Long): EchoState =
+    if (output.mode != "phone" || output.owner.isNotBlank()) this else copy(
+        positionMs = livePosition(now), anchoredAt = now, playing = false,
+        confirmed = true, processing = false, sharedOutput = output)

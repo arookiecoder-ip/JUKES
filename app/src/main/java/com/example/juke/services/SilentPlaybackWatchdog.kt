@@ -27,16 +27,12 @@ fun waveformPeakDeviation(waveform: ByteArray): Int {
 }
 
 /**
- * Detects "progress moves but no sound" on phone playback and recovers without
- * an app restart.
+ * Samples "progress moves but no captured sound" for playback diagnostics.
  *
  * The player can reach a state where it consumes buffers and advances position
  * while nothing audible comes out (wedged renderer/DSP path, stuck route). The
- * only remedy used to be killing the app. This samples the player's own audio
- * session waveform shortly after play starts: if the position advances while
- * the session stays digitally silent, the first strike re-prepares the player
- * in place (same position); if it is still silent afterwards the user gets a
- * toast pointing at Bluetooth/output instead of silence.
+ * Visualizer silence cannot distinguish a quiet recording or hardware audio
+ * offload from a renderer fault. Callbacks must not restart healthy playback.
  *
  * The Visualizer lives only for the few seconds of a check, so there is no
  * steady battery cost. Checks are skipped while muted, in a call, or when the
@@ -48,7 +44,7 @@ class SilentPlaybackWatchdog(
     private val player: ExoPlayer,
     /** True while a sound check is meaningful (phone output, no call, volume up). */
     private val eligible: () -> Boolean,
-    /** (trackId, firstStrike): recover in place on the first strike, toast on the second. */
+    /** (trackId, firstStrike): diagnostic observation, not proof of a player fault. */
     private val onSilent: (trackId: String, firstStrike: Boolean) -> Unit
 ) {
     private var checkJob: Job? = null
@@ -120,8 +116,7 @@ class SilentPlaybackWatchdog(
             }
             val advancedMs = player.currentPosition - startPosition
             Log.d(TAG, "Silence check: peak=$peak advancedMs=$advancedMs")
-            // Genuinely quiet intros stay under the peak only if they are also
-            // digital silence; anything audible trips the threshold fast.
+            // A low peak is an observation only; never use it to reset the sink.
             if (captures < SAMPLES / 2) return null
             return peak < SOUND_THRESHOLD && advancedMs >= MIN_ADVANCE_MS
         } catch (_: Exception) {

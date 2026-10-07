@@ -116,6 +116,25 @@ object MobileDeviceConnection {
         return if (reply.flag("default_selected")) rememberOutput(sharedPlaybackOutput(reply)) else null
     }
 
+    /** Atomically resume the live target, or select this phone after its target closed. */
+    suspend fun resume(output: SharedPlaybackOutput): SharedPlaybackOutput? {
+        val commandId = UUID.randomUUID().toString()
+        suspend fun send(current: SharedPlaybackOutput) = request("resume", buildJsonObject {
+            put("output_token", current.token); put("command_id", commandId)
+            put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
+        })
+        val reply = try { send(output) } catch (error: BackendHttpException) {
+            if (error.statusCode != 409) throw error
+            val fresh = AlexaBackendApi.phoneOutputStatus()
+            // A close can race the tap before presence delivers the new token.
+            // Retry only that orphaned-phone case, never a switch to another output.
+            if (fresh.mode != "phone" || fresh.owner.isNotBlank() || fresh.handoffPending) throw error
+            send(fresh)
+        }
+        val latest = rememberOutput(sharedPlaybackOutput(reply))
+        return if (reply.flag("default_selected")) latest else null
+    }
+
     suspend fun transfer(target: String, output: SharedPlaybackOutput, serial: String): SharedPlaybackOutput =
         rememberOutput(sharedPlaybackOutput(request("transfer", buildJsonObject {
             put("target_id", target); put("output_token", output.token); put("serial", serial)

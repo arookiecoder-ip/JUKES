@@ -133,6 +133,7 @@ import com.example.juke.utils.LyricsRomanizer
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.LibraryViewModel
 import com.example.juke.viewmodels.MusicViewModel
+import com.example.juke.viewmodels.MusicUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -339,19 +340,25 @@ fun PlayerScreen(
 
     val displayTrack = if (romanizeLyrics) romanizedTrack ?: currentTrack else currentTrack
 
+    val stableQueueTrack = remember(currentTrack) { currentTrack }
     val queueContent: @Composable () -> Unit = {
         val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
         val queueError by musicViewModel.queueLoadError.collectAsStateWithLifecycle()
+        // The queue does not display the playback clock. Keep its inputs stable
+        // while progress updates so visible rows are not rebuilt every tick.
+        val queueUiState = remember(uiState.isLoading, uiState.isQueueOperationInProgress) {
+            MusicUiState(isLoading = uiState.isLoading, isQueueOperationInProgress = uiState.isQueueOperationInProgress)
+        }
             QueueBottomSheetContent(
                 statusText = when {
                     rec.reserve > 0 -> "${rec.reserve} more songs ready from the radio"
                     else -> null
                 },
                 error = queueError, onRetry = musicViewModel::refreshQueue,
-                currentTrack = currentTrack,
+                currentTrack = stableQueueTrack,
                 queue = uiState.queue,
                 queueIndex = uiState.queueIndex,
-                uiState = uiState,
+                uiState = queueUiState,
                 onClose = { showQueue = false }, showClose = !tabletLandscape,
                 onMoveTrack = { from, to -> musicViewModel.moveInQueue(from, to) },
                 onRemoveTrack = { id, complete -> musicViewModel.removeFromQueue(id, complete) },

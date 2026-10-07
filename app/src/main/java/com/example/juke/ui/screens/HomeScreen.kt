@@ -121,17 +121,6 @@ fun HomeScreen(
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val jamState by jam.state.collectAsStateWithLifecycle()
     LaunchedEffect(jam) { jam.refresh() }
-    val connected by musicViewModel.echo.amazonConnected.collectAsStateWithLifecycle()
-    val devices by musicViewModel.echo.devices.collectAsStateWithLifecycle()
-    val serial by musicViewModel.echo.serial.collectAsStateWithLifecycle()
-    val device = devices.firstOrNull { it.serial == serial }
-    val alexaStatus = when {
-        connected == null -> "Alexa · Checking"
-        connected == false -> "Alexa · Disconnected"
-        device == null -> "Alexa · No device"
-        !device.online -> "Alexa · Offline"
-        else -> "Alexa · Online"
-    }
     val haptic = rememberJukeHaptics()
 
     LaunchedEffect(Unit) {
@@ -144,7 +133,7 @@ fun HomeScreen(
     }
 
     HomeContent(
-        uiState = uiState, alexaStatus = alexaStatus, bottomPadding = bottomPadding, jamActive = jamState.active,
+        uiState = uiState, alexaStatus = "", bottomPadding = bottomPadding, jamActive = jamState.active,
         onSettingsClick = { haptic.click(); onSettingsClick() }, onRefresh = homeViewModel::refresh,
         onSearchClick = onSearchClick, onOpenItem = onOpenItem,
         onPlayTracks = { tracks, index -> musicViewModel.setQueue(tracks, index) },
@@ -189,7 +178,11 @@ internal fun HomeContent(
                 }
             }
             uiState.shelves.forEachIndexed { index, shelf ->
-                item(key = "shelf_${index}_${shelf.id}") {
+                item(key = "shelf_${index}_${shelf.id}", contentType = when {
+                    shelf.tracks.isNotEmpty() && shelf.items.all { it.kind == "track" } -> "song-shelf"
+                    shelf.items.all { it.kind == "artist" } -> "artist-shelf"
+                    else -> "mixed-shelf"
+                }) {
                     when {
                         shelf.tracks.isNotEmpty() && shelf.items.all { it.kind == "track" } -> SongOnlyShelf(
                             title = shelf.title, tracks = shelf.tracks,

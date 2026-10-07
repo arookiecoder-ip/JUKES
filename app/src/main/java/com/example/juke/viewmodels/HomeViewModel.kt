@@ -83,7 +83,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val feed = Backend.get("/api/home/", if (refresh) mapOf("refresh" to "1") else emptyMap()).objectOrEmpty()
                 val liked = AccountRepository.liked.value
-                val shelves = feed.array("shelves").mapNotNull { raw ->
+                val shelves = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { feed.array("shelves").mapNotNull { raw ->
                     val shelf = raw.objectOrEmpty()
                     val items = shelf.array("items").mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(BrowseParser::item) }
                     if (items.isEmpty()) return@mapNotNull null
@@ -94,7 +94,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         items = items,
                         tracks = items.filter { it.kind == "track" && it.videoId.isNotBlank() }.map { it.toTrack(liked) }
                     )
-                }
+                } }
                 _uiState.update {
                     it.copy(
                         greeting = buildGreeting(),

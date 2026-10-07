@@ -121,20 +121,23 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     val library = async { Backend.get("/api/library/").objectOrEmpty() }
                     val subscriptions = async { Backend.get("/api/subscribed_artists/").objectOrEmpty() }
                     val data = library.await()
-                    val collections = data.array("playlists").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
-                        .filterNot { it.title.trim().lowercase() in setOf("episodes for later", "sounds from shorts", "new episodes", "new episdes") }
-                    val liked = collections.firstOrNull { it.playlistId == "LM" || it.id == "LM" }
-                        ?: BrowseParser.item(JsonObject(mapOf("playlistId" to JsonPrimitive("LM"), "title" to JsonPrimitive("Liked Music"))))
-                    val albums = (collections.filter { it.kind == "album" } + data.array("albums").mapNotNull {
-                        (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "albums") }
-                    }).distinctBy { it.id }
-                    val artists = subscriptions.await().array("artists").mapNotNull {
-                        (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "artists") }
-                    }.filter { it.id.isNotBlank() }.distinctBy { it.id }
-                    _uiState.update { it.copy(
-                        playlists = listOf(liked) + collections.filter { item -> item.kind != "album" && item.playlistId != "LM" && item.id != "LM" }.distinctBy { item -> item.id },
-                        albums = albums, artists = artists, isLoading = false, needsYouTube = false
-                    ) }
+                    val artistData = subscriptions.await()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        val collections = data.array("playlists").mapNotNull { (it as? JsonObject)?.let(BrowseParser::item) }
+                            .filterNot { it.title.trim().lowercase() in setOf("episodes for later", "sounds from shorts", "new episodes", "new episdes") }
+                        val liked = collections.firstOrNull { it.playlistId == "LM" || it.id == "LM" }
+                            ?: BrowseParser.item(JsonObject(mapOf("playlistId" to JsonPrimitive("LM"), "title" to JsonPrimitive("Liked Music"))))
+                        val albums = (collections.filter { it.kind == "album" } + data.array("albums").mapNotNull {
+                            (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "albums") }
+                        }).distinctBy { it.id }
+                        val artists = artistData.array("artists").mapNotNull {
+                            (it as? JsonObject)?.let { raw -> BrowseParser.item(raw, "artists") }
+                        }.filter { it.id.isNotBlank() }.distinctBy { it.id }
+                        _uiState.update { it.copy(
+                            playlists = listOf(liked) + collections.filter { item -> item.kind != "album" && item.playlistId != "LM" && item.id != "LM" }.distinctBy { item -> item.id },
+                            albums = albums, artists = artists, isLoading = false, needsYouTube = false
+                        ) }
+                    }
                 }
             }
         }

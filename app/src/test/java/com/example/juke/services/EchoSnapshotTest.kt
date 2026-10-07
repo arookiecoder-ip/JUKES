@@ -71,4 +71,22 @@ class EchoSnapshotTest {
             2_000, null, false, first.queue)
         assertTrue(empty.queue.isEmpty())
     }
+    @Test fun closedPhoneImmediatelyFreezesClockWithoutLosingQueue() {
+        val original = snapshot("""{"video_id":"AAAAAAAAAAA","queue_index":0,"queue":[{"video_id":"AAAAAAAAAAA","title":"Song"}],"playing":true,"playback_confirmed":true,"position_ms":4000,"duration_ms":120000}""")
+        val closed = SharedPlaybackOutput(mode = "phone", owner = "", token = "closed")
+        val paused = original.withDisconnectedPhone(closed, 2000)
+        assertFalse(paused.playing)
+        assertFalse(paused.loading)
+        assertEquals(5000L, paused.livePosition(9000))
+        assertSame(original.queue, paused.queue)
+        assertEquals(original.track, paused.track)
+        assertEquals(closed, paused.sharedOutput)
+        assertEquals(5000L, paused.withDisconnectedPhone(closed, 10000).livePosition(12000))
+    }
+
+    @Test fun livePhoneOrAlexaPresenceDoesNotPausePlayback() {
+        val original = EchoState(playing = true, confirmed = true)
+        assertSame(original, original.withDisconnectedPhone(SharedPlaybackOutput(mode = "alexa"), 2000))
+        assertSame(original, original.withDisconnectedPhone(SharedPlaybackOutput(mode = "phone", owner = "live-phone"), 2000))
+    }
 }

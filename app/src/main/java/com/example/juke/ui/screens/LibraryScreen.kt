@@ -77,7 +77,9 @@ fun LibraryScreen(
     val downloadedSongs = remember(downloaded, downloading, downloadedCollections, state.searchQuery) {
         com.example.juke.services.standaloneDownloads((downloaded + downloading).distinctBy { it.ytVideoId }, downloadedCollections).filter { it.title.contains(state.searchQuery, true) || it.artist.contains(state.searchQuery, true) }
     }
-    val collectionDownloads = downloadedCollections.filter { it.title.contains(state.searchQuery, true) || it.subtitle.contains(state.searchQuery, true) }
+    val collectionDownloads = remember(downloadedCollections, state.searchQuery) {
+        downloadedCollections.filter { it.title.contains(state.searchQuery, true) || it.subtitle.contains(state.searchQuery, true) }
+    }
     val context = LocalContext.current
     val mediaMenu = LocalMediaMenu.current
     var searchOpen by rememberSaveable { mutableStateOf(false) }
@@ -161,7 +163,7 @@ fun LibraryScreen(
             LibraryPages(pager) { page ->
             key(page, grid, selection.active) {
             val filter = LibraryFilter.entries[page]
-            val entries = allEntries.filter { filter.kind == null || it.kind == filter.kind }
+            val entries = remember(allEntries, filter) { allEntries.filter { filter.kind == null || it.kind == filter.kind } }
             Column(Modifier.fillMaxSize()) {
             if (filter == LibraryFilter.DOWNLOADS) DownloadSelectionBar(selection, downloadedSongs, musicViewModel.downloads::removeAll)
             if (filter != LibraryFilter.DOWNLOADS && online && state.error != null && entries.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -245,7 +247,7 @@ fun LibraryScreen(
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = bottomPadding + 96.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(entries, key = { "${it.kind}:${it.id}" }) { item ->
+                        items(entries, key = { "${it.kind}:${it.id}" }, contentType = { "library-row" }) { item ->
                             Row(
                                 Modifier.fillMaxWidth().combinedClickable(onClick = { open(item) }, onLongClick = { showOptions(item) })
                                     .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically
@@ -328,7 +330,9 @@ private fun LibraryArtwork(item: BrowseItem, modifier: Modifier) {
         if (liked || item.image.isBlank()) Icon(
             if (liked) Icons.Default.ThumbUp else if (item.kind == "artist") Icons.Default.Person else Icons.Default.LibraryMusic,
             contentDescription = null, modifier = Modifier.fillMaxSize(0.48f), tint = Color.White)
-        else AsyncImage(model = item.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        else BoxWithConstraints(Modifier.fillMaxSize()) {
+            com.example.juke.ui.components.ListArtwork(item.image, maxWidth, Modifier.fillMaxSize())
+        }
     }
 }
 
