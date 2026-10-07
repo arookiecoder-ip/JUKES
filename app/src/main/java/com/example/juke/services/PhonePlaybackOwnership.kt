@@ -42,7 +42,7 @@ object PhonePlaybackOwnership {
     }
 
     fun accept(output: SharedPlaybackOutput) {
-        check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank())
+        check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank() && !output.handoffPending)
         token = output.token
         relinquishing = false
         // Pause before the server lease expires, leaving room for a slow status request.
