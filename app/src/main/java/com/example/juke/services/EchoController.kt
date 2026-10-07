@@ -64,6 +64,7 @@ class EchoController(
     private var pollJob: Job? = null
     private var pollingForeground = false
     private val pollLock = Mutex()
+    private val transportLock = Mutex()
     private var lastVolumeRefresh = 0L
     private var likedVersion: Long? = null
     private var mutationEpoch = 0L
@@ -211,18 +212,27 @@ class EchoController(
     }
 
     suspend fun command(action: String, refreshAfter: Boolean = true, expectedPhoneToken: String? = null) {
-        send("/alexa/command/", buildJsonObject {
-            put("serial", requireSerial()); put("action", action)
-            if (expectedPhoneToken != null) {
-                put("output_owner", PhonePlaybackOwnership.ownerId); put("output_token", expectedPhoneToken)
-                put("phone_paused", true)
+        transportLock.withLock {
+            val previous = _state.value
+            val transport = action == "play" || action == "pause"
+            // Publish the requested direction before the HTTP round trip so a
+            // second tap reverses it; dispatch commands in the same order.
+            if (transport) _state.update { it.copy(playing = action == "play", positionMs = it.livePosition(), anchoredAt = SystemClock.elapsedRealtime()) }
+            try {
+                send("/alexa/command/", buildJsonObject {
+                    put("serial", requireSerial()); put("action", action)
+                    if (expectedPhoneToken != null) {
+                        put("output_owner", PhonePlaybackOwnership.ownerId); put("output_token", expectedPhoneToken)
+                        put("phone_paused", true)
+                    }
+                })
+            } catch (e: Exception) {
+                if (transport) _state.value = previous
+                throw e
+            } finally {
+                if (refreshAfter) refreshSoon()
             }
-        })
-        // Show the change at once; the next poll confirms it.
-        if (action == "play" || action == "pause") {
-            _state.update { it.copy(playing = action == "play", positionMs = it.livePosition(), anchoredAt = SystemClock.elapsedRealtime()) }
         }
-        if (refreshAfter) refreshSoon()
     }
 
     suspend fun seek(positionMs: Long, refreshAfter: Boolean = true, expectedPhoneToken: String? = null) {

@@ -1638,10 +1638,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             launchPlayback(current) { phoneSetQueue(queue, index, playbackManager.getCurrentPosition().coerceAtLeast(0)) }
         } else viewModelScope.launch {
             runEcho {
-                if (com.example.juke.network.NetworkFeedback.online.value) {
-                    com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
-                    serverPlaybackChecked = true
-                } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
+                if (!playbackManager.isPlayingFlow.value && !com.example.juke.services.PhonePlaybackOwnership.permitsPlayback()) {
+                    if (com.example.juke.network.NetworkFeedback.online.value) {
+                        com.example.juke.services.PhonePlaybackOwnership.claim(echo.serial.value)
+                        serverPlaybackChecked = true
+                    } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
+                }
                 playbackManager.togglePlayPause()
                 synchronizePhoneQueue()
             }
