@@ -45,6 +45,7 @@ object PhonePlaybackOwnership {
 
     fun accept(output: SharedPlaybackOutput) {
         check(output.mode == "phone" && output.owner == ownerId && output.token.isNotBlank() && !output.handoffPending)
+        MobileDeviceConnection.rememberOutput(output)
         token = output.token
         remoteControlled = output.controller.isNotBlank() && output.controller != ownerId
         relinquishing = false

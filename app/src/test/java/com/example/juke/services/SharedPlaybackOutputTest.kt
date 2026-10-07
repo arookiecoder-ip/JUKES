@@ -72,4 +72,10 @@ class SharedPlaybackOutputTest {
         assertTrue(latest.belongsToPhone("phone-two", "transfer"))
         assertFalse(latest.belongsToPhone("phone-one", "transfer"))
     }
+    @Test fun delayedOutputSnapshotsCannotUndoANewerHandoffButServerRestartCanReconcile() {
+        val latest = SharedPlaybackOutput("phone", "two", "new", revision = 4, epoch = "server-one")
+        assertTrue(SharedPlaybackOutput("alexa", token = "old", revision = 3, epoch = "server-one").olderThan(latest))
+        assertFalse(latest.copy(revision = 4).olderThan(latest))
+        assertFalse(SharedPlaybackOutput("alexa", revision = 1, epoch = "restarted-server").olderThan(latest))
+    }
 }

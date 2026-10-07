@@ -20,6 +20,11 @@ object MobileDeviceConnection {
     private var generation = 0L
     private val handled = linkedSetOf<String>()
     private var acknowledge = emptyList<String>()
+    private var latestOutput = SharedPlaybackOutput()
+    fun rememberOutput(output: SharedPlaybackOutput): SharedPlaybackOutput {
+        if (!output.olderThan(latestOutput)) latestOutput = output
+        return latestOutput
+    }
 
     fun start(context: android.content.Context, onState: suspend (SharedPlaybackOutput) -> Unit,
               onCommand: suspend (String, JsonObject) -> Unit) {
@@ -45,7 +50,7 @@ object MobileDeviceConnection {
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
                         .map { MobileAudioDevice(it.text("id"), it.text("name"), (it["volume"] as? JsonPrimitive)?.intOrNull) }
                     revision = reply.number("revision")
-                    val output = sharedPlaybackOutput(reply)
+                    val output = rememberOutput(sharedPlaybackOutput(reply))
                     outputToken = output.token
                     onState(output)
                     val completed = mutableListOf<String>()
@@ -72,16 +77,20 @@ object MobileDeviceConnection {
 
     fun stop() {
         val closingSession = session
+        val wasOwner = PhonePlaybackOwnership.token.isNotBlank()
         ++generation
         job?.cancel(); job = null
         _devices.value = emptyList()
-        scope.launch { runCatching { withTimeout(2_000) { request("offline", presenceSession = closingSession) } } }
+        scope.launch { runCatching { withTimeout(2_000) {
+            if (wasOwner) PlaybackService.pausePhoneForHandoff()
+            request("offline", presenceSession = closingSession)
+        } } }
     }
 
     suspend fun transfer(target: String, output: SharedPlaybackOutput, serial: String): SharedPlaybackOutput =
-        sharedPlaybackOutput(request("transfer", buildJsonObject {
+        rememberOutput(sharedPlaybackOutput(request("transfer", buildJsonObject {
             put("target_id", target); put("output_token", output.token); put("serial", serial)
-        }))
+        })))
 
     suspend fun control(output: SharedPlaybackOutput, action: String, payload: JsonObject = buildJsonObject {}) {
         request("command", buildJsonObject {

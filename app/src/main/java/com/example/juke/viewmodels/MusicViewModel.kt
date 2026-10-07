@@ -700,6 +700,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         } finally { com.example.juke.services.PhonePlaybackOwnership.localHandoff = false }
     }
 
+    private var remotePhoneRefreshJob: Job? = null
     private suspend fun onMobileOutput(output: com.example.juke.services.SharedPlaybackOutput) {
         if (!signedIn || com.example.juke.services.PhonePlaybackOwnership.localHandoff) return
         val ownId = com.example.juke.services.PhonePlaybackOwnership.ownerId
@@ -729,7 +730,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             playlistBackfillJob?.cancel()
             _remoteMobileOutput.value = output
             setOutputPreference(PlaybackOutput.REMOTE_PHONE)
-            echo.refreshSharedPhone()
+            if (remotePhoneRefreshJob?.isActive != true) remotePhoneRefreshJob = viewModelScope.launch {
+                runEcho { echo.refreshSharedPhone() }
+            }
             updatePolling()
         } else if (output.mode == "alexa" && !isAlexa && echo.serial.value.isNotBlank()) adoptRemoteAlexa(output)
     }
@@ -769,7 +772,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (payload.text("playlist_id").isNotBlank()) queueCollection(BrowseParser.item(buildJsonObject { put("playlistId", payload.text("playlist_id")) }), next = action == "next_items")
                 else if (action == "next_items") addNext(tracks()) else addToQueue(tracks())
             }
-            "remove" -> removeFromQueue(payload.text("id"))
+            "remove" -> {
+                val id = payload.text("id")
+                val rows = _uiState.value.queue
+                val indexed = payload["index"]?.let { rows.getOrNull(payload.number("index").toInt()) }
+                val target = indexed?.takeIf { it.uuid == id || it.ytVideoId == id }
+                    ?: rows.firstOrNull { it.uuid == id || it.ytVideoId == id }
+                target?.let { removeFromQueue(it.uuid) }
+            }
             "reorder" -> moveInQueue(payload.number("from").toInt(), payload.number("to").toInt())
             "queue" -> when {
                 payload["collection"] != null -> playCollection(BrowseParser.item(payload["collection"].objectOrEmpty(), payload.text("kind")), payload.flag("shuffle"))
