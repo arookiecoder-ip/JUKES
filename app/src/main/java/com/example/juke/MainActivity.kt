@@ -99,7 +99,8 @@ import com.example.juke.ui.theme.GlassBackdrop
 import com.example.juke.ui.theme.isGlassDark
 import com.example.juke.ui.theme.LocalHazeState
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
@@ -200,7 +201,10 @@ class MainActivity : ComponentActivity() {
         handlePlayerIntent(intent)
 
         setContent {
-            val uiState by musicViewModel.uiState.collectAsStateWithLifecycle()
+            val themeColorsFlow = remember(musicViewModel) {
+                musicViewModel.uiState.map { it.extractedColors }.distinctUntilChanged()
+            }
+            val themeColors by themeColorsFlow.collectAsStateWithLifecycle(initialValue = musicViewModel.uiState.value.extractedColors)
             val homeViewModel: HomeViewModel = viewModel()
             val libraryViewModel: LibraryViewModel = viewModel()
             val searchViewModel: SearchViewModel = viewModel()
@@ -229,7 +233,7 @@ class MainActivity : ComponentActivity() {
             val accountState by account.state.collectAsStateWithLifecycle()
 
             JUKETheme(
-                extractedColors = uiState.extractedColors
+                extractedColors = themeColors
             ) {
                 LaunchedEffect(accountState.stage) {
                     when (accountState.stage) {
@@ -308,9 +312,10 @@ class MainActivity : ComponentActivity() {
                 }
                 val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
                 val visualizerPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-                val watchdogState by musicViewModel.uiState.collectAsStateWithLifecycle()
-                LaunchedEffect(watchdogState.isPlaying) {
-                    if (watchdogState.isPlaying && musicViewModel.output.value == com.example.juke.viewmodels.PlaybackOutput.PHONE &&
+                val playingFlow = remember(musicViewModel) { musicViewModel.uiState.map { it.isPlaying }.distinctUntilChanged() }
+                val watchdogPlaying by playingFlow.collectAsStateWithLifecycle(initialValue = musicViewModel.uiState.value.isPlaying)
+                LaunchedEffect(watchdogPlaying) {
+                    if (watchdogPlaying && musicViewModel.output.value == com.example.juke.viewmodels.PlaybackOutput.PHONE &&
                         ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                         val prefs = getSharedPreferences("audio_visualizer_permission", MODE_PRIVATE)
                         if (!prefs.getBoolean("requested", false)) {

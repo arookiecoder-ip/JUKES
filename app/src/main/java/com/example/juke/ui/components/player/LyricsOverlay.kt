@@ -139,21 +139,15 @@ fun LyricsOverlay(
         }
     }
 
-    // Measure the actual overlay height to compute center padding dynamically
-    var overlayHeightPx by remember { mutableIntStateOf(0) }
-    // Active line rests ~30% from the top (reading position), leaving room for upcoming lines
-    val topPadding = with(density) { (overlayHeightPx * 0.30f).toDp() }
-    val bottomPadding = with(density) { (overlayHeightPx * 0.70f).toDp() }
-
     // Premium full-bleed frosted background
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onSizeChanged { overlayHeightPx = it.height }
+        modifier = Modifier.fillMaxSize()
     ) {
         // Frosted artwork stays visible behind the lyrics and fades into the original banner.
         Box(Modifier.fillMaxSize().fadingEdges(topFraction = 0.08f, bottomFraction = 0.14f)) {
-            AsyncImage(currentTrack.thumbnailUri, null, Modifier.fillMaxSize().blur(28.dp).graphicsLayer { alpha = 0.82f },
+            AsyncImage(coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                .data(currentTrack.thumbnailUri).size(256).crossfade(false).build(), null,
+                Modifier.fillMaxSize().blur(28.dp).graphicsLayer { alpha = 0.82f },
                 contentScale = ContentScale.Crop)
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.40f)))
         }
