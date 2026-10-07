@@ -22,8 +22,8 @@ internal class GuardedMediaNotificationProvider(
         actions: MediaNotification.ActionFactory, callback: MediaNotification.Provider.Callback): MediaNotification =
         delegate.createNotification(session, buttons, actions) { notification ->
             main.post {
-                if (active()) deliverNotificationUpdate({ callback.onNotificationChanged(notification) },
-                    { Build.VERSION.SDK_INT >= 31 && it is android.app.ForegroundServiceStartNotAllowedException }, onDenied)
+                deliverNotificationUpdate({ callback.onNotificationChanged(notification) },
+                    { Build.VERSION.SDK_INT >= 31 && it is android.app.ForegroundServiceStartNotAllowedException }, onDenied, active)
             }
         }
     override fun handleCustomCommand(session: MediaSession, action: String, extras: Bundle): Boolean =

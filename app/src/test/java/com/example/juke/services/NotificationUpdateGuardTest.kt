@@ -15,6 +15,13 @@ class NotificationUpdateGuardTest {
         deliverNotificationUpdate({ updated = true }, { false }, { fail("Should not pause") })
         assertTrue(updated)
     }
+    @Test fun artworkFinishingAfterOutputSwitchCannotRestartOldService() {
+        var localOutput = true
+        val deliver = { deliverNotificationUpdate({ fail("Stale notification reached service") },
+            { true }, { fail("Stale output should be skipped") }, { localOutput }) }
+        localOutput = false
+        deliver()
+    }
     @Test fun unrelatedProgrammingErrorsRemainVisible() {
         val bug = IllegalStateException("unexpected")
         try {
