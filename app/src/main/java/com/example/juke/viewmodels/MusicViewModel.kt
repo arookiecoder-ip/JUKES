@@ -609,9 +609,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val claim = com.example.juke.services.PhonePlaybackOwnership.token
                 val requestId = playbackRequestId
+                selectIdleForegroundDevice()
                 val latest = AlexaBackendApi.phoneOutputStatus()
                 if (requestId == playbackRequestId && latest.mode == "alexa") adoptRemoteAlexa(latest, claim)
-                if (requestId == playbackRequestId) selectIdleForegroundDevice()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Retain the existing output while offline. */ }
         }
@@ -630,6 +630,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             // Restore only metadata. Audio preparation waits for an explicit play action.
             if (_output.value != PlaybackOutput.PHONE) {
                 com.example.juke.services.PlaybackService.discardIdlePhoneQueue()
+                queueManager.clearQueue()
                 playbackManager.release()
                 selected.nowPlaying?.let { snapshot ->
                     val state = com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
