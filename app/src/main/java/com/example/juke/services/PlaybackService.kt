@@ -671,7 +671,10 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             // Prevent infinite loops from metadata updates
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED &&
+                mediaItem?.mediaId == currentPlayingTrackId) {
+                // Metadata/queue backfills preserve the current recovery intent. Real replacements
+                // and queue removal must pass through the cancellation/reset below.
                 // Clear the set of counted tracks when queue changes to ensure fresh counting
                 tracksPlayCountedThisSession.clear()
                 return
