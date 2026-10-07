@@ -107,7 +107,11 @@ class PlaybackManager private constructor(private val context: Context) {
     private val _isBuffering = MutableStateFlow(false)
     val isBufferingFlow: StateFlow<Boolean> = _isBuffering.asStateFlow()
     private val database: MusicDatabase = MusicDatabase.getDatabase(context)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
+        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+            Log.e(TAG, "Playback worker failed", error)
+            com.example.juke.network.NetworkFeedback.notify("Playback interrupted. Tap play to retry.")
+        })
 
     private val _snapshot = MutableStateFlow(PhonePlaybackSnapshot())
     val snapshot: StateFlow<PhonePlaybackSnapshot> = _snapshot.asStateFlow()
@@ -187,9 +191,11 @@ class PlaybackManager private constructor(private val context: Context) {
                     }
                 }
             }).buildAsync()
-            controllerFuture?.addListener(
+            val connection = controllerFuture ?: return
+            connection.addListener(
                 {
-                    val connected = try { controllerFuture?.get() }
+                    if (controllerFuture !== connection) return@addListener
+                    val connected = try { connection.get() }
                     catch (e: Exception) {
                         controllerFuture = null
                         _isPlaying.value = false
