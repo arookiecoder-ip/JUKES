@@ -26,6 +26,7 @@ object PhonePlaybackOwnership {
     var localHandoff: Boolean
         get() = handingOff || preparation.active
         set(value) { handingOff = value }
+    val preparingSong: Boolean get() = preparation.active
     fun beginSongPreparation() = preparation.begin()
     fun endSongPreparation() = preparation.end()
     private data class PendingPauseAck(val token: String, val position: Long?, val playing: Boolean?)

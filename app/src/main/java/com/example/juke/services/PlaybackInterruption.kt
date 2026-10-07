@@ -72,3 +72,7 @@ internal class PhonePreparationGuard {
 
 internal fun animateSongChange(previousVideo: String?, nextVideo: String?, switching: Boolean): Boolean =
     !switching && previousVideo != nextVideo
+
+/** A background song replacement retains an existing foreground service, never creates one. */
+internal fun retainSongPreparationNotification(phoneOutput: Boolean, foreground: Boolean, preparing: Boolean): Boolean =
+    phoneOutput && foreground && preparing

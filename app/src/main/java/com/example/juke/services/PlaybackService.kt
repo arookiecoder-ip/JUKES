@@ -136,6 +136,12 @@ class PlaybackService : MediaLibraryService() {
             service.stopForeground(android.app.Service.STOP_FOREGROUND_DETACH)
         }
 
+        internal fun finishSongPreparation() {
+            val service = activeService.get() ?: return
+            if (PhonePlaybackOwnership.localHandoff) return
+            service.mediaSession?.let { service.onUpdateNotification(it, service.player.isPlaying) }
+        }
+
         internal fun finishPhoneNotificationHandoff() {
             val service = activeService.get() ?: return
             if (!service.remoteForegroundBridge) return
@@ -893,7 +899,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         setMediaNotificationProvider(GuardedMediaNotificationProvider(notificationProvider,
             { activeService.get() === this && outputPrefs.getString("playback_output", "PHONE") == "PHONE" },
-            ::onPhoneForegroundDenied, { holdNotificationHandoff() || holdRecoveryNotification() }))
+            ::onPhoneForegroundDenied, { holdSongPreparationNotification() || holdNotificationHandoff() || holdRecoveryNotification() }))
 
         database = MusicDatabase.getDatabase(applicationContext)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -1121,6 +1127,10 @@ class PlaybackService : MediaLibraryService() {
         super.onTaskRemoved(rootIntent)
     }
 
+    private fun holdSongPreparationNotification(): Boolean = retainSongPreparationNotification(
+        outputPrefs.getString("playback_output", "PHONE") == "PHONE", isPlaybackOngoing,
+        PhonePlaybackOwnership.preparingSong)
+
     private fun holdNotificationHandoff(): Boolean = remoteForegroundBridge &&
         (outputPrefs.getString("playback_output", "PHONE") != "PHONE" ||
             (!player.isPlaying && PhonePlaybackOwnership.localHandoff))
@@ -1154,6 +1164,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         // The already-authorized foreground service must survive preparation. It
         // adopts the normal local media notification as soon as audio actually starts.
+        if (holdSongPreparationNotification()) return
         if (remoteForegroundBridge) {
             if (holdNotificationHandoff()) return
             remoteForegroundBridge = false

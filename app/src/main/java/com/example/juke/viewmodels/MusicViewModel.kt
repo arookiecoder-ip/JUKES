@@ -1549,7 +1549,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 AlexaBackendApi.updateQueue("start", seed, items,
                     if (firstPublication) playing else playbackManager.isPlayingFlow.value,
                     if (firstPublication) positionMs else playbackManager.getCurrentPosition(),
-                    queueIndex = index, buffering = playbackManager.isBufferingFlow.value, expectedToken = claim)
+                    queueIndex = index, buffering = playbackManager.isBufferingFlow.value || com.example.juke.services.PhonePlaybackOwnership.preparingSong, expectedToken = claim)
                 firstPublication = false
             },
             expand = expand@{ initial ->
@@ -1698,6 +1698,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     _messages.tryEmit("Playing on this device. The server queue couldn't sync.")
                 }
             )
+            // MediaController commands are asynchronous: queue installation alone is
+            // not enough to release ownership/foreground guards in the background.
+            playbackManager.awaitReady(requireNotNull(_uiState.value.currentTrack).uuid)
             if (!synchronizeQueue) queueManager.initializeQueue(_uiState.value.queue)
         } catch (e: CancellationException) {
             throw e
@@ -1708,6 +1711,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _messages.tryEmit("Playback failed: ${com.example.juke.network.networkErrorMessage(e) ?: e.message}")
         } finally {
             com.example.juke.services.PhonePlaybackOwnership.endSongPreparation()
+            com.example.juke.services.PlaybackService.finishSongPreparation()
             _uiState.update { it.copy(isLoading = false) }
         }
     }

@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun backgroundSongPreparationRetainsOnlyAnAlreadyAuthorizedPhoneService() {
+        assertTrue(retainSongPreparationNotification(true, true, true))
+        assertFalse(retainSongPreparationNotification(true, false, true))
+        assertFalse(retainSongPreparationNotification(false, true, true))
+        assertFalse(retainSongPreparationNotification(true, true, false))
+    }
+
     @Test fun aNewSongBlocksOldOwnershipReportsUntilItsClaimAndQueueAreInstalled() {
         val preparation = PhonePreparationGuard()
         preparation.begin()
