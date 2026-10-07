@@ -19,7 +19,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
         serviceScope.launch {
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 val leaseRemaining = PhonePlaybackOwnership.leaseUntilMs - android.os.SystemClock.elapsedRealtime()
-                delay(if (PhonePlaybackOwnership.token.isBlank()) 2_000 else leaseRemaining.coerceIn(50, 1_000))
+                delay(if (PhonePlaybackOwnership.token.isBlank()) 2_000 else if (leaseRemaining <= 0) 1_000 else leaseRemaining.coerceIn(50, 1_000))
                 if (!PhonePlaybackOwnership.remoteControlled && canContinueDownloadedOffline(com.example.juke.network.NetworkFeedback.online.value, player.currentMediaItem?.localConfiguration?.uri?.scheme) && PhonePlaybackOwnership.token.isNotBlank()) {
                     // An inaccessible server cannot renew a lease; completed downloads still play offline.
                     PhonePlaybackOwnership.forget(allowOffline = true)
