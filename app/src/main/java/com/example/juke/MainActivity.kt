@@ -479,6 +479,12 @@ class MainActivity : ComponentActivity() {
 
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
+                LaunchedEffect(tabletProfilePopup, currentRoute) {
+                    if (tabletProfilePopup && currentRoute == "settings") {
+                        navController.popBackStack()
+                        showProfile = true
+                    }
+                }
 
                 var currentMainTab by remember { mutableStateOf(Screen.Home.route) }
 
