@@ -98,6 +98,9 @@ class PlaybackService : MediaLibraryService() {
                 service.player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token) || service.recoveryShouldResume) to service.player.currentPosition
             service.leaseInterruption.clear()
             service.networkInterruption.clear()
+            service.recoveryShouldResume = false
+            service.streamRecoveryJob?.cancel()
+            service.streamRecoveryJob = null
             service.player.pause()
             check(!service.player.playWhenReady && !service.player.isPlaying) { "Phone playback has not paused." }
             snapshot
@@ -556,11 +559,15 @@ class PlaybackService : MediaLibraryService() {
                 if (player.currentMediaItem?.mediaId != trackId || !PhonePlaybackOwnership.permitsPlayback(claim) ||
                     outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
                 val index = player.currentMediaItemIndex
+                val resume = recoveryShouldResume
+                // Media3 treats replacing an item with the same URI as a metadata update.
+                // Stop first so prepare actually discards the broken loader/socket.
+                player.stop()
                 player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).build())
                 player.seekTo(index, position)
                 player.prepare()
-                player.playWhenReady = recoveryShouldResume && !inCall()
-                if (recoveryShouldResume && inCall()) mainHandler.postDelayed(resumeAfterCall, 500)
+                player.playWhenReady = resume && !inCall()
+                if (resume && inCall()) mainHandler.postDelayed(resumeAfterCall, 500)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 streamRetry.failed(android.os.SystemClock.elapsedRealtime(), if (httpFailure?.responseCode == 429) retryDelay else 0)
