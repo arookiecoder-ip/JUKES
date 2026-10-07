@@ -489,6 +489,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playDownloaded(tracks: List<Track>, index: Int) {
         if (index !in tracks.indices) return
+        if (isRemotePhone) {
+            if (_isSwitchingOutput.value) return
+            _isSwitchingOutput.value = true
+            viewModelScope.launch {
+                try {
+                    if (com.example.juke.network.NetworkFeedback.online.value) {
+                        val before = AlexaBackendApi.phoneOutputStatus()
+                        val target = com.example.juke.services.MobileDeviceConnection.transfer(
+                            com.example.juke.services.PhonePlaybackOwnership.ownerId, before, echo.serial.value)
+                        com.example.juke.services.PhonePlaybackOwnership.accept(target)
+                    } else com.example.juke.services.PhonePlaybackOwnership.forget(allowOffline = true)
+                    setOutputPreference(PlaybackOutput.PHONE)
+                    updatePolling()
+                    setQueue(tracks, index)
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { _messages.tryEmit(e.message ?: "Couldn't move downloads to this device") }
+                finally { _isSwitchingOutput.value = false }
+            }
+            return
+        }
         if (isAlexa) {
             // Offline copies always play on this device. Pause the source when reachable.
             if (com.example.juke.network.NetworkFeedback.online.value) launchEcho { echo.command("pause") }
@@ -721,6 +741,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             "seek" -> seekTo(payload.number("position_ms").coerceAtLeast(0))
             "shuffle" -> toggleShuffle()
             "repeat" -> toggleRepeat()
+            "tool" -> runCatching { QueueTool.valueOf(payload.text("tool")) }.getOrNull()?.let(::applyQueueTool)
             "song" -> startRadio(kotlinx.serialization.json.Json.decodeFromJsonElement(Track.serializer(), requireNotNull(payload["track"])))
             "next_items" -> addNext(tracks())
             "append" -> addToQueue(tracks())
@@ -1130,13 +1151,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * and the full list backfills Up Next in the background.
      */
     fun playCollection(item: com.example.juke.network.BrowseItem, shuffle: Boolean = false) {
-        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("collection", item.raw); put("kind", item.kind); put("shuffle", shuffle) }); return }
         if (item.raw.flag("offline")) {
             val tracks = com.example.juke.services.offlineCollectionTracks(item, downloads.collections.value, downloads.tracks.value).orEmpty()
             if (tracks.isNotEmpty()) playDownloaded(if (shuffle) tracks.shuffled() else tracks, 0)
             else _messages.tryEmit("This collection has no completed downloads yet")
             return
         }
+        if (isRemotePhone) { remoteControl("queue", buildJsonObject { put("collection", item.raw); put("kind", item.kind); put("shuffle", shuffle) }); return }
         viewModelScope.launch {
             _echoRequests.update { it + 1 }
             try {
@@ -1977,6 +1998,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Power tools for the phone queue. The playing song and its position are untouched. */
     fun applyQueueTool(tool: QueueTool) {
+        if (isRemotePhone) { remoteControl("tool", buildJsonObject { put("tool", tool.name) }); return }
         if (isAlexa) {
             if (tool == QueueTool.SHUFFLE_UPCOMING) launchEcho { echo.shuffle() }
             return
