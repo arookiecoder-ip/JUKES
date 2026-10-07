@@ -254,7 +254,7 @@ internal fun SongOnlyShelf(title: String, tracks: List<Track>, onTrackClick: (In
                 modifier = Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("Play all") }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columnWidth = (if (maxWidth >= 600.dp) (maxWidth - 64.dp) / 2 else maxWidth - 48.dp).coerceAtLeast(240.dp)
+            val columnWidth = (if (maxWidth >= 600.dp && androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) (maxWidth - 64.dp) / 2 else maxWidth - 48.dp).coerceAtLeast(240.dp)
             LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 itemsIndexed(tracks.chunked(4)) { columnIndex, songs ->
                     Column(Modifier.width(columnWidth)) {

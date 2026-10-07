@@ -390,7 +390,7 @@ fun PlayerScreen(
                     Box(Modifier.fillMaxSize()) {
                         PlayerArtwork(queue = uiState.queue, queueIndex = uiState.queueIndex, currentTrack = displayTrack,
                             currentPosition = uiState.position, showLyrics = showLyrics, musicViewModel = musicViewModel,
-                            isTablet = isTablet, onToggleLyrics = { showLyrics = !showLyrics })
+                            isTablet = tabletLandscape, onToggleLyrics = { showLyrics = !showLyrics })
                         Box(Modifier.align(Alignment.TopCenter).stableStatusBarsPadding().padding(horizontal = 20.dp)) {
                         PlayerHeader(
                             onDismiss = onDismiss,
@@ -428,7 +428,7 @@ fun PlayerScreen(
                             } else PlayerAction(icon = rememberVectorPainter(Icons.AutoMirrored.Filled.List), label = "Queue", iconSize = 24.dp) { showQueue = true }
                         }
                         PlayerProgress(currentPosition = uiState.position, uiState = uiState, musicViewModel = musicViewModel, modifier = Modifier.padding(top = 10.dp))
-                        PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = isTablet,
+                        PlayerControls(uiState = uiState, musicViewModel = musicViewModel, isLarge = tabletLandscape,
                             modifier = Modifier.padding(top = 8.dp), playButtonSize = if (compact) 60.dp else 72.dp, buttonSize = 48.dp, iconSize = 32.dp, smallIconSize = 24.dp, onSaveToPlaylist = { showAddToPlaylistDialog = currentTrack })
                         Spacer(Modifier.height(16.dp))
                         if (isAlexa) EchoVolumeRow(volume = echoVolume, enabled = musicViewModel.echo.serial.value.isNotBlank(), onVolumeChange = musicViewModel::setEchoVolume)
