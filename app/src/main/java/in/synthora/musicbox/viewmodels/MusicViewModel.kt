@@ -166,9 +166,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var signInJob: Job? = null
 
     private val _echoRequests = MutableStateFlow(0)
+    private val transportLoading = MutableStateFlow(false)
+    private var skipLoadingJob: Job? = null
     private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow,
-        `in`.synthora.musicbox.services.PlaybackService.recoveryLoading) { switching, requests, buffering, recovering ->
-        switching || ((buffering || recovering) && _output.value == PlaybackOutput.PHONE)
+        `in`.synthora.musicbox.services.PlaybackService.recoveryLoading, transportLoading) { switching, requests, buffering, recovering, skipping ->
+        switching || skipping || ((buffering || recovering) && _output.value == PlaybackOutput.PHONE)
     }
     private val likedQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()
     private val echoQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()
@@ -589,6 +591,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onSignedOut() {
+        skipLoadingJob?.cancel()
+        transportLoading.value = false
         `in`.synthora.musicbox.services.MobileDeviceConnection.stop()
         collectionCache.clear()
         serverPlaybackChecked = false
@@ -1891,8 +1895,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun skipRemote(action: String) {
+        val previous = echo.state.value.track?.ytVideoId
+        skipLoadingJob?.cancel()
+        transportLoading.value = true
+        skipLoadingJob = viewModelScope.launch {
+            try {
+                if (isRemotePhone) `in`.synthora.musicbox.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action)
+                else echo.command(action)
+                kotlinx.coroutines.withTimeout(30_000) {
+                    echo.state.first { it.track?.ytVideoId != previous && it.playing && it.confirmed && !it.processing }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _messages.tryEmit(e.message ?: "Couldn't change the song") }
+            finally { if (kotlinx.coroutines.currentCoroutineContext().isActive) transportLoading.value = false }
+        }
+        // A timeout cancels its child scope; completion still clears this request,
+        // while a superseded request cannot clear the next request's spinner.
+        val current = skipLoadingJob
+        current?.invokeOnCompletion { if (skipLoadingJob === current) transportLoading.value = false }
+    }
+
     fun skipToNext() {
-        if (isRemotePhone) { remoteControl("next", buildJsonObject {}); return }
+        if (isRemotePhone || isAlexa) { skipRemote("next"); return }
         if (isAlexa) {
             launchEcho { echo.command("next") }
             return
@@ -1901,7 +1926,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun skipToPrevious() {
-        if (isRemotePhone) { remoteControl("previous", buildJsonObject {}); return }
+        if (isRemotePhone || isAlexa) { skipRemote("previous"); return }
         if (isAlexa) {
             launchEcho { echo.command("previous") }
             return
