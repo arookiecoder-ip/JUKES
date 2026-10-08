@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun pausedSourceCannotDemoteTheBackgroundDestinationBeforePreparationStarts() {
+        val pending = SharedPlaybackOutput(mode = "phone", owner = "destination", token = "new", handoffPending = true)
+        assertTrue(retainDestinationForeground(pending, "destination", "", false, true))
+        val granted = pending.copy(handoffPending = false)
+        // The coroutine accepting the token has not run yet.
+        assertTrue(retainDestinationForeground(granted, "destination", "", false, true))
+        assertTrue(retainDestinationForeground(granted, "destination", "new", true, true))
+        assertFalse(retainDestinationForeground(granted, "destination", "new", false, true))
+    }
+
+    @Test fun destinationRetentionNeverCreatesForegroundPermissionOrRetainsTheSource() {
+        val pending = SharedPlaybackOutput(mode = "phone", owner = "destination", token = "new", handoffPending = true)
+        assertFalse(retainDestinationForeground(pending, "destination", "", false, false))
+        assertFalse(retainDestinationForeground(pending, "source", "old", false, true))
+        assertFalse(retainDestinationForeground(pending.copy(mode = "alexa"), "destination", "", true, true))
+        assertFalse(retainDestinationForeground(pending.copy(owner = ""), "destination", "", true, true))
+    }
+
     @Test fun backgroundSongPreparationRetainsOnlyAnAlreadyAuthorizedPhoneService() {
         assertTrue(retainSongPreparationNotification(true, true, true))
         assertFalse(retainSongPreparationNotification(true, false, true))

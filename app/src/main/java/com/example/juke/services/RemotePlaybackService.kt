@@ -39,9 +39,24 @@ class RemotePlaybackService : MediaSessionService() {
     private lateinit var echo: EchoController
     private lateinit var remote: EchoPlayer
     private var session: MediaSession? = null
+    private var localServiceAnchor: ListenableFuture<androidx.media3.session.MediaController>? = null
 
     override fun onCreate() {
         super.onCreate()
+        // Keep the local renderer service bound while remote controls are alive.
+        // A foreground-screen controller may release/reconnect; its lifecycle
+        // must not silently remove the destination of a later background handoff.
+        val anchor = androidx.media3.session.MediaController.Builder(this,
+            androidx.media3.session.SessionToken(this,
+                android.content.ComponentName(this, PlaybackService::class.java))).buildAsync()
+        localServiceAnchor = anchor
+        anchor.addListener({
+            if (localServiceAnchor !== anchor) return@addListener
+            try { anchor.get(); if (::echo.isInitialized) updateForegroundBridge() }
+            catch (error: Exception) {
+                com.example.juke.utils.SafeLog.w("RemotePlaybackService", "Local service binding unavailable: ${error.javaClass.simpleName}")
+            }
+        }, androidx.core.content.ContextCompat.getMainExecutor(this))
         val prefs = getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE)
         echo = PlaybackCoordinator.echo(this)
         scope.launch { PlaybackCoordinator.errors.collect {
@@ -57,7 +72,7 @@ class RemotePlaybackService : MediaSessionService() {
             .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) },
             { session != null && prefs.getString("playback_output", "PHONE") in setOf("ALEXA", "REMOTE_PHONE") && !prefs.getBoolean("remote_controls_dismissed", false) },
             { PlaybackService.leaveRemoteForeground(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() },
-            onUpdated = ::updateForegroundBridge))
+            onRecoveryUpdate = ::holdDestinationHandoff, onUpdated = ::updateForegroundBridge))
         session = MediaSession.Builder(this, remote).setId("alexa")
             .setBitmapLoader(SharedArtworkBitmapLoader(this, scope))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
@@ -148,7 +163,16 @@ class RemotePlaybackService : MediaSessionService() {
             .setSessionCommand(SessionCommand(LIKE, Bundle.EMPTY)).build()))
     }
 
+    private fun holdDestinationHandoff(): Boolean {
+        val presence = MobileDeviceConnection.output.value
+        val observed = echo.state.value.sharedOutput
+        val current = if (observed.mode.isNotBlank() && !observed.olderThan(presence)) observed else presence
+        return retainDestinationForeground(current, PhonePlaybackOwnership.ownerId,
+            PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff, isPlaybackOngoing)
+    }
+
     private fun updateForegroundBridge() {
+        if (holdDestinationHandoff()) return
         if (isPlaybackOngoing) {
             val notification = getSystemService(NotificationManager::class.java).activeNotifications
                 .firstOrNull { it.id == 1002 }?.notification ?: return
@@ -157,6 +181,9 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        // A source pause is not permission to tear down the destination's already
+        // authorized foreground services before its local renderer is ready.
+        if (holdDestinationHandoff()) return
         try { super.onUpdateNotification(session, startInForegroundRequired); updateForegroundBridge() }
         catch (e: Exception) {
             if (android.os.Build.VERSION.SDK_INT >= 31 && e is android.app.ForegroundServiceStartNotAllowedException) {
@@ -175,7 +202,7 @@ class RemotePlaybackService : MediaSessionService() {
         PlaybackCoordinator.dismiss(this)
         // Only remove the remote controls; never send a pause to Alexa.
         getSharedPreferences("music_settings_prefs", MODE_PRIVATE).edit().putBoolean("remote_controls_dismissed", true).apply()
-        PlaybackService.leaveRemoteForeground()
+        PlaybackService.leaveRemoteForeground(force = true)
         PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
         remote.refresh()
@@ -186,7 +213,7 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        PlaybackService.leaveRemoteForeground()
+        PlaybackService.leaveRemoteForeground(force = true)
         PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
         remote.refresh()

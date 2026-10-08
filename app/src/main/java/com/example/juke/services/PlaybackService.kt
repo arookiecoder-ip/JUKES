@@ -128,9 +128,12 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        internal fun leaveRemoteForeground() {
+        internal fun leaveRemoteForeground(force: Boolean = false) {
             val service = activeService.get() ?: return
-            if (!service.remoteForegroundBridge || service.outputPrefs.getString("playback_output", "PHONE") == "PHONE") return
+            if (!service.remoteForegroundBridge) return
+            if (!force && (service.outputPrefs.getString("playback_output", "PHONE") == "PHONE" ||
+                    destinationHandoffWaiting(MobileDeviceConnection.output.value, PhonePlaybackOwnership.ownerId,
+                        PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff))) return
             service.remoteForegroundBridge = false
             // The remote service owns this shared notification; do not remove its controls.
             service.stopForeground(android.app.Service.STOP_FOREGROUND_DETACH)

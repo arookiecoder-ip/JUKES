@@ -76,3 +76,13 @@ internal fun animateSongChange(previousVideo: String?, nextVideo: String?, switc
 /** A background song replacement retains an existing foreground service, never creates one. */
 internal fun retainSongPreparationNotification(phoneOutput: Boolean, foreground: Boolean, preparing: Boolean): Boolean =
     phoneOutput && foreground && preparing
+
+/** The incoming ownership token is visible before local queue preparation starts. */
+internal fun destinationHandoffWaiting(output: SharedPlaybackOutput, thisPhone: String,
+    acceptedToken: String, preparing: Boolean): Boolean = output.mode == "phone" &&
+    thisPhone.isNotBlank() && output.owner == thisPhone && output.token.isNotBlank() &&
+    (output.handoffPending || preparing || output.token != acceptedToken)
+
+internal fun retainDestinationForeground(output: SharedPlaybackOutput, thisPhone: String,
+    acceptedToken: String, preparing: Boolean, alreadyForeground: Boolean): Boolean = alreadyForeground &&
+    destinationHandoffWaiting(output, thisPhone, acceptedToken, preparing)
