@@ -467,17 +467,21 @@ class PlaybackManager private constructor(private val context: Context) {
                     old.mediaMetadata.artist?.toString() == next.mediaMetadata.artist?.toString() &&
                     old.mediaMetadata.artworkUri == next.mediaMetadata.artworkUri
             }
+            val seededPlayback = !reusable && mediaItems.size > 200
             if (reusable) {
                 val position = startPositionMs.takeIf { it != C.TIME_UNSET } ?: 0
                 if (currentMediaItemIndex != startIndex || kotlin.math.abs(currentPosition - position) > 250)
                     seekTo(startIndex, position)
-            } else if (mediaItems.size > 200) {
+            } else if (seededPlayback) {
                 installQueueInBatches(mediaItems, startIndex,
                     seed = { item -> setMediaItems(listOf(item), 0, startPositionMs) },
-                    insert = { index, batch -> addMediaItems(index, batch) })
+                    insert = { index, batch -> addMediaItems(index, batch) },
+                    startSelected = { prepare(); if (playWhenReady) play() else pause() })
             } else setMediaItems(mediaItems, startIndex, startPositionMs)
-            if (!reusable || playbackState != Player.STATE_READY) prepare()
-            if (playWhenReady) play() else pause()
+            if (!seededPlayback) {
+                if (!reusable || playbackState != Player.STATE_READY) prepare()
+                if (playWhenReady) play() else pause()
+            }
         } }
         val ready = controller
         if (ready != null) action(ready) else pendingQueueAction = action
@@ -591,14 +595,14 @@ class PlaybackManager private constructor(private val context: Context) {
 
     /** A handoff commits only after the destination has prepared its selected track. */
     suspend fun awaitReady(expectedId: String? = null) {
-        kotlinx.coroutines.withTimeout(30_000) {
+        PlaybackDiagnostics.measure(PlaybackDiagnostics.Stage.PLAYER_READY) { kotlinx.coroutines.withTimeout(30_000) {
             while (true) {
                 val ready = controller
                 ready?.playerError?.let { throw it }
                 if (ready?.playbackState == Player.STATE_READY && (expectedId == null || ready.currentMediaItem?.mediaId == expectedId)) return@withTimeout
                 kotlinx.coroutines.delay(50)
             }
-        }
+        } }
     }
 
     fun pause() {

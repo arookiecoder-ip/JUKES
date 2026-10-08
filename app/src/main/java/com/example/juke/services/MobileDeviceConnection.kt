@@ -79,6 +79,7 @@ object MobileDeviceConnection {
                 try {
                     val sentAcknowledgments = acknowledgments.snapshot()
                     val reply = withTimeout(12_000) { request("online", buildJsonObject {
+                        put("include_handoff_state", true); put("accepted_token", PhonePlaybackOwnership.token)
                         put("wait", true); put("wait_seconds", 8); put("revision", revision); put("output_token", outputToken)
                         put("volume", (audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 / audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)))
                         put("volume_steps", audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1))
@@ -182,7 +183,7 @@ object MobileDeviceConnection {
 
     suspend fun transfer(target: String, output: SharedPlaybackOutput, serial: String): SharedPlaybackOutput =
         rememberOutput(sharedPlaybackOutput(request("transfer", buildJsonObject {
-            put("target_id", target); put("output_token", output.token); put("serial", serial)
+            put("target_id", target); put("output_token", output.token); put("serial", serial); put("include_state", true)
         })))
 
     suspend fun control(output: SharedPlaybackOutput, action: String, payload: JsonObject = buildJsonObject {}) {

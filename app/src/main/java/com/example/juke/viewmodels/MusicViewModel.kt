@@ -733,11 +733,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val before = AlexaBackendApi.phoneOutputStatus()
-                com.example.juke.services.MobileDeviceConnection.transfer(deviceId, before, echo.serial.value)
-                val latest = AlexaBackendApi.phoneOutputStatus()
+                val latest = com.example.juke.services.MobileDeviceConnection.transfer(deviceId, before, echo.serial.value)
                 _remoteMobileOutput.value = latest
                 setOutputPreference(PlaybackOutput.REMOTE_PHONE)
-                echo.refreshSharedPhone()
+                if (latest.nowPlaying != null) echo.applySharedSnapshot(latest.nowPlaying)
+                else echo.refreshSharedPhone() // Older servers omit the handoff snapshot.
                 updatePolling()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { _messages.tryEmit(com.example.juke.network.networkErrorMessage(e) ?: e.message ?: "Couldn't switch devices") }
@@ -751,15 +751,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun moveRemotePhoneToThisPhone() {
         val before = AlexaBackendApi.phoneOutputStatus()
-        com.example.juke.services.MobileDeviceConnection.transfer(com.example.juke.services.PhonePlaybackOwnership.ownerId, before, echo.serial.value)
-        startTransferredPhone(AlexaBackendApi.phoneOutputStatus())
+        val transferred = com.example.juke.services.MobileDeviceConnection.transfer(com.example.juke.services.PhonePlaybackOwnership.ownerId, before, echo.serial.value)
+        startTransferredPhone(transferred)
     }
 
     private suspend fun startTransferredPhone(output: com.example.juke.services.SharedPlaybackOutput, playOverride: Boolean? = null) {
         if (output.handoffPending || output.owner != com.example.juke.services.PhonePlaybackOwnership.ownerId) return
         _artworkHandoff.update { it + 1 }
-        val snapshot = output.nowPlaying ?: AlexaBackendApi.phoneQueueSnapshot()
-        val state = com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
+        val snapshot = com.example.juke.services.PlaybackDiagnostics.measure(com.example.juke.services.PlaybackDiagnostics.Stage.HANDOFF_STATE) {
+            output.nowPlaying ?: AlexaBackendApi.phoneQueueSnapshot()
+        }
+        val state = withContext(Dispatchers.Default) {
+            com.example.juke.services.parseEchoSnapshot(snapshot, android.os.SystemClock.elapsedRealtime(), null, false)
+        }
         val track = state.track ?: run { com.example.juke.services.PhonePlaybackOwnership.accept(output); setOutputPreference(PlaybackOutput.PHONE); return }
         val queue = state.queue.ifEmpty { listOf(track) }
         val index = state.index.takeIf { it in queue.indices } ?: 0
@@ -1753,7 +1757,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val url = if (i == startIndex) AlexaBackendApi.getStreamUrl(videoId) else AlexaBackendApi.audioUrl(videoId)
                 track.copy(localUri = url, isStream = true)
             }
-        }.also { resolved -> trackDao.insertTracks(resolved.map { it.toEntity() }) }
+        }.also { resolved ->
+            if (resolved.size > 200 && startIndex in resolved.indices) {
+                // The selected song must exist before its service callback runs.
+                trackDao.insertTracks(listOf(resolved[startIndex].toEntity()))
+                viewModelScope.launch(Dispatchers.IO) {
+                    try { trackDao.insertTracks(resolved.filterIndexed { index, _ -> index != startIndex }.map { it.toEntity() }) }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { Log.w(TAG, "Background queue metadata save failed: ${e.javaClass.simpleName}") }
+                }
+            } else trackDao.insertTracks(resolved.map { it.toEntity() })
+        }
 
     fun togglePlayPause() {
         if (isRemotePhone) { remoteControl(if (_remoteMobileOutput.value.owner.isNotBlank() && uiState.value.isPlaying) "pause" else "play"); return }

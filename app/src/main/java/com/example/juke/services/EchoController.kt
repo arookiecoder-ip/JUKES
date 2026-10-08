@@ -218,6 +218,8 @@ class EchoController(
         _state.compareAndSet(previous, parsed)
     }
 
+    suspend fun applySharedSnapshot(snapshot: JsonObject) { apply(snapshot) }
+
     suspend fun refreshSharedPhone() {
         val np = Backend.get("/alexa/now_playing/", mapOf("serial" to "phone",
             "queue_version" to _state.value.queueVersion.toString())).objectOrEmpty()
