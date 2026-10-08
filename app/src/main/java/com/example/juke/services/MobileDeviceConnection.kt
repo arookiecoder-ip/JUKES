@@ -105,7 +105,7 @@ object MobileDeviceConnection {
                     // Playback preparation/acknowledgment may wait on slow audio or
                     // the server. Presence must keep renewing while that work runs.
                     delivery.offer(output to reply.array("commands"))
-                } catch (_: TimeoutCancellationException) { failures++ }
+                } catch (_: TimeoutCancellationException) { failures++; retryAfterMs = 0L }
                 catch (e: CancellationException) { throw e }
                 catch (error: Exception) {
                     failures++
