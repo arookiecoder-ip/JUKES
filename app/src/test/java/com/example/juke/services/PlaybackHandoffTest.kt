@@ -9,6 +9,17 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class PlaybackHandoffTest {
+    @Test fun readinessMeasurementPropagatesCancellationAndRecordsFailure() = runBlocking {
+        val stage = PlaybackDiagnostics.Stage.PLAYER_READY
+        val before = PlaybackDiagnostics.snapshot()[stage]?.failures ?: 0
+        val failure = CancellationException("Switch superseded")
+        try {
+            PlaybackDiagnostics.measure(stage) { throw failure }
+            fail("Cancelled readiness must not be treated as a completed switch")
+        } catch (actual: CancellationException) { assertSame(failure, actual) }
+        assertEquals(before + 1, PlaybackDiagnostics.snapshot().getValue(stage).failures)
+    }
+
     @Test fun oldPhoneReportsStayBlockedAcrossAlexaPhoneAlexaRoundTrip() {
         assertEquals(false, canApplyPhoneOwnershipPoll("first-phone", "first-phone", true))
         assertEquals(false, canApplyPhoneOwnershipPoll("first-phone", "", false))

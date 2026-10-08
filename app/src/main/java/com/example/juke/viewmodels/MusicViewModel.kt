@@ -803,9 +803,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 try {
                     phoneSetQueue(queue, index, state.positionMs, play = playOverride ?: state.playing, synchronizeQueue = false, reuseOwnership = true)
-                    // Preserve remote foreground controls while the minimized destination
-                    // connects/prepares; the previous READY track is not a completion signal.
-                    playbackManager.awaitReady(requireNotNull(_uiState.value.currentTrack).uuid)
+                    // phoneSetQueue waits for this exact selected item to be READY;
+                    // retain the foreground/ownership guards until it returns.
                 } finally { renewal.cancel() }
 
             }
@@ -1025,7 +1024,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 claim = claimed
                 wasPlaying = claimed.nowPlaying?.flag("playing") ?: wasPlaying
                 startTransferredPhone(claimed, playOverride = if (claimed.nowPlaying == null) wasPlaying else null)
-                if (claimed.nowPlaying?.text("video_id")?.isNotBlank() ?: (_uiState.value.currentTrack != null)) playbackManager.awaitReady()
             },
             restoreSource = {
                 val current = AlexaBackendApi.phoneOutputStatus()
