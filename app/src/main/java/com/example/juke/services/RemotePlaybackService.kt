@@ -46,7 +46,7 @@ class RemotePlaybackService : MediaSessionService() {
         // Keep the local renderer service bound while remote controls are alive.
         // A foreground-screen controller may release/reconnect; its lifecycle
         // must not silently remove the destination of a later background handoff.
-        val anchor = androidx.media3.session.MediaController.Builder(this,
+        val anchor = androidx.media3.session.MediaController.Builder(ControllerBindingContext(this),
             androidx.media3.session.SessionToken(this,
                 android.content.ComponentName(this, PlaybackService::class.java))).buildAsync()
         localServiceAnchor = anchor
@@ -219,6 +219,9 @@ class RemotePlaybackService : MediaSessionService() {
         remote.refresh()
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(1002)
 
+        val anchor = localServiceAnchor
+        localServiceAnchor = null
+        anchor?.let { androidx.media3.session.MediaController.releaseFuture(it) }
         session?.let { removeSession(it); it.release() }; remote.release(); scope.cancel()
         super.onDestroy()
     }
