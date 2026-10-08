@@ -264,8 +264,8 @@ class RemotePlaybackService : MediaSessionService() {
                 Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
                 Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS).build())
                 .setPlaylist(playlist).setCurrentMediaItemIndex(index)
-                .setPlaybackState(if (track == null) Player.STATE_IDLE else Player.STATE_READY)
-                .setPlayWhenReady(snapshot.playing, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                .setPlaybackState(if (track == null) Player.STATE_IDLE else if (snapshot.loading) Player.STATE_BUFFERING else Player.STATE_READY)
+                .setPlayWhenReady(snapshot.playing || snapshot.loading, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                 .setContentPositionMs { snapshot.livePosition() }
                 .setDeviceVolume(if (localPhoneSelected()) localVolume() else RemoteVolumeControl.current(this@RemotePlaybackService) ?: 0)
                 .setDeviceInfo(DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE).setMinVolume(0).setMaxVolume(100).build()).build()

@@ -166,8 +166,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var signInJob: Job? = null
 
     private val _echoRequests = MutableStateFlow(0)
-    private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow) { switching, requests, buffering ->
-        switching || (buffering && !isAlexa)
+    private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow,
+        `in`.synthora.musicbox.services.PlaybackService.recoveryLoading) { switching, requests, buffering, recovering ->
+        switching || ((buffering || recovering) && _output.value == PlaybackOutput.PHONE)
     }
     private val likedQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()
     private val echoQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()

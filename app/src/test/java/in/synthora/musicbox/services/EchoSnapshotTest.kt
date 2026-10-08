@@ -24,6 +24,13 @@ class EchoSnapshotTest {
         assertEquals(75000L, playing.copy(confirmed = false).livePosition(5000))
     }
 
+    @Test fun bufferingPhoneShowsLoadingWithoutClaimingAudiblePlayback() {
+        val state = EchoState(playing = false, processing = true, confirmed = false,
+            sharedOutput = SharedPlaybackOutput(mode = "phone"))
+        assertTrue(state.loading)
+        assertFalse(state.playing)
+        assertFalse(state.copy(processing = false, confirmed = true).loading)
+    }
     @Test fun pauseAcknowledgmentNeverShowsPlaybackLoading() {
         assertFalse(EchoState(playing = false, processing = true, confirmed = false).loading)
         assertFalse(EchoState(playing = false, processing = true, confirmed = true).loading)

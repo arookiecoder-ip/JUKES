@@ -48,6 +48,7 @@ internal fun ExpandableTrackSlider(
     val thickness by animateDpAsState(if (active) draggingHeight else restingHeight,
         animationSpec = tween(120), label = "trackThickness")
     val fill = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.38f)
+    val cacheShade = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.46f)
     val background = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.24f else 0.12f)
     Slider(
         value = if (active) local else value.coerceIn(0f, 1f),
@@ -60,7 +61,7 @@ internal fun ExpandableTrackSlider(
             Canvas(Modifier.fillMaxWidth().height(thickness).testTag("$label track").clip(RoundedCornerShape(50))) {
                 drawRect(background)
                 val buffered = bufferedFraction.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
-                drawRect(fill.copy(alpha = 0.32f), size = Size(size.width * buffered, size.height))
+                drawRect(cacheShade, size = Size(size.width * buffered, size.height))
                 drawRect(fill, size = Size(size.width * state.value.coerceIn(0f, 1f), size.height))
             }
         },

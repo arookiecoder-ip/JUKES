@@ -638,6 +638,7 @@ class PlaybackManager private constructor(private val context: Context) {
             val startingIndex = ctrl.currentMediaItemIndex
             action(ctrl)
             if (ctrl.currentMediaItemIndex != startingIndex) {
+                _isBuffering.value = ctrl.playbackState != Player.STATE_READY
                 ctrl.play()
             }
         }

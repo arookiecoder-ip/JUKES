@@ -46,12 +46,14 @@ fun PlayerProgress(
     val output by musicViewModel.output.collectAsStateWithLifecycle()
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val trackId = uiState.currentTrack?.uuid
-    val savedCache by androidx.compose.runtime.produceState(0f, trackId, output, lifecycle) {
+    val savedCache by androidx.compose.runtime.produceState(0f, trackId, output, lifecycle, duration) {
         value = 0f
         if (output == `in`.synthora.musicbox.viewmodels.PlaybackOutput.PHONE && trackId != null) {
             lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    value = musicViewModel.playbackManager.getSavedCacheFraction(trackId)
+                    value = maxOf(musicViewModel.playbackManager.getSavedCacheFraction(trackId),
+                        `in`.synthora.musicbox.services.bufferedPlaybackFraction(
+                            musicViewModel.playbackManager.getBufferedPosition(trackId), duration))
                     kotlinx.coroutines.delay(1_000)
                 }
             }

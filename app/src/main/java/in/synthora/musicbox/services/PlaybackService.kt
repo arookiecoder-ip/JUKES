@@ -88,6 +88,7 @@ class PlaybackService : MediaLibraryService() {
     private val TAG = "PlaybackService"
 
     companion object {
+        val recoveryLoading = kotlinx.coroutines.flow.MutableStateFlow(false)
         private var activeService = java.lang.ref.WeakReference<PlaybackService>(null)
 
         /** A silent default must not publish an old local player's queue over the shared queue. */
@@ -1162,7 +1163,7 @@ class PlaybackService : MediaLibraryService() {
         if (!::player.isInitialized || !retainRecoveryNotification(
                 outputPrefs.getString("playback_output", "PHONE") == "PHONE", isPlaybackOngoing,
                 player.isPlaying, leaseInterruption.pending, networkInterruption.pending,
-                recoveryShouldResume, PhonePlaybackOwnership.localHandoff)) return false
+                recoveryShouldResume || (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING), PhonePlaybackOwnership.localHandoff)) return false
         val session = mediaSession ?: return false
         val open = PendingIntent.getActivity(this, 0, Intent(this, `in`.synthora.musicbox.MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -1184,6 +1185,10 @@ class PlaybackService : MediaLibraryService() {
 
     @OptIn(UnstableApi::class)
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        recoveryLoading.value = outputPrefs.getString("playback_output", "PHONE") == "PHONE" &&
+            !player.isPlaying && !PhonePlaybackOwnership.localHandoff &&
+            (recoveryShouldResume || leaseInterruption.pending || networkInterruption.pending ||
+                (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING))
         // The already-authorized foreground service must survive preparation. It
         // adopts the normal local media notification as soon as audio actually starts.
         if (holdSongPreparationNotification()) return
@@ -1227,6 +1232,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        recoveryLoading.value = false
         if (activeService.get() === this) activeService.clear()
         outputPrefs.unregisterOnSharedPreferenceChangeListener(outputListener)
         runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(preloadNetworkCallback) }
