@@ -27,6 +27,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.isActive
 import com.example.juke.utils.rememberJukeHaptics
 import com.example.juke.viewmodels.MusicUiState
 import com.example.juke.viewmodels.MusicViewModel
@@ -40,11 +43,26 @@ fun PlayerProgress(
 ) {
     val duration = if (uiState.duration > 0) uiState.duration else musicViewModel.playbackManager.getDuration().coerceAtLeast(0)
 
+    val output by musicViewModel.output.collectAsStateWithLifecycle()
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val trackId = uiState.currentTrack?.uuid
+    val savedCache by androidx.compose.runtime.produceState(0f, trackId, output, lifecycle) {
+        value = 0f
+        if (output == com.example.juke.viewmodels.PlaybackOutput.PHONE && trackId != null) {
+            lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    value = musicViewModel.playbackManager.getSavedCacheFraction(trackId)
+                    kotlinx.coroutines.delay(1_000)
+                }
+            }
+        }
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSeekSlider(
             positionMs = currentPosition,
             durationMs = duration,
-            cachedFraction = if (musicViewModel.output.value != com.example.juke.viewmodels.PlaybackOutput.PHONE) 0f else musicViewModel.playbackManager.getSavedCacheFraction(uiState.currentTrack?.uuid),
+            cachedFraction = savedCache,
             onSeek = musicViewModel::seekTo
         )
 
