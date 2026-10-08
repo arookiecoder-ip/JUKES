@@ -68,6 +68,7 @@ object MobileDeviceConnection {
             var revision = -1L
             var outputToken = ""
             var supportsWait = false
+            var supportsLongWait = false
             var failures = 0
             var retryAfterMs = 0L
             while (isActive && activeGeneration == generation) {
@@ -97,6 +98,7 @@ object MobileDeviceConnection {
                             MobileAudioDevice(id, it.text("name"), pendingVolumes[id]?.value ?: reported, (it["volume_steps"] as? JsonPrimitive)?.intOrNull)
                         }
                     supportsWait = reply.containsKey("revision")
+                    supportsLongWait = reply.number("presence_wait_seconds") >= 8
                     revision = reply.number("revision")
                     val output = rememberOutput(sharedPlaybackOutput(reply))
                     outputToken = output.token
@@ -122,7 +124,9 @@ object MobileDeviceConnection {
                     continue
                 }
                 // Server waits wake immediately on commands; no background gap.
-                delay(if (supportsWait) 100 else 3_000)
+                val visible = androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+                val activeOutput = latestOutput.mode == "phone" && latestOutput.owner == PhonePlaybackOwnership.ownerId
+                delay(if (supportsWait && (supportsLongWait || visible || activeOutput)) 100 else 3_000)
             }
         }
     }

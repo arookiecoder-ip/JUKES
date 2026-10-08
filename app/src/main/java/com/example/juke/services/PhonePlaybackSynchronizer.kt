@@ -41,7 +41,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 delay(1_000)
                 val claim = PhonePlaybackOwnership.token
-                if (claim.isBlank()) continue
+                if (claim.isBlank() || !com.example.juke.network.NetworkFeedback.online.value) continue
                 if (PhonePlaybackOwnership.localHandoff) {
                     // Keep a preparing phone target's lease alive, without publishing the
                     // paused source cursor over the queue being installed on Alexa.
