@@ -99,6 +99,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
     private val TAG = "PlaybackManager"
     private val prefs = context.getSharedPreferences("playback_state_prefs", Context.MODE_PRIVATE)
+    private var controllerPoll: kotlinx.coroutines.Job? = null
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var playerListener: Player.Listener? = null
@@ -185,10 +186,18 @@ class PlaybackManager private constructor(private val context: Context) {
         if (controllerFuture == null) {
             val sessionToken =
                 SessionToken(context, ComponentName(context, PlaybackService::class.java))
-            controllerFuture = MediaController.Builder(context, sessionToken).setListener(object : MediaController.Listener {
+            controllerFuture = MediaController.Builder(ControllerBindingContext(context), sessionToken).setListener(object : MediaController.Listener {
                 override fun onDisconnected(disconnected: MediaController) {
                     if (controller === disconnected) {
                         controller = null; controllerFuture = null
+                        controllerPoll?.cancel()
+                        controllerPoll = null
+                        playerListener = null
+                        connectionRetry?.cancel()
+                        connectionRetry = scope.launch(Dispatchers.Main) {
+                            kotlinx.coroutines.delay(1_000)
+                            if (controller == null && controllerFuture == null) initialize()
+                        }
                         _isPlaying.value = false; _isBuffering.value = false
                     }
                 }
@@ -354,7 +363,8 @@ class PlaybackManager private constructor(private val context: Context) {
                     }
 
                     // Start a small polling loop as a fallback to ensure external changes
-                    scope.launch {
+                    controllerPoll?.cancel()
+                    controllerPoll = scope.launch {
                         var last = _isPlaying.value
                         while (controller != null) {
                             try {
@@ -967,15 +977,21 @@ class PlaybackManager private constructor(private val context: Context) {
         connectionRetry = null
         cancelSleepTimer()
         savePlaybackState() // Save state before releasing
-        MediaController.releaseFuture(controllerFuture ?: return)
+        val connection = controllerFuture
+        val connected = controller
+        controllerFuture = null
+        controller = null
+        pendingQueueAction = null
+        controllerPoll?.cancel()
+        controllerPoll = null
+        // Detach before Media3 schedules asynchronous controller cleanup.
         // remove player listener if attached
         try {
-            playerListener?.let { controller?.removeListener(it) }
+            playerListener?.let { connected?.removeListener(it) }
         } catch (_: Exception) {
         }
         playerListener = null
-        controller = null
-        controllerFuture = null
+        connection?.let { MediaController.releaseFuture(it) }
         Log.d(TAG, "PlaybackManager released")
     }
 
