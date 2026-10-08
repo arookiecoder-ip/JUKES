@@ -20,11 +20,15 @@ class DeviceConnectionService : Service() {
             setShowBadge(false)
         })
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        startForeground(ID, NotificationCompat.Builder(this, CHANNEL)
+        try { startForeground(ID, NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.media3_notification_small_icon)
             .setContentTitle("Music Box")
             .setContentText("Available for playback from your other devices")
-            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).build())
+            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).build()) }
+        catch (error: RuntimeException) {
+            com.example.juke.utils.SafeLog.w("DeviceConnection", "Foreground promotion denied: ${error.javaClass.simpleName}")
+            stopSelf()
+        }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_NOT_STICKY
     override fun onTaskRemoved(rootIntent: Intent?) {
