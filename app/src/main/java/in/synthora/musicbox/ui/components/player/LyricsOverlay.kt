@@ -1,0 +1,360 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
+package `in`.synthora.musicbox.ui.components.player
+
+import `in`.synthora.musicbox.ui.theme.GlassCard
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import `in`.synthora.musicbox.models.Track
+import `in`.synthora.musicbox.ui.screens.parseSyncedLyrics
+import `in`.synthora.musicbox.utils.rememberJukeHaptics
+import `in`.synthora.musicbox.viewmodels.MusicViewModel
+import kotlinx.coroutines.delay
+import java.util.Locale
+import kotlin.math.roundToInt
+
+/**
+ * Fading edge modifier that masks content with a vertical gradient,
+ * creating a smooth fade-out at the top and bottom edges.
+ */
+private fun Modifier.fadingEdges(
+    topFraction: Float = 0.12f,
+    bottomFraction: Float = 0.12f
+): Modifier = this
+    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+    .drawWithContent {
+        drawContent()
+        val gradient = Brush.verticalGradient(
+            0f to Color.Transparent,
+            topFraction to Color.Black,
+            (1f - bottomFraction) to Color.Black,
+            1f to Color.Transparent
+        )
+        drawRect(brush = gradient, blendMode = BlendMode.DstIn)
+    }
+
+/**
+ * Applies a radial alpha mask so blur falls off smoothly toward edges
+ * instead of ending with a hard rectangular transition.
+ */
+@Composable
+fun LyricsOverlay(
+    currentTrack: Track,
+    currentPosition: Long,
+    musicViewModel: MusicViewModel,
+    isTablet: Boolean,
+    onDismiss: () -> Unit
+) {
+    val density = LocalDensity.current
+    val headerHeight = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding() + 56.dp
+    val haptic = rememberJukeHaptics()
+    val syncedLyrics = currentTrack.syncedLyrics?.takeIf { it.isNotBlank() }
+    val plainLyrics = currentTrack.plainLyrics?.takeIf { it.isNotBlank() }
+    var localOffsetMs by remember(currentTrack.uuid) {
+        mutableFloatStateOf(currentTrack.lyricsOffsetMs.toFloat())
+    }
+    var lastTick by remember(currentTrack.uuid) {
+        mutableIntStateOf((currentTrack.lyricsOffsetMs / 100L).toInt())
+    }
+    var showSyncControls by remember(currentTrack.uuid) { mutableStateOf(false) }
+    var lyricsPending by remember(currentTrack.uuid) { mutableStateOf(false) }
+
+    LaunchedEffect(currentTrack.uuid, syncedLyrics, plainLyrics) {
+        if (syncedLyrics != null || plainLyrics != null) {
+            lyricsPending = false
+        } else {
+            lyricsPending = true
+            delay(2500)
+            if (currentTrack.syncedLyrics.isNullOrBlank() && currentTrack.plainLyrics.isNullOrBlank()) {
+                lyricsPending = false
+            }
+        }
+    }
+
+    // Premium full-bleed frosted background
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Frosted artwork stays visible behind the lyrics and fades into the original banner.
+        Box(Modifier.fillMaxSize().fadingEdges(topFraction = 0.08f, bottomFraction = 0.14f)) {
+            AsyncImage(coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                .data(currentTrack.thumbnailUri).size(256).crossfade(false).build(), null,
+                Modifier.fillMaxSize().blur(28.dp).graphicsLayer { alpha = 0.82f },
+                contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.40f)))
+        }
+
+        if (syncedLyrics != null) {
+            val lyricLines = remember(syncedLyrics, localOffsetMs) {
+                parseSyncedLyrics(syncedLyrics, localOffsetMs.toLong())
+            }
+            SyncedLyricsLines(lyricLines, currentPosition,
+                onSeek = musicViewModel::seekTo,
+                modifier = Modifier.fillMaxSize().padding(top = headerHeight).padding(horizontal = 24.dp)
+                    .fadingEdges(topFraction = 0.14f, bottomFraction = 0.22f))
+        } else if (lyricsPending) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp
+                    )
+                    Text(
+                        text = "Loading lyrics...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+            }
+        } else {
+            // Plain lyrics (no syncing)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = headerHeight).padding(horizontal = 32.dp, vertical = 24.dp)
+                    .fadingEdges(topFraction = 0.08f, bottomFraction = 0.08f)
+                    .verticalScroll(rememberScrollState()),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    plainLyrics ?: "No lyrics available",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 30.sp,
+                        letterSpacing = 0.2.sp
+                    ),
+                    color = Color.White.copy(alpha = 0.85f),
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Normal
+                )
+            }
+        }
+
+        // Sync controls panel
+        if (syncedLyrics != null && showSyncControls) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 12.dp, start = 16.dp, end = 16.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .padding(bottom = 32.dp)) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        val sign = if (localOffsetMs > 0f) "+" else ""
+                        Text(
+                            text = "Sync Offset: $sign${String.format(Locale.US, "%.1f", localOffsetMs / 1000f)}s",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = {
+                                haptic.click()
+                                localOffsetMs = (localOffsetMs - 500f).coerceAtLeast(-12000f)
+                                val step = (localOffsetMs / 100f).roundToInt()
+                                lastTick = step
+                            }) {
+                                Icon(
+                                    Icons.Default.Remove,
+                                    contentDescription = "-0.5s",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Slider(
+                                value = localOffsetMs.coerceIn(-12000f, 12000f),
+                                onValueChange = { value ->
+                                    val currentStep = (value / 100f).roundToInt()
+                                    if (currentStep != lastTick) {
+                                        haptic.tick()
+                                        lastTick = currentStep
+                                    }
+                                    localOffsetMs = value
+                                },
+                                onValueChangeFinished = {
+                                    musicViewModel.saveLyricsOffset(currentTrack, localOffsetMs.toLong())
+                                },
+                                valueRange = -12000f..12000f,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
+                                    .height(36.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                )
+                            )
+
+                            IconButton(onClick = {
+                                haptic.click()
+                                localOffsetMs = (localOffsetMs + 500f).coerceAtMost(12000f)
+                                val step = (localOffsetMs / 100f).roundToInt()
+                                lastTick = step
+                            }) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "+0.5s",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = {
+                                haptic.click()
+                                localOffsetMs = 0f
+                                lastTick = 0
+                                musicViewModel.saveLyricsOffset(currentTrack, 0L)
+                            }) {
+                                Text(
+                                    "Reset",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            TextButton(onClick = {
+                                haptic.heavyClick()
+                                musicViewModel.saveLyricsOffset(currentTrack, localOffsetMs.toLong())
+                                showSyncControls = false
+                            }) {
+                                Text(
+                                    "Done",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Top action buttons
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = headerHeight, start = 10.dp, end = 10.dp),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (syncedLyrics != null) {
+                        IconButton(
+                            onClick = { showSyncControls = !showSyncControls },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    Color.White.copy(alpha = 0.08f),
+                                    CircleShape
+                                )
+                                .border(1.dp, Color.White.copy(alpha = 0.04f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Toggle Sync Controls",
+                                tint = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+                }
+
+
+            }
+        }
+    }
+}

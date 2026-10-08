@@ -7,13 +7,13 @@ A complete recommendation system that automatically generates an infinite music 
 ## Files Created/Modified
 
 ### New Files
-1. **QueueManager.kt** - `app/src/main/java/com/example/juke/services/QueueManager.kt`
+1. **QueueManager.kt** - `app/src/main/java/in/synthora/musicbox/services/QueueManager.kt`
    - Smart queue management
    - Automatic recommendation fetching
    - Background downloads with concurrency control
    - Pre-downloads next 2 songs
 
-2. **PlayerViewModel.kt** - `app/src/main/java/com/example/juke/viewmodels/PlayerViewModel.kt`
+2. **PlayerViewModel.kt** - `app/src/main/java/in/synthora/musicbox/viewmodels/PlayerViewModel.kt`
    - Example integration showing how to use QueueManager
    - Reactive UI updates with StateFlow
    - Complete usage examples
@@ -25,7 +25,7 @@ A complete recommendation system that automatically generates an infinite music 
    - Testing guide
 
 ### Modified Files
-1. **RecommenderApi.kt** - `app/src/main/java/com/example/juke/network/RecommenderApi.kt`
+1. **RecommenderApi.kt** - `app/src/main/java/in/synthora/musicbox/network/RecommenderApi.kt`
    - Added `fetchFullRadioQueue()` - Gets 50 recommendations from YouTube Music
    - Added `validateAndFilterWithSpotify()` - Validates with Spotify
    - Added spam filtering and official keyword detection

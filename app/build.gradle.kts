@@ -11,15 +11,15 @@ plugins {
 }
 
 android {
-    namespace = "com.example.juke"
+    namespace = "in.synthora.musicbox"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.juke"
+        applicationId = "in.synthora.musicbox"
         minSdk = 26
         targetSdk = 36
-        versionCode = 68
-        versionName = "2.4.16"
+        versionCode = 69
+        versionName = "2.4.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

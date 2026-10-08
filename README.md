@@ -128,7 +128,7 @@ Release (signed, optimized) builds are produced by CI: dispatch the **Android Fe
 | Network  | Ktor client, Spotify / YouTube Music / LRCLib APIs                     |
 | Language | Kotlin 2.0.21, Java 11 bytecode                                         |
 
-Project layout: `app/src/main/java/com/example/juke/` — `network/`, `services/` (playback, queue, updates), `ui/screens/` + `ui/components/`, `viewmodels/`, `database/`, `models/`, `utils/`.
+Project layout: `app/src/main/java/in/synthora/musicbox/` — `network/`, `services/` (playback, queue, updates), `ui/screens/` + `ui/components/`, `viewmodels/`, `database/`, `models/`, `utils/`.
 
 ## 🤝 Contributing
 

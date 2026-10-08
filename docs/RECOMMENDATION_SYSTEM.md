@@ -9,7 +9,7 @@ The recommendation system automatically generates a queue of similar songs based
 ## Components
 
 ### 1. RecommenderApi.kt
-Location: `app/src/main/java/com/example/juke/network/RecommenderApi.kt`
+Location: `app/src/main/java/in/synthora/musicbox/network/RecommenderApi.kt`
 
 **Key Features:**
 - `getBestVideoMatch(songName)` - Finds the best YouTube video for a song query
@@ -25,7 +25,7 @@ Location: `app/src/main/java/com/example/juke/network/RecommenderApi.kt`
 6. Returns top 10 high-confidence matches with Spotify links
 
 ### 2. QueueManager.kt
-Location: `app/src/main/java/com/example/juke/services/QueueManager.kt`
+Location: `app/src/main/java/in/synthora/musicbox/services/QueueManager.kt`
 
 **Key Features:**
 - Smart queue management
@@ -46,7 +46,7 @@ Location: `app/src/main/java/com/example/juke/services/QueueManager.kt`
 ### In a ViewModel or Activity:
 
 ```kotlin
-import com.example.juke.services.QueueManager
+import in.synthora.musicbox.services.QueueManager
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 

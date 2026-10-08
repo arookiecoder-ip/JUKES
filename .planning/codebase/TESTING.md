@@ -20,7 +20,7 @@
 ./gradlew test
 
 # Run specific test class
-./gradlew test --tests "com.example.juke.ExampleUnitTest"
+./gradlew test --tests "in.synthora.musicbox.ExampleUnitTest"
 
 # Run instrumented tests (requires device/emulator)
 ./gradlew connectedAndroidTest
@@ -29,15 +29,15 @@
 ./gradlew testDebugUnitTestCoverage
 
 # Run Compose tests
-./gradlew connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.juke.ui.test.HomeScreenTest
+./gradlew connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=in.synthora.musicbox.ui.test.HomeScreenTest
 ```
 
 ## Test File Organization
 
 **Location:**
-- Unit tests: `app/src/test/java/com/example/juke/`
-- Instrumented tests: `app/src/androidTest/java/com/example/juke/`
-- Compose UI tests: `app/src/androidTest/java/com/example/juke/ui/test/`
+- Unit tests: `app/src/test/java/in/synthora/musicbox/`
+- Instrumented tests: `app/src/androidTest/java/in/synthora/musicbox/`
+- Compose UI tests: `app/src/androidTest/java/in/synthora/musicbox/ui/test/`
 
 **Naming:**
 - Unit tests: `*Test.kt`
@@ -50,13 +50,13 @@ app/
 └── src/
     ├── test/
     │   └── java/
-    │       └── com/example/juke/
+    │       └── in/synthora/musicbox/
     │           ├── ExampleUnitTest.kt
     │           └── utils/
     │               └── TestHelpers.kt
     └── androidTest/
         └── java/
-            └── com/example/juke/
+            └── in/synthora/musicbox/
                 ├── database/
                 │   └── MusicDatabaseTest.kt
                 ├── ui/
@@ -71,7 +71,7 @@ app/
 
 **Suite Organization:**
 ```kotlin
-package com.example.juke
+package in.synthora.musicbox
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Before
@@ -166,7 +166,7 @@ when(mockContext.getString(R.string.app_name)).thenReturn("Juke")
 
 **Location:**
 - Inline in test files for simple cases
-- `app/src/test/java/com/example/juke/testutils/` for shared fixtures
+- `app/src/test/java/in/synthora/musicbox/testutils/` for shared fixtures
 - `app/src/test/resources/` for JSON/XML fixtures
 
 **Example Factory:**
@@ -216,7 +216,7 @@ fun createTestTrack(
 
 **UI Tests:**
 - Scope: Compose component behavior, screen navigation, user interactions
-- Location: `app/src/androidTest/java/com/example/juke/ui/test/`
+- Location: `app/src/androidTest/java/in/synthora/musicbox/ui/test/`
 - Framework: Compose UI Test
 - Current: None
 - Recommended: Screen composables, complex components, state interactions

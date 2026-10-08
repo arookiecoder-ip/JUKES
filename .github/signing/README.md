@@ -1,6 +1,6 @@
 # APK update signing
 
-Feature APKs use the same `com.example.juke` package and a monotonically increasing version code. Android updates also require the same signing certificate.
+Feature APKs use the same `in.synthora.musicbox` package and a monotonically increasing version code. Android updates also require the same signing certificate.
 
 The feature workflow preserves `~/.android/music-box-debug.keystore` using the immutable `music-box-debug-signing-v1` Actions cache. `.github/signing/debug-certificate.sha256` pins its public certificate. If the key is missing or changes, the workflow stops instead of publishing an APK that would require uninstalling the installed app.
 
