@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class DeviceConnectionServiceTest {
     @Test fun existingServicePromotesAgainAfterForegroundNotificationWasRemoved() {
-        val app = RuntimeEnvironment.getApplication<Application>()
+        val app = RuntimeEnvironment.getApplication()
         app.getSharedPreferences("backend_session", Context.MODE_PRIVATE).edit()
             .putStringSet("cookies", setOf("https://alexa.synthora.in/\nsession=test; Path=/; Max-Age=3600"))
             .commit()
