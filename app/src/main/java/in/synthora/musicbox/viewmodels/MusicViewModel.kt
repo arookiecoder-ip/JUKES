@@ -1906,6 +1906,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 kotlinx.coroutines.withTimeout(30_000) {
                     echo.state.first { it.track?.ytVideoId != previous && it.playing && it.confirmed && !it.processing }
                 }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                _messages.tryEmit("Playback has not started. Check the selected device and connection.")
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { _messages.tryEmit(e.message ?: "Couldn't change the song") }
             finally { if (kotlinx.coroutines.currentCoroutineContext().isActive) transportLoading.value = false }
