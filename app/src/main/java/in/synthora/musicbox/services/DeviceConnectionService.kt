@@ -30,7 +30,7 @@ class DeviceConnectionService : Service() {
             stopSelf()
         }
     }
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_NOT_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
     override fun onTaskRemoved(rootIntent: Intent?) {
         MobileDeviceConnection.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)

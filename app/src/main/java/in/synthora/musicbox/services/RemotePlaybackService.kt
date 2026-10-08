@@ -126,7 +126,9 @@ class RemotePlaybackService : MediaSessionService() {
         // Existing sessions retain the latest polled state, not the Activity seed.
         PlaybackCoordinator.observe(this, "notification", !isRemotePhone())
         super.onStartCommand(intent, flags, startId)
-        return START_NOT_STICKY
+        // Restore active remote controls after process reclamation. Dismissal, sign-out
+        // and output changes above still prevent a restart.
+        return START_STICKY
     }
 
     private fun isRemotePhone() = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
