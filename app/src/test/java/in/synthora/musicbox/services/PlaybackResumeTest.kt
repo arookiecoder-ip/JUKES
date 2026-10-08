@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlaybackResumeTest {
+    @Test fun restoredCursorBelongsOnlyToTheSavedSong() {
+        assertEquals(42_000L, restoredResumePosition("a", "a", 42_000, 0))
+        assertEquals(7_000L, restoredResumePosition("b", "a", 42_000, 7_000))
+        assertEquals(0L, restoredResumePosition("a", "a", -1, 0))
+    }
     @Test fun networkAndServerErrorsAllowRecoveryButDecoderErrorsDoNot() {
         assertTrue(isRecoverableAudioLoadError(2001)) // disconnected network
         assertTrue(isRecoverableAudioLoadError(2004)) // HTTP response, including a pending server download

@@ -405,7 +405,7 @@ class PlaybackManager private constructor(private val context: Context) {
                     val queued = pendingQueueAction
                     pendingQueueAction = null
                     if (queued != null) queued(requireNotNull(controller))
-                    else if (!userQueueRequested) scope.launch { restorePlaybackState() }
+                    else if (!userQueueRequested || connected.mediaItemCount == 0) scope.launch { restorePlaybackState(restoreEmptyController = true) }
                 },
                 androidx.core.content.ContextCompat.getMainExecutor(context)
             )
@@ -721,6 +721,14 @@ class PlaybackManager private constructor(private val context: Context) {
     fun seekToIndex(index: Int) {
         runTrackChangePreservingPlayState { it.seekTo(index, 0L) }
         Log.d(TAG, "Seeked to index $index")
+    }
+
+    fun getResumePosition(trackId: String, fallback: Long): Long {
+        val current = controller
+        if (current?.currentMediaItem?.mediaId == trackId) return current.currentPosition.coerceAtLeast(0)
+        val ids = prefs.getString("queue_track_ids", "").orEmpty().split(",")
+        val savedId = ids.getOrNull(prefs.getInt("queue_start_index", -1))
+        return restoredResumePosition(trackId, savedId, prefs.getLong("playback_position", 0), fallback)
     }
 
     fun getCurrentPosition(): Long {
@@ -1068,7 +1076,7 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun restorePlaybackState() {
+    private suspend fun restorePlaybackState(restoreEmptyController: Boolean = false) {
         try {
             if (!prefs.getBoolean("has_saved_state", false)) {
                 Log.d(TAG, "No saved playback state found")
@@ -1129,7 +1137,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
             // MediaController methods must be called on main thread
             withContext(Dispatchers.Main) {
-                if (userQueueRequested) return@withContext
+                if (userQueueRequested && (!restoreEmptyController || controller?.mediaItemCount != 0)) return@withContext
                 controller?.apply {
                     setMediaItems(
                         mediaItems,

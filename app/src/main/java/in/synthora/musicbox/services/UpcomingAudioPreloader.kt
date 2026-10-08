@@ -15,31 +15,36 @@ import kotlinx.coroutines.sync.withPermit
 @UnstableApi
 class UpcomingAudioPreloader(private val factory: DataSource.Factory, private val scope: CoroutineScope, private val context: android.content.Context? = null,
     private val policyOverride: ((Boolean) -> PreloadPolicy)? = null,
-    private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }) {
+    private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
+    private val demandFactory: DataSource.Factory = factory) {
     private data class Work(val writer: CacheWriter, val source: CacheDataSource, val job: Job)
     private val work = mutableMapOf<String, Work>()
-    private val completed = mutableSetOf<String>()
+    private val completed = mutableMapOf<String, Long>()
     private val slots = Semaphore(2)
     private val retries = mutableMapOf<String, BackgroundRetry>()
-    fun update(urls: List<String>, buffering: Boolean = false) {
+    fun update(urls: List<String>, buffering: Boolean = false, currentUrl: String? = null) {
         val connectivity = context?.getSystemService(android.net.ConnectivityManager::class.java)
         val policy = policyOverride?.invoke(buffering) ?: preloadPolicy(`in`.synthora.musicbox.network.NetworkFeedback.online.value,
             connectivity?.isActiveNetworkMetered ?: true,
             context?.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)?.getBoolean("prefetch_mobile_data", false) ?: false, buffering)
-        val wanted = urls.distinct().filter { Uri.parse(it).scheme in listOf("https", "http") }.take(policy.tracks).toSet()
+        val current = currentUrl?.takeIf { !buffering && Uri.parse(it).scheme in listOf("https", "http") }
+        val currentComplete = current != null && completed[current] == androidx.media3.common.C.LENGTH_UNSET.toLong()
+        val upcoming = urls.distinct().filter { Uri.parse(it).scheme in listOf("https", "http") }.take(policy.tracks).toSet()
+        val wanted = if (current != null && !currentComplete) setOf(current) else upcoming + listOfNotNull(current)
         (work.keys - wanted).forEach { key -> work.remove(key)?.let { obsolete ->
             obsolete.writer.cancel(); obsolete.job.cancel()
         } }
-        completed.retainAll(wanted)
+        completed.keys.retainAll(wanted)
         retries.keys.retainAll(wanted)
-        wanted.filter { it !in work && it !in completed &&
+        wanted.filter { it !in work && (it !in completed || (it == current && !currentComplete)) &&
             retries[it]?.ready(nowMs()) != false }.forEach { url ->
-            val source = factory.createDataSource() as CacheDataSource
-            val writer = CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setLength(policy.bytesPerTrack).build(), null, null)
+            val targetLength = if (url == current) androidx.media3.common.C.LENGTH_UNSET.toLong() else policy.bytesPerTrack
+            val source = (if (url == current) demandFactory else factory).createDataSource() as CacheDataSource
+            val writer = CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setLength(targetLength).build(), null, null)
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     slots.withPermit { withContext(Dispatchers.IO) { writer.cache() } }
-                    completed.add(url)
+                    completed[url] = targetLength
                     retries.remove(url)
                 } catch (e: CancellationException) { throw e }
                 catch (error: Exception) {

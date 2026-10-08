@@ -1787,7 +1787,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val current = requireNotNull(state.currentTrack)
             val queue = state.queue.ifEmpty { listOf(current) }
             val index = state.queueIndex.takeIf { it in queue.indices } ?: 0
-            launchPlayback(current) { phoneSetQueue(queue, index, playbackManager.getCurrentPosition().coerceAtLeast(0)) }
+            launchPlayback(current) { phoneSetQueue(queue, index, playbackManager.getResumePosition(current.uuid, state.position)) }
         } else viewModelScope.launch {
             runEcho {
                 if (!playbackManager.isPlayingFlow.value && !`in`.synthora.musicbox.services.PhonePlaybackOwnership.permitsPlayback()) {

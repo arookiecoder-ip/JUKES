@@ -388,8 +388,10 @@ class PlaybackService : MediaLibraryService() {
         if (!::player.isInitialized) return
         val connected = getSystemService(android.net.ConnectivityManager::class.java).activeNetwork != null &&
             `in`.synthora.musicbox.network.NetworkFeedback.online.value
-        upcomingPreloader?.update(if (connected && player.playbackState == Player.STATE_READY && player.playWhenReady && !PhonePlaybackOwnership.localHandoff)
-            upcomingAudioUrls(player) else emptyList(), player.playbackState == Player.STATE_BUFFERING)
+        val warming = connected && player.playbackState == Player.STATE_READY && player.playWhenReady && !PhonePlaybackOwnership.localHandoff
+        upcomingPreloader?.update(if (warming) upcomingAudioUrls(player) else emptyList(),
+            player.playbackState == Player.STATE_BUFFERING,
+            if (warming) player.currentMediaItem?.localConfiguration?.uri?.toString() else null)
     }
 
     private lateinit var audioManager: AudioManager
@@ -1013,7 +1015,8 @@ class PlaybackService : MediaLibraryService() {
         )
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
-            StreamCacheManager.getCache(applicationContext), prefetch = true), serviceScope, applicationContext)
+            StreamCacheManager.getCache(applicationContext), prefetch = true), serviceScope, applicationContext,
+            demandFactory = playbackDataSources(applicationContext, StreamCacheManager.getCache(applicationContext), prefetch = false))
         getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(preloadNetworkCallback)
         preloadConnectivityJob = serviceScope.launch {
             `in`.synthora.musicbox.network.NetworkFeedback.online.collect { online ->

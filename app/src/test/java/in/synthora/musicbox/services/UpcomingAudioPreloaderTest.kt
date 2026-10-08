@@ -21,6 +21,28 @@ import java.util.concurrent.atomic.AtomicBoolean
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class UpcomingAudioPreloaderTest {
+    @Test fun partialWarmPromotesToWholeCurrentSong() = runBlocking {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "full-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val preloader = UpcomingAudioPreloader(CacheDataSource.Factory().setCache(cache)
+            .setUpstreamDataSourceFactory { ByteArrayDataSource(ByteArray(8_192)) },
+            childScope, policyOverride = { PreloadPolicy(1, 512) })
+        val url = "https://audio.example/current"
+        suspend fun finish() { withTimeout(5_000) {
+            childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() }
+        } }
+        try {
+            preloader.update(listOf(url)); finish()
+            assertEquals(512L, cache.getCachedBytes(url, 0, 8_192))
+            preloader.update(emptyList(), currentUrl = url); finish()
+            assertEquals(8_192L, cache.getCachedBytes(url, 0, 8_192))
+        } finally {
+            preloader.clear()
+            childScope.coroutineContext[Job]?.cancelAndJoin()
+            cache.release(); directory.deleteRecursively()
+        }
+    }
     @Test fun failedBackgroundWarmRetriesAndRetainsCachedAudio() = runBlocking {
         val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "preload-${System.nanoTime()}")
         val cache = SimpleCache(directory, NoOpCacheEvictor())

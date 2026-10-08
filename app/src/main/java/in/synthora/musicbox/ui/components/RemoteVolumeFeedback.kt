@@ -27,7 +27,8 @@ fun RemoteVolumeFeedback() {
         delay(1_200)
         visible = false
     }
-    if (feedback != null) Popup(alignment = Alignment.TopCenter) {
+    val shown = feedback ?: return
+    Popup(alignment = Alignment.TopCenter) {
         AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
             Surface(Modifier.statusBarsPadding().padding(12.dp).widthIn(max = 360.dp),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
@@ -36,10 +37,10 @@ fun RemoteVolumeFeedback() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.VolumeUp, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(feedback!!.target, Modifier.weight(1f), maxLines = 1)
-                        Text("${feedback!!.value}%")
+                        Text(shown.target, Modifier.weight(1f), maxLines = 1)
+                        Text("${shown.value}%")
                     }
-                    LinearProgressIndicator(progress = { feedback!!.value / 100f }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { shown.value / 100f }, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
