@@ -158,7 +158,7 @@ sealed class Screen(
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
 
-    private val musicViewModel: MusicViewModel by viewModels()
+    private val musicViewModel: MusicViewModel by lazy { (application as JukeApplication).playbackModel() }
     private val remoteVolumeKeys = mutableSetOf<Int>()
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {

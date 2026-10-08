@@ -30,7 +30,21 @@ class DeviceConnectionService : Service() {
             stopSelf()
         }
     }
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!`in`.synthora.musicbox.network.Backend.hasSession()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (intent == null) {
+            // A sticky restart has no Activity. Recreate the same application-owned
+            // command handler the screen uses, without selecting an idle device.
+            val model = (application as `in`.synthora.musicbox.JukeApplication).playbackModel()
+            model.setForeground(false)
+            model.onSignedIn()
+        }
+        return START_STICKY
+    }
     override fun onTaskRemoved(rootIntent: Intent?) {
         MobileDeviceConnection.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)

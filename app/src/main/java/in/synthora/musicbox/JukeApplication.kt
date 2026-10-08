@@ -8,7 +8,12 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.util.DebugLogger
 
-class JukeApplication : Application(), ImageLoaderFactory {
+class JukeApplication : Application(), ImageLoaderFactory, androidx.lifecycle.ViewModelStoreOwner {
+    override val viewModelStore = androidx.lifecycle.ViewModelStore()
+    fun playbackModel(): `in`.synthora.musicbox.viewmodels.MusicViewModel =
+        androidx.lifecycle.ViewModelProvider(viewModelStore,
+            androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(this))[
+                `in`.synthora.musicbox.viewmodels.MusicViewModel::class.java]
 
     override fun onCreate() {
         super.onCreate()
