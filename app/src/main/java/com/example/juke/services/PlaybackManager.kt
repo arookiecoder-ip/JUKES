@@ -476,12 +476,12 @@ class PlaybackManager private constructor(private val context: Context) {
                 installQueueInBatches(mediaItems, startIndex,
                     seed = { item -> setMediaItems(listOf(item), 0, startPositionMs) },
                     insert = { index, batch -> addMediaItems(index, batch) },
-                    startSelected = { prepare(); if (playWhenReady) play() else pause() })
+                    startSelected = { pause(); prepare() })
             } else setMediaItems(mediaItems, startIndex, startPositionMs)
-            if (!seededPlayback) {
-                if (!reusable || playbackState != Player.STATE_READY) prepare()
-                if (playWhenReady) play() else pause()
-            }
+            if (!seededPlayback && (!reusable || playbackState != Player.STATE_READY)) prepare()
+            // Prepare in parallel with large-queue installation, but do not
+            // let a nearly finished seed auto-advance before its tail exists.
+            if (playWhenReady) play() else pause()
         } }
         val ready = controller
         if (ready != null) action(ready) else pendingQueueAction = action
