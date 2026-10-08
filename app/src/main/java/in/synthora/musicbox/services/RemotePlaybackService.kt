@@ -39,6 +39,7 @@ class RemotePlaybackService : MediaSessionService() {
     private lateinit var echo: EchoController
     private lateinit var remote: EchoPlayer
     private var session: MediaSession? = null
+    private var restoringNotification = false
     private var localServiceAnchor: ListenableFuture<androidx.media3.session.MediaController>? = null
 
     override fun onCreate() {
@@ -121,6 +122,27 @@ class RemotePlaybackService : MediaSessionService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent == null) {
+            // Android may restart a formerly foreground service before a server
+            // snapshot is available. Meet its foreground deadline without waiting
+            // for artwork, presence or Alexa to respond.
+            restoringNotification = true
+            try {
+                startForeground(1002, androidx.core.app.NotificationCompat.Builder(this, "alexa_playback")
+                    .setSmallIcon(R.drawable.media3_notification_small_icon)
+                    .setContentTitle("Music Box").setContentText("Reconnecting playback controls…")
+                    .setOnlyAlertOnce(true).setOngoing(true).build())
+            } catch (error: RuntimeException) {
+                restoringNotification = false
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
+            scope.launch {
+                delay(30_000)
+                restoringNotification = false
+                session?.let { onUpdateNotification(it, false) }
+            }
+        }
         val serial = prefs.getString("echo_serial", "").orEmpty()
         if (!isRemotePhone() && serial.isNotBlank() && serial != echo.serial.value) echo.select(serial)
         // Existing sessions retain the latest polled state, not the Activity seed.
@@ -174,6 +196,7 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     private fun updateForegroundBridge() {
+        if (restoringNotification && remote.snapshot.track == null) return
         if (holdDestinationHandoff()) return
         if (isPlaybackOngoing) {
             val notification = getSystemService(NotificationManager::class.java).activeNotifications
@@ -183,6 +206,8 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (restoringNotification && remote.snapshot.track == null) return
+        restoringNotification = false
         // A source pause is not permission to tear down the destination's already
         // authorized foreground services before its local renderer is ready.
         if (holdDestinationHandoff()) return
