@@ -44,7 +44,7 @@ fun PlayerProgress(
         PlaybackSeekSlider(
             positionMs = currentPosition,
             durationMs = duration,
-            bufferedPositionMs = if (musicViewModel.isAlexa || musicViewModel.isRemotePhone) 0 else musicViewModel.playbackManager.getBufferedPosition(uiState.currentTrack?.uuid),
+            bufferedPositionMs = if (musicViewModel.output.value != com.example.juke.viewmodels.PlaybackOutput.PHONE) 0 else musicViewModel.playbackManager.getBufferedPosition(uiState.currentTrack?.uuid),
             onSeek = musicViewModel::seekTo
         )
 
