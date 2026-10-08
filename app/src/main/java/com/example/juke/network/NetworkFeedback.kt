@@ -111,6 +111,7 @@ fun networkErrorMessage(error: Throwable): String? {
     return when {
         causes.any { it is SocketTimeoutException || it is HttpRequestTimeoutException || it is ConnectTimeoutException || it is KtorSocketTimeoutException } ->
             "The connection is taking too long. Please try again."
+        causes.any { it is androidx.media3.common.ParserException } -> "The audio data could not be read. Retrying a fresh copy may help."
         causes.any { it is IOException } -> "Couldn't connect. Check your internet connection and try again."
         else -> null
     }

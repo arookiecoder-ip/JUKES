@@ -44,6 +44,8 @@ object Diagnostics {
                         appendLine("  reason=${it.reason}, status=${it.status}, time=${it.timestamp}, description=${it.description}")
                     } }
             }
+            appendLine("Recent audio failures (codes and exception types only):")
+            com.example.juke.services.PlaybackDiagnostics.recentAudioFailures().forEach { appendLine("  $it") }
             appendLine("Playback timings:")
             com.example.juke.services.PlaybackDiagnostics.snapshot().forEach { (stage, value) ->
                 appendLine("  $stage: $value")

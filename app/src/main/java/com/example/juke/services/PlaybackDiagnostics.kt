@@ -4,6 +4,13 @@ package com.example.juke.services
 object PlaybackDiagnostics {
     enum class Stage { SERVER_REQUEST, AUDIO_CONNECT, FIRST_BYTE, HANDOFF, HANDOFF_STATE, PLAYER_READY, RECOVERY }
     data class Measurement(val count: Long, val failures: Long, val totalMs: Long, val maxMs: Long)
+    data class AudioFailure(val code: Int, val causes: List<String>, val httpStatus: Int?)
+    private val audioFailures = ArrayDeque<AudioFailure>()
+    @Synchronized fun recordAudioFailure(code: Int, causes: List<String>, httpStatus: Int?) {
+        if (audioFailures.size == 8) audioFailures.removeFirst()
+        audioFailures.addLast(AudioFailure(code, causes.take(8), httpStatus))
+    }
+    @Synchronized fun recentAudioFailures(): List<AudioFailure> = audioFailures.toList()
     private val values = mutableMapOf<Stage, Measurement>()
     @Synchronized fun record(stage: Stage, elapsedMs: Long, failed: Boolean = false) {
         val previous = values[stage] ?: Measurement(0, 0, 0, 0)

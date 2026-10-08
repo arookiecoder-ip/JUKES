@@ -307,6 +307,7 @@ class PlaybackService : MediaLibraryService() {
         networkInterruption.clear()
         recoverCurrentStream(manual = true)
     }
+    private val malformedAudioRetried = mutableSetOf<String>()
     private val recoveryAttempts = mutableMapOf<String, Int>()
     private val progressHandler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
@@ -574,6 +575,13 @@ class PlaybackService : MediaLibraryService() {
         if (!manual && !streamRetry.ready(android.os.SystemClock.elapsedRealtime())) return
         recoveryAttempts[trackId] = attempt
         val claim = PhonePlaybackOwnership.token
+        val malformed = isMalformedAudio(player.playerError?.errorCode ?: 0)
+        if (malformed && !malformedAudioRetried.add(trackId)) {
+            recoveryShouldResume = false
+            player.pause()
+            com.example.juke.network.NetworkFeedback.notify("This audio could not be read after retrying. Try another song.")
+            return
+        }
         val httpFailure = generateSequence<Throwable>(player.playerError) { it.cause }
             .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()
         if (httpFailure?.responseCode == 401) com.example.juke.network.AudioCredentials.clear()
@@ -588,8 +596,12 @@ class PlaybackService : MediaLibraryService() {
                 val track = withContext(Dispatchers.IO) { database.trackDao().getTrackByUuid(trackId)?.toTrack() }
                     ?: return@launch
                 DownloadRepository.get(applicationContext).awaitReady()
-                val local = DownloadRepository.get(applicationContext).localTrack(track)
+                val local = DownloadRepository.get(applicationContext).localTrack(track).takeUnless { malformed }
                 val refreshed = if (local != null) local else {
+                    if (malformed) withContext(Dispatchers.IO) {
+                        val config = original.localConfiguration
+                        StreamCacheManager.removeTrackCache(config?.customCacheKey ?: config?.uri?.toString())
+                    }
                     val video = track.ytVideoId ?: return@launch
                     if (!manual || httpFailure?.responseCode == 429) delay(retryDelay)
                     val url = withContext(Dispatchers.IO) { AlexaBackendApi.getStreamUrl(video) }
@@ -720,7 +732,10 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-            Log.e(TAG, "Player error: ${error.message}", error)
+            val causes = generateSequence<Throwable>(error) { it.cause }.take(8).toList()
+            val status = causes.filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
+            PlaybackDiagnostics.recordAudioFailure(error.errorCode, causes.map { it.javaClass.simpleName }, status)
+            Log.e(TAG, "Player error code=${error.errorCode}; causes=${causes.map { it.javaClass.simpleName }}; HTTP=$status")
             recoverCurrentStream()
         }
 
@@ -752,6 +767,7 @@ class PlaybackService : MediaLibraryService() {
             streamRecoveryJob?.cancel()
             streamRecoveryJob = null
             recoveryAttempts.clear()
+            malformedAudioRetried.clear()
             if (::silentWatchdog.isInitialized && player.isPlaying) silentWatchdog.notePlaying()
             streamRetry.reset()
             leaseInterruption.clear()
