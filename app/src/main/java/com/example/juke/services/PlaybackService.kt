@@ -202,6 +202,8 @@ class PlaybackService : MediaLibraryService() {
         @Volatile
         private var cache: SimpleCache? = null
 
+        fun existingCache(): SimpleCache? = cache
+
         fun getCache(context: Context): SimpleCache {
             return cache ?: synchronized(this) {
                 cache ?: run {

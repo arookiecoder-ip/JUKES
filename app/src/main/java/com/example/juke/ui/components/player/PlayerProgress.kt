@@ -44,7 +44,7 @@ fun PlayerProgress(
         PlaybackSeekSlider(
             positionMs = currentPosition,
             durationMs = duration,
-            bufferedPositionMs = if (musicViewModel.output.value != com.example.juke.viewmodels.PlaybackOutput.PHONE) 0 else musicViewModel.playbackManager.getBufferedPosition(uiState.currentTrack?.uuid),
+            cachedFraction = if (musicViewModel.output.value != com.example.juke.viewmodels.PlaybackOutput.PHONE) 0f else musicViewModel.playbackManager.getSavedCacheFraction(uiState.currentTrack?.uuid),
             onSeek = musicViewModel::seekTo
         )
 
@@ -75,13 +75,13 @@ internal fun PlaybackSeekSlider(
     durationMs: Long,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
-    bufferedPositionMs: Long = 0
+    cachedFraction: Float = 0f
 ) {
     val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val haptic = rememberJukeHaptics()
     ExpandableTrackSlider(
         value = progress,
-        bufferedFraction = com.example.juke.services.bufferedPlaybackFraction(bufferedPositionMs, durationMs),
+        bufferedFraction = cachedFraction,
         label = "Playback position",
         enabled = durationMs > 0,
         restingHeight = 4.dp,

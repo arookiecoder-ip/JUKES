@@ -727,6 +727,20 @@ class PlaybackManager private constructor(private val context: Context) {
         return controller?.currentPosition ?: 0L
     }
 
+    @OptIn(UnstableApi::class)
+    fun getSavedCacheFraction(expectedId: String?): Float {
+        val item = controller?.currentMediaItem ?: return 0f
+        if (item.mediaId != expectedId) return 0f
+        val config = item.localConfiguration ?: return 0f
+        if (config.uri.scheme in setOf("file", "content")) return 1f
+        val cache = PlaybackService.StreamCacheManager.existingCache() ?: return 0f
+        val key = config.customCacheKey ?: config.uri.toString()
+        return runCatching {
+            val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(key))
+            if (length <= 0) 0f else bufferedPlaybackFraction(cache.getCachedLength(key, 0, length), length)
+        }.getOrDefault(0f)
+    }
+
     fun getBufferedPosition(expectedId: String?): Long {
         val current = controller ?: return 0
         if (current.currentMediaItem?.mediaId != expectedId || current.playerError != null) return 0
