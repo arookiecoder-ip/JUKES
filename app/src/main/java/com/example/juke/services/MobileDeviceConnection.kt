@@ -5,6 +5,7 @@ import com.example.juke.network.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -68,12 +69,16 @@ object MobileDeviceConnection {
             var outputToken = ""
             var supportsWait = false
             var failures = 0
+            var retryAfterMs = 0L
             while (isActive && activeGeneration == generation) {
-                if (!NetworkFeedback.online.value) { delay(2_000); continue }
+                if (!NetworkFeedback.online.value) {
+                    NetworkFeedback.online.first { it }
+                    failures = 0
+                }
                 try {
                     val sentAcknowledgments = acknowledgments.snapshot()
-                    val reply = withTimeout(6_000) { request("online", buildJsonObject {
-                        put("wait", true); put("revision", revision); put("output_token", outputToken)
+                    val reply = withTimeout(12_000) { request("online", buildJsonObject {
+                        put("wait", true); put("wait_seconds", 8); put("revision", revision); put("output_token", outputToken)
                         put("volume", (audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 / audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)))
                         put("volume_steps", audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1))
                         put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
@@ -81,6 +86,7 @@ object MobileDeviceConnection {
                     }, activeSession) }
                     if (activeGeneration != generation) return@launch
                     failures = 0
+                    retryAfterMs = 0L
                     acknowledgments.delivered(sentAcknowledgments)
                     _devices.value = reply.array("devices").map { it.objectOrEmpty() }
                         .map {
@@ -99,11 +105,24 @@ object MobileDeviceConnection {
                     delivery.offer(output to reply.array("commands"))
                 } catch (_: TimeoutCancellationException) { failures++ }
                 catch (e: CancellationException) { throw e }
-                catch (_: Exception) { failures++ }
-                if (failures > 0) { delay((2_000L shl failures.coerceAtMost(3)).coerceAtMost(15_000)); continue }
-                val visible = androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-                val activeOutput = latestOutput.mode == "phone" && latestOutput.owner == PhonePlaybackOwnership.ownerId
-                delay(if (supportsWait && (visible || activeOutput)) 100 else 3_000)
+                catch (error: Exception) {
+                    failures++
+                    retryAfterMs = (error as? BackendHttpException)?.retryAfterMs ?: 0L
+                }
+                if (failures > 0) {
+                    val retryDelay = presenceRetryDelay(failures, retryAfterMs)
+                    if (retryAfterMs > 0) delay(retryDelay)
+                    else withTimeoutOrNull(retryDelay) {
+                        // Network recovery can interrupt outage backoff. Server
+                        // Retry-After remains mandatory even if connectivity changes.
+                        NetworkFeedback.online.first { !it }
+                        NetworkFeedback.online.first { it }
+                        failures = 0
+                    }
+                    continue
+                }
+                // Server waits wake immediately on commands; no background gap.
+                delay(if (supportsWait) 100 else 3_000)
             }
         }
     }

@@ -4,6 +4,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun cursorPublishingSkipsIdleAndNormalProgressButReportsSeeksAndStateChanges() {
+        val paused = PublishedCursor("lease", "song", false, false, 4000, 0)
+        assertFalse(paused.copy(at = 60000).needsPublication(paused))
+        assertTrue(paused.copy(playing = true).needsPublication(paused))
+        val playing = paused.copy(playing = true)
+        assertFalse(playing.copy(position = 7000, at = 3000).needsPublication(playing))
+        assertTrue(playing.copy(position = 14000, at = 10000).needsPublication(playing))
+        assertTrue(playing.copy(position = 30000, at = 3000).needsPublication(playing))
+        assertTrue(playing.copy(buffering = true).needsPublication(playing))
+        assertTrue(playing.copy(token = "new lease").needsPublication(playing))
+        assertTrue(playing.copy(mediaId = "next").needsPublication(playing))
+    }
+    @Test fun outageBackoffIsBoundedAndRespectsServerRetryAfter() {
+        assertEquals(4000L, presenceRetryDelay(1, 0))
+        assertEquals(60000L, presenceRetryDelay(100, 0))
+        assertEquals(120000L, presenceRetryDelay(2, 120000))
+        assertEquals(4000L, presenceRetryDelay(1, -1))
+    }
+
     @Test fun pausedSourceCannotDemoteTheBackgroundDestinationBeforePreparationStarts() {
         val pending = SharedPlaybackOutput(mode = "phone", owner = "destination", token = "new", handoffPending = true)
         assertTrue(retainDestinationForeground(pending, "destination", "", false, true))

@@ -105,6 +105,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
         // A slow queue write must not occupy the heartbeat loop and expire an
         // otherwise healthy output lease. Publishing is independent and bounded.
         serviceScope.launch {
+            var published: PublishedCursor? = null
             while (currentCoroutineContext().isActive) {
                 delay(3_000)
                 val claim = PhonePlaybackOwnership.token
@@ -115,12 +116,18 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     if (player.currentMediaItem?.mediaId != mediaId ||
                         !canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff) ||
                         !PhonePlaybackOwnership.permitsPlayback(claim)) continue
+                    val cursor = PublishedCursor(claim, current.uuid, player.isPlaying,
+                        player.playbackState == Player.STATE_BUFFERING, player.currentPosition.coerceAtLeast(0),
+                        android.os.SystemClock.elapsedRealtime())
+                    if (!com.example.juke.network.NetworkFeedback.online.value || !cursor.needsPublication(published)) continue
                     current.ytVideoId?.takeIf { it.isNotBlank() }?.let { video ->
-                        withTimeoutOrNull(4_000) {
+                        val completed = withTimeoutOrNull(4_000) {
                             com.example.juke.network.AlexaBackendApi.updateQueue("current", video, emptyList(),
                                 player.isPlaying, player.currentPosition.coerceAtLeast(0), player.currentMediaItemIndex,
-                                buffering = player.playbackState == Player.STATE_BUFFERING, expectedToken = claim, currentEntryId = current.uuid)
+                                buffering = cursor.buffering, expectedToken = claim, currentEntryId = current.uuid)
+                            true
                         }
+                        if (completed == true) published = cursor
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {
