@@ -1782,9 +1782,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             launchPlayback(current) { phoneSetQueue(queue, index, state.position.coerceAtLeast(0)) }
             return
         }
-        if (playbackManager.shouldResumeAfterTrackChange()) {
-            playbackManager.togglePlayPause()
-        } else if (playbackManager.needsPlaybackReload() && _uiState.value.currentTrack != null) {
+        if (playbackManager.needsPlaybackReload() && _uiState.value.currentTrack != null) {
             val state = _uiState.value
             val current = requireNotNull(state.currentTrack)
             val queue = state.queue.ifEmpty { listOf(current) }

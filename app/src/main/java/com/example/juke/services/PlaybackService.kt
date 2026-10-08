@@ -575,13 +575,13 @@ class PlaybackService : MediaLibraryService() {
         val httpFailure = generateSequence<Throwable>(player.playerError) { it.cause }
             .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()
         if (httpFailure?.responseCode == 401) com.example.juke.network.AudioCredentials.clear()
-        com.example.juke.services.PlaybackDiagnostics.record(com.example.juke.services.PlaybackDiagnostics.Stage.RECOVERY, 0, true)
         val retryAfter = httpFailure?.headerFields?.entries?.firstOrNull { it.key.equals("Retry-After", true) }?.value?.firstOrNull()
         val retryDelay = com.example.juke.network.audioRetryDelay(httpFailure?.responseCode, retryAfter, attempt)
         streamRetry.failed(android.os.SystemClock.elapsedRealtime(), retryDelay)
         val position = player.currentPosition.coerceAtLeast(0)
         recoveryShouldResume = manual || player.playWhenReady || recoveryShouldResume
         streamRecoveryJob = serviceScope.launch {
+            val recoveryStarted = android.os.SystemClock.elapsedRealtime()
             try {
                 val track = withContext(Dispatchers.IO) { database.trackDao().getTrackByUuid(trackId)?.toTrack() }
                     ?: return@launch
@@ -611,8 +611,10 @@ class PlaybackService : MediaLibraryService() {
                 player.prepare()
                 player.playWhenReady = resume && !inCall()
                 if (resume && inCall()) mainHandler.postDelayed(resumeAfterCall, 500)
+                PlaybackDiagnostics.record(PlaybackDiagnostics.Stage.RECOVERY, android.os.SystemClock.elapsedRealtime() - recoveryStarted, false)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
+                PlaybackDiagnostics.record(PlaybackDiagnostics.Stage.RECOVERY, android.os.SystemClock.elapsedRealtime() - recoveryStarted, true)
                 streamRetry.failed(android.os.SystemClock.elapsedRealtime(), if (httpFailure?.responseCode == 429) retryDelay else 0)
                 if (player.currentMediaItem?.mediaId == trackId) {
                     com.example.juke.network.NetworkFeedback.notify(

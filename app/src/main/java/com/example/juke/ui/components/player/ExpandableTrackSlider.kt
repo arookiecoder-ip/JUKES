@@ -36,7 +36,8 @@ internal fun ExpandableTrackSlider(
     enabled: Boolean = true,
     onValueChange: (Float) -> Unit = {},
     restingHeight: Dp = 3.dp,
-    draggingHeight: Dp = 9.dp
+    draggingHeight: Dp = 9.dp,
+    bufferedFraction: Float = 0f
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -58,6 +59,8 @@ internal fun ExpandableTrackSlider(
         track = { state ->
             Canvas(Modifier.fillMaxWidth().height(thickness).testTag("$label track").clip(RoundedCornerShape(50))) {
                 drawRect(background)
+                val buffered = bufferedFraction.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+                drawRect(fill.copy(alpha = 0.32f), size = Size(size.width * buffered, size.height))
                 drawRect(fill, size = Size(size.width * state.value.coerceIn(0f, 1f), size.height))
             }
         },

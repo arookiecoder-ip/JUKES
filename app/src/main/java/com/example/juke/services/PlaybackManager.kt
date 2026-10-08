@@ -477,6 +477,8 @@ class PlaybackManager private constructor(private val context: Context) {
                     old.mediaMetadata.artist?.toString() == next.mediaMetadata.artist?.toString() &&
                     old.mediaMetadata.artworkUri == next.mediaMetadata.artworkUri
             }
+            // A failed same-URI item needs a fresh loader, not a metadata-only update.
+            if (playerError != null) stop()
             val seededPlayback = !reusable && mediaItems.size > 200
             if (reusable) {
                 val position = startPositionMs.takeIf { it != C.TIME_UNSET } ?: 0
@@ -606,10 +608,14 @@ class PlaybackManager private constructor(private val context: Context) {
     /** A handoff commits only after the destination has prepared its selected track. */
     suspend fun awaitReady(expectedId: String? = null) {
         PlaybackDiagnostics.measure(PlaybackDiagnostics.Stage.PLAYER_READY) { kotlinx.coroutines.withTimeout(30_000) {
+            val started = android.os.SystemClock.elapsedRealtime()
             while (true) {
                 val ready = controller
-                ready?.playerError?.let { throw it }
-                if (ready?.playbackState == Player.STATE_READY && (expectedId == null || ready.currentMediaItem?.mediaId == expectedId)) return@withTimeout
+                val selected = expectedId == null || ready?.currentMediaItem?.mediaId == expectedId
+                // Posted queue/prepare commands must first replace the previous error.
+                if (selected && pendingQueueAction == null && android.os.SystemClock.elapsedRealtime() - started >= 1_000)
+                    ready?.playerError?.let { throw it }
+                if (ready?.playbackState == Player.STATE_READY && selected && ready.playerError == null && pendingQueueAction == null) return@withTimeout
                 kotlinx.coroutines.delay(50)
             }
         } }
@@ -719,6 +725,12 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun getCurrentPosition(): Long {
         return controller?.currentPosition ?: 0L
+    }
+
+    fun getBufferedPosition(expectedId: String?): Long {
+        val current = controller ?: return 0
+        if (current.currentMediaItem?.mediaId != expectedId || current.playerError != null) return 0
+        return current.bufferedPosition.coerceAtLeast(0)
     }
 
     fun getDuration(): Long {

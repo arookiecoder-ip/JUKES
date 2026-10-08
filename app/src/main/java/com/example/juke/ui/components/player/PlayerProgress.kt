@@ -44,6 +44,7 @@ fun PlayerProgress(
         PlaybackSeekSlider(
             positionMs = currentPosition,
             durationMs = duration,
+            bufferedPositionMs = if (musicViewModel.isAlexa || musicViewModel.isRemotePhone) 0 else musicViewModel.playbackManager.getBufferedPosition(uiState.currentTrack?.uuid),
             onSeek = musicViewModel::seekTo
         )
 
@@ -73,12 +74,14 @@ internal fun PlaybackSeekSlider(
     positionMs: Long,
     durationMs: Long,
     onSeek: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    bufferedPositionMs: Long = 0
 ) {
     val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val haptic = rememberJukeHaptics()
     ExpandableTrackSlider(
         value = progress,
+        bufferedFraction = com.example.juke.services.bufferedPlaybackFraction(bufferedPositionMs, durationMs),
         label = "Playback position",
         enabled = durationMs > 0,
         restingHeight = 4.dp,
