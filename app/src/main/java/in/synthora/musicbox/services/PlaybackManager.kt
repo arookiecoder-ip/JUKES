@@ -1128,7 +1128,11 @@ class PlaybackManager private constructor(private val context: Context) {
 
             // Restore queue — use createValidatedMediaItem but fall back to URI-less items
             // for stream tracks that couldn't be re-resolved (they'll trigger error recovery)
-            val mediaItems = tracks.mapNotNull { track -> createValidatedMediaItem(track) }
+            val playable = tracks.mapNotNull { track -> createValidatedMediaItem(track)?.let { track to it } }
+            val mediaItems = playable.map { it.second }
+            val restoredTracks = playable.map { it.first }
+            val restoredIndex = restoredTracks.indexOfFirst { it.uuid == ids.getOrNull(savedIndex) }.takeIf { it >= 0 } ?: 0
+            val restoredPosition = if (restoredTracks.getOrNull(restoredIndex)?.uuid == ids.getOrNull(savedIndex)) savedPosition.coerceAtLeast(0) else 0L
 
             if (mediaItems.isEmpty()) {
                 Log.d(TAG, "No playable media items could be created from saved queue")
@@ -1141,24 +1145,24 @@ class PlaybackManager private constructor(private val context: Context) {
                 controller?.apply {
                     setMediaItems(
                         mediaItems,
-                        savedIndex.coerceIn(0, mediaItems.size - 1),
-                        savedPosition
+                        restoredIndex,
+                        restoredPosition
                     )
                     prepare()
                     // Don't auto-play, just prepare to paused state
                 }
 
-                tracks.getOrNull(savedIndex)?.let { track ->
+                restoredTracks.getOrNull(restoredIndex)?.let { track ->
                     _currentTrackId.value = track.uuid
                 }
 
                 // Set the restored index
-                _currentQueueIndex.value = savedIndex
+                _currentQueueIndex.value = restoredIndex
 
                 // Update QueueManager with remaining tracks from current position
                 // QueueManager treats index 0 as "current track", so we pass only tracks from savedIndex onwards
                 // This prevents state desync between ExoPlayer's position and QueueManager's internal state
-                val remainingTracks = tracks.drop(savedIndex)
+                val remainingTracks = restoredTracks.drop(restoredIndex)
                 if (remainingTracks.isNotEmpty()) {
                     queueManager.initializeQueue(remainingTracks)
                 }
