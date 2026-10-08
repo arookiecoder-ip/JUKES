@@ -614,7 +614,7 @@ class PlaybackManager private constructor(private val context: Context) {
                 val selected = expectedId == null || ready?.currentMediaItem?.mediaId == expectedId
                 // Posted queue/prepare commands must first replace the previous error.
                 if (selected && pendingQueueAction == null && android.os.SystemClock.elapsedRealtime() - started >= 1_000)
-                    ready?.playerError?.let { throw it }
+                    ready?.playerError?.let { if (!isRecoverableAudioLoadError(it.errorCode)) throw it }
                 if (ready?.playbackState == Player.STATE_READY && selected && ready.playerError == null && pendingQueueAction == null) return@withTimeout
                 kotlinx.coroutines.delay(50)
             }
