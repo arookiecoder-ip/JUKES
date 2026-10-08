@@ -478,7 +478,10 @@ class PlaybackManager private constructor(private val context: Context) {
                     old.mediaMetadata.artworkUri == next.mediaMetadata.artworkUri
             }
             // A failed same-URI item needs a fresh loader, not a metadata-only update.
-            if (playerError != null) stop()
+            if (playerError != null) {
+                PlaybackService.resetExplicitStreamRetry()
+                stop()
+            }
             val seededPlayback = !reusable && mediaItems.size > 200
             if (reusable) {
                 val position = startPositionMs.takeIf { it != C.TIME_UNSET } ?: 0
@@ -726,7 +729,9 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun getResumePosition(trackId: String, fallback: Long): Long {
         val current = controller
-        if (current?.currentMediaItem?.mediaId == trackId) return current.currentPosition.coerceAtLeast(0)
+        if (current?.currentMediaItem?.mediaId == trackId &&
+            ((current.playerError == null && current.playbackState != Player.STATE_IDLE) || current.currentPosition > 0))
+            return current.currentPosition.coerceAtLeast(0)
         val ids = prefs.getString("queue_track_ids", "").orEmpty().split(",")
         val savedId = ids.getOrNull(prefs.getInt("queue_start_index", -1))
         return restoredResumePosition(trackId, savedId, prefs.getLong("playback_position", 0), fallback)

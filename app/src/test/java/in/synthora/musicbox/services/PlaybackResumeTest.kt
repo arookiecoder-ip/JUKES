@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlaybackResumeTest {
+    @Test fun truncatedAudioRequiresFreshBytesButTimeoutDoesNot() {
+        assertTrue(hasTruncatedAudio(java.io.IOException("wrapped", java.io.EOFException())))
+        assertFalse(hasTruncatedAudio(java.net.SocketTimeoutException()))
+        assertFalse(hasTruncatedAudio(null))
+    }
     @Test fun restoredCursorBelongsOnlyToTheSavedSong() {
         assertEquals(42_000L, restoredResumePosition("a", "a", 42_000, 0))
         assertEquals(7_000L, restoredResumePosition("b", "a", 42_000, 7_000))

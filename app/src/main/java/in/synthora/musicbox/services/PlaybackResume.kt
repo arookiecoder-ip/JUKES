@@ -11,3 +11,7 @@ internal fun isMalformedAudio(errorCode: Int): Boolean = errorCode == 3001 || er
 
 internal fun restoredResumePosition(trackId: String, savedId: String?, savedPosition: Long, fallback: Long): Long =
     (if (trackId == savedId) savedPosition else fallback).coerceAtLeast(0)
+
+/** EOF identifies truncated audio bytes, unlike an ordinary connectivity timeout. */
+internal fun hasTruncatedAudio(error: Throwable?): Boolean =
+    generateSequence(error) { it.cause }.take(8).any { it is java.io.EOFException }

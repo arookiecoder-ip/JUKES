@@ -89,6 +89,12 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         val recoveryLoading = kotlinx.coroutines.flow.MutableStateFlow(false)
+        internal fun resetExplicitStreamRetry() {
+            val service = activeService.get() ?: return
+            service.malformedAudioRetried.clear()
+            service.recoveryAttempts.clear()
+            service.streamRetry.reset()
+        }
         private var activeService = java.lang.ref.WeakReference<PlaybackService>(null)
 
         /** A silent default must not publish an old local player's queue over the shared queue. */
@@ -578,7 +584,8 @@ class PlaybackService : MediaLibraryService() {
         if (!manual && !streamRetry.ready(android.os.SystemClock.elapsedRealtime())) return
         recoveryAttempts[trackId] = attempt
         val claim = PhonePlaybackOwnership.token
-        val malformed = isMalformedAudio(player.playerError?.errorCode ?: 0)
+        val malformed = isMalformedAudio(player.playerError?.errorCode ?: 0) || hasTruncatedAudio(player.playerError)
+        if (manual) malformedAudioRetried.remove(trackId)
         if (malformed && !malformedAudioRetried.add(trackId)) {
             recoveryShouldResume = false
             player.pause()
@@ -591,6 +598,7 @@ class PlaybackService : MediaLibraryService() {
         val retryAfter = httpFailure?.headerFields?.entries?.firstOrNull { it.key.equals("Retry-After", true) }?.value?.firstOrNull()
         val retryDelay = `in`.synthora.musicbox.network.audioRetryDelay(httpFailure?.responseCode, retryAfter, attempt)
         streamRetry.failed(android.os.SystemClock.elapsedRealtime(), retryDelay)
+        if (malformed) upcomingPreloader?.clear()
         val position = player.currentPosition.coerceAtLeast(0)
         recoveryShouldResume = manual || player.playWhenReady || recoveryShouldResume
         streamRecoveryJob = serviceScope.launch {

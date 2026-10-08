@@ -19,18 +19,28 @@ class DeviceConnectionService : Service() {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Device connection", NotificationManager.IMPORTANCE_LOW).apply {
             setShowBadge(false)
         })
+    }
+    private fun promoteForeground(): Boolean {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        try { startForeground(ID, NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.media3_notification_small_icon)
-            .setContentTitle("Music Box")
-            .setContentText("Available for playback from your other devices")
-            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).build()) }
-        catch (error: RuntimeException) {
+        return try {
+            startForeground(ID, NotificationCompat.Builder(this, CHANNEL)
+                .setSmallIcon(R.drawable.media3_notification_small_icon)
+                .setContentTitle("Music Box")
+                .setContentText("Available for playback from your other devices")
+                .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).build())
+            true
+        } catch (error: RuntimeException) {
             `in`.synthora.musicbox.utils.SafeLog.w("DeviceConnection", "Foreground promotion denied: ${error.javaClass.simpleName}")
-            stopSelf()
+            false
         }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every startForegroundService call creates a deadline, including starts
+        // of an existing instance. Satisfy it before auth, model or network work.
+        if (!promoteForeground()) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (!`in`.synthora.musicbox.network.Backend.hasSession()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
