@@ -13,6 +13,7 @@ data class MobileAudioDevice(val id: String, val name: String, val volume: Int? 
 /** One presence loop per app process, including while an active player is minimized. */
 object MobileDeviceConnection {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var appContext: android.content.Context? = null
     private var session = ""
     private val _devices = MutableStateFlow<List<MobileAudioDevice>>(emptyList())
     val devices = _devices.asStateFlow()
@@ -36,6 +37,8 @@ object MobileDeviceConnection {
 
     fun start(context: android.content.Context, onState: suspend (SharedPlaybackOutput) -> Unit,
               onCommand: suspend (String, JsonObject) -> Unit) {
+        appContext = context.applicationContext
+        DeviceConnectionService.startWhileVisible(context)
         if (job?.isActive == true) return
         val activeSession = UUID.randomUUID().toString()
         session = activeSession
@@ -106,6 +109,7 @@ object MobileDeviceConnection {
     }
 
     fun stop() {
+        appContext?.let(DeviceConnectionService::stop)
         val closingSession = session
         val wasOwner = PhonePlaybackOwnership.token.isNotBlank()
         ++generation

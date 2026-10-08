@@ -493,29 +493,25 @@ class PlaybackService : MediaLibraryService() {
             mediaSession?.let { onUpdateNotification(it, false) }
             return START_NOT_STICKY
         }
-        // Fix: Check if app is in background before attempting anything that might require foreground
-        // This prevents ForegroundServiceStartNotAllowedException on Android 12+
-        var isAppInForeground = true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // A media-button receiver starts this with startForegroundService. Its
+        // deadline applies even when artwork/network/audio preparation is slow.
+        if (intent?.action == Intent.ACTION_MEDIA_BUTTON) {
             try {
-                val currentState =
-                    androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState
-                isAppInForeground =
-                    currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-                if (!isAppInForeground) {
-                    Log.w(
-                        TAG,
-                        "App is in background, suppressing initial startForeground to avoid crash"
-                    )
+                val notification = androidx.core.app.NotificationCompat.Builder(this, "media_playback")
+                    .setSmallIcon(R.drawable.media3_notification_small_icon)
+                    .setContentTitle("Music Box").setContentText("Preparing playback…")
+                    .setOnlyAlertOnce(true).setOngoing(true).build()
+                startForeground(1, notification)
+                serviceScope.launch {
+                    delay(4_000)
+                    mediaSession?.let { onUpdateNotification(it, false) }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to check app lifecycle state: ${e.message}")
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Media-button foreground startup denied", error)
+                stopSelf(startId)
+                return START_NOT_STICKY
             }
         }
-
-        // We DO NOT startForeground here with a placeholder anymore.
-        // We let MediaLibraryService (Media3) handle notification and foreground promotion 
-        // when playback actually starts or a notification is explicitly requested by the session.
 
         return try {
             super.onStartCommand(intent, flags, startId)
