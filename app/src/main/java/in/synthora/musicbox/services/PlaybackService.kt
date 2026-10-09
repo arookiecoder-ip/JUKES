@@ -294,7 +294,23 @@ class PlaybackService : MediaLibraryService() {
     private val bufferingStall = BufferingStall()
     private var backgroundMaintenance: Job? = null
 
+    private fun canContinueCurrentAudioOffline(): Boolean {
+        val config = player.currentMediaItem?.localConfiguration
+        val cached = config?.takeIf { it.uri.scheme in setOf("http", "https") }?.let {
+            val cache = StreamCacheManager.existingCache() ?: return@let false
+            val key = it.customCacheKey ?: it.uri.toString()
+            runCatching {
+                val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(key))
+                length > 0 && cache.isCached(key, 0, length)
+            }.getOrDefault(false)
+        } ?: false
+        return canContinueCachedOffline(`in`.synthora.musicbox.network.NetworkFeedback.online.value,
+            PhonePlaybackOwnership.remoteControlled, config?.uri?.scheme in setOf("file", "content"),
+            cached, PhonePlaybackOwnership.localHandoff)
+    }
+
     private fun pauseForExpiredLease() {
+        if (canContinueCurrentAudioOffline()) return
         leaseInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
             player.playWhenReady || recoveryShouldResume)
         pausingForLease = true
@@ -320,7 +336,10 @@ class PlaybackService : MediaLibraryService() {
         // Reopen the broken socket now, rather than waiting for the 180-second audio read timeout.
         // Cached spans and the current cursor survive the source rebuild.
         networkInterruption.clear()
-        recoverCurrentStream(manual = true)
+        if (needsNetworkSourceRecovery(player.playerError != null, player.playbackState == Player.STATE_IDLE,
+                player.playbackState == Player.STATE_BUFFERING, player.currentPosition, player.bufferedPosition)) {
+            recoverCurrentStream(manual = true)
+        }
     }
     private val malformedAudioRetried = mutableSetOf<String>()
     private val recoveryAttempts = mutableMapOf<String, Int>()
@@ -593,7 +612,8 @@ class PlaybackService : MediaLibraryService() {
         if (!manual && !streamRetry.ready(android.os.SystemClock.elapsedRealtime())) return
         recoveryAttempts[trackId] = attempt
         val claim = PhonePlaybackOwnership.token
-        val malformed = isMalformedAudio(player.playerError?.errorCode ?: 0) || hasTruncatedAudio(player.playerError) || hasInvalidAudioResponse(player.playerError)
+        val malformed = shouldInvalidateAudio(player.playerError?.errorCode ?: 0, hasTruncatedAudio(player.playerError),
+            hasInvalidAudioResponse(player.playerError), original.localConfiguration?.uri?.scheme in setOf("http", "https"))
         if (manual) malformedAudioRetried.remove(trackId)
         if (malformed && !malformedAudioRetried.add(trackId)) {
             recoveryShouldResume = false
@@ -1023,6 +1043,7 @@ class PlaybackService : MediaLibraryService() {
             trackById = { database.trackDao().getTrackByUuid(it)?.toTrack() },
             extendQueue = { maybeExtendPhoneQueue() }, pauseForLease = ::pauseForExpiredLease,
             leaseRenewed = ::recoverAfterLeaseRenewal,
+            offlineAudioAvailable = ::canContinueCurrentAudioOffline,
             recoveryPending = { leaseInterruption.pending || networkInterruption.pending || recoveryShouldResume },
             pauseForHandoff = { pausePhoneForHandoff() }).start()
 
@@ -1049,7 +1070,7 @@ class PlaybackService : MediaLibraryService() {
                         networkInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
                             player.playWhenReady || recoveryShouldResume || leaseInterruption.pending || PhonePlaybackOwnership.remoteControlled)
                     }
-                    if (online) { streamRetry.reset(); recoverAfterNetworkReconnect() }
+                    if (online) { streamRetry.reset(); upcomingPreloader?.networkRestored(); recoverAfterNetworkReconnect() }
                     updatePreloader()
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { Log.e(TAG, "Connectivity recovery failed", e) }

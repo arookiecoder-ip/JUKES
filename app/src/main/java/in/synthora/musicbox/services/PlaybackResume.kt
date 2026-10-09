@@ -15,3 +15,7 @@ internal fun restoredResumePosition(trackId: String, savedId: String?, savedPosi
 /** EOF identifies truncated audio bytes, unlike an ordinary connectivity timeout. */
 internal fun hasTruncatedAudio(error: Throwable?): Boolean =
     generateSequence(error) { it.cause }.take(8).any { it is java.io.EOFException }
+
+/** A broken HTTP transfer is not evidence that previously cached bytes are corrupt. */
+internal fun shouldInvalidateAudio(errorCode: Int, truncated: Boolean, invalidResponse: Boolean,
+    networkSource: Boolean): Boolean = isMalformedAudio(errorCode) || invalidResponse || (truncated && !networkSource)

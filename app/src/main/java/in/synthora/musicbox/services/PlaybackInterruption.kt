@@ -86,3 +86,13 @@ internal fun destinationHandoffWaiting(output: SharedPlaybackOutput, thisPhone: 
 internal fun retainDestinationForeground(output: SharedPlaybackOutput, thisPhone: String,
     acceptedToken: String, preparing: Boolean, alreadyForeground: Boolean): Boolean = alreadyForeground &&
     destinationHandoffWaiting(output, thisPhone, acceptedToken, preparing)
+
+/** A connectivity event alone must never discard healthy decoded audio. */
+internal fun needsNetworkSourceRecovery(hasError: Boolean, idle: Boolean, buffering: Boolean,
+    positionMs: Long, bufferedMs: Long): Boolean =
+    hasError || idle || (buffering && bufferedMs <= positionMs)
+
+/** Keep only locally initiated, available audio running through a network partition. */
+internal fun canContinueCachedOffline(online: Boolean, remoteControlled: Boolean, localSource: Boolean,
+    fullyCached: Boolean, handingOff: Boolean): Boolean =
+    !online && !remoteControlled && !handingOff && (localSource || fullyCached)

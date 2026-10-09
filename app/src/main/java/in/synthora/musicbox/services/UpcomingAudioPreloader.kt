@@ -29,6 +29,8 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
     }
     private data class RetryWork(val backoff: BackgroundRetry = BackgroundRetry(), var demand: Boolean = false, var rateLimited: Boolean = false)
     private val retries = mutableMapOf<String, RetryWork>()
+    /** Connectivity recovery retries missing bytes immediately, but honors server rate limits. */
+    fun networkRestored() { retries.values.filterNot { it.rateLimited }.forEach { it.backoff.reset() } }
     fun update(urls: List<String>, buffering: Boolean = false, currentUrl: String? = null) {
         val connectivity = context?.getSystemService(android.net.ConnectivityManager::class.java)
         val policy = policyOverride?.invoke(buffering) ?: preloadPolicy(`in`.synthora.musicbox.network.NetworkFeedback.online.value,

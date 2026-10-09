@@ -4,6 +4,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun interruptedHttpReadsPreserveCacheButDamagedFilesAndParserErrorsAreRepaired() {
+        assertFalse(shouldInvalidateAudio(2000, true, false, true))
+        assertTrue(shouldInvalidateAudio(2000, true, false, false))
+        assertTrue(shouldInvalidateAudio(3003, false, false, true))
+        assertTrue(shouldInvalidateAudio(2000, false, true, true))
+    }
+
+    @Test fun reconnectPreservesHealthyAndStillBufferedAudio() {
+        assertFalse(needsNetworkSourceRecovery(false, false, false, 1000, 2000))
+        assertFalse(needsNetworkSourceRecovery(false, false, true, 1000, 2000))
+        assertTrue(needsNetworkSourceRecovery(false, false, true, 1000, 1000))
+        assertTrue(needsNetworkSourceRecovery(true, false, false, 1000, 2000))
+        assertTrue(needsNetworkSourceRecovery(false, true, false, 1000, 2000))
+    }
+
+    @Test fun offlineCacheExemptionCannotBypassRemoteControlOrHandoffs() {
+        assertTrue(canContinueCachedOffline(false, false, false, true, false))
+        assertTrue(canContinueCachedOffline(false, false, true, false, false))
+        assertFalse(canContinueCachedOffline(false, false, false, false, false))
+        assertFalse(canContinueCachedOffline(false, true, false, true, false))
+        assertFalse(canContinueCachedOffline(false, false, false, true, true))
+        assertFalse(canContinueCachedOffline(true, false, false, true, false))
+    }
+
     @Test fun cursorPublishingSkipsIdleAndNormalProgressButReportsSeeksAndStateChanges() {
         val paused = PublishedCursor("lease", "song", false, false, 4000, 0)
         assertFalse(paused.copy(at = 60000).needsPublication(paused))

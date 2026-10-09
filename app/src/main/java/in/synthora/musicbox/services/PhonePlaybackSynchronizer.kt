@@ -13,6 +13,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
     private val serviceScope: CoroutineScope, private val player: Player,
     private val trackById: suspend (String) -> Track?, private val extendQueue: () -> Unit,
     private val pauseForLease: () -> Unit, private val leaseRenewed: () -> Unit,
+    private val offlineAudioAvailable: () -> Boolean = { false },
     private val recoveryPending: () -> Boolean = { false },
     private val pauseForHandoff: suspend () -> Pair<Boolean, Long> = {
         val playing = player.playWhenReady
@@ -27,12 +28,9 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 val leaseRemaining = PhonePlaybackOwnership.leaseUntilMs - android.os.SystemClock.elapsedRealtime()
                 delay(if (PhonePlaybackOwnership.token.isBlank()) 2_000 else if (leaseRemaining <= 0) 1_000 else leaseRemaining.coerceIn(50, 1_000))
-                if (!PhonePlaybackOwnership.remoteControlled && canContinueDownloadedOffline(`in`.synthora.musicbox.network.NetworkFeedback.online.value, player.currentMediaItem?.localConfiguration?.uri?.scheme) && PhonePlaybackOwnership.token.isNotBlank()) {
-                    // An inaccessible server cannot renew a lease; completed downloads still play offline.
-                    PhonePlaybackOwnership.forget(allowOffline = true)
-                }
+                // Retain the token so reconnect can reconcile a switch made during the outage.
                 if (PhonePlaybackOwnership.token.isNotBlank() && player.playWhenReady &&
-                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) pauseForLease()
+                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs && !offlineAudioAvailable()) pauseForLease()
             }
         }
         // Ownership remains enforced by the foreground service when the Activity is closed.
@@ -95,7 +93,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     Log.w(TAG, "Playback ownership refresh failed: ${e.javaClass.simpleName}")
                 }
                 if (PhonePlaybackOwnership.token.isNotBlank() &&
-                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs) {
+                    android.os.SystemClock.elapsedRealtime() >= PhonePlaybackOwnership.leaseUntilMs && !offlineAudioAvailable()) {
                     // During a partition, never keep streaming beyond our exclusive lease.
                     pauseForLease()
                 }
