@@ -167,9 +167,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _echoRequests = MutableStateFlow(0)
     private val transportLoading = MutableStateFlow(false)
+    private val allSkipLoading = combine(transportLoading,
+        `in`.synthora.musicbox.services.PlaybackCoordinator.notificationLoading) { app, notification -> app || notification }
     private var skipLoadingJob: Job? = null
     private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow,
-        `in`.synthora.musicbox.services.PlaybackService.recoveryLoading, transportLoading) { switching, requests, buffering, recovering, skipping ->
+        `in`.synthora.musicbox.services.PlaybackService.recoveryLoading, allSkipLoading) { switching, requests, buffering, recovering, skipping ->
         switching || skipping || ((buffering || recovering) && _output.value == PlaybackOutput.PHONE)
     }
     private val likedQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()
@@ -489,7 +491,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val tracks = withContext(Dispatchers.IO) {
                     val missing = snapshot.queueIds.filter { it !in old }.chunked(500)
                         .flatMap { trackDao.getTracksByUuids(it) }.associate { it.uuid to it.toTrack() }
-                    snapshot.queueIds.mapNotNull { old[it] ?: missing[it] }
+                    snapshot.queueIds.mapNotNull { id ->
+                        val known = old[id] ?: missing[id]
+                        val live = snapshot.currentMetadata?.takeIf { it.uuid == id }
+                        if (live == null) known else known?.copy(
+                            title = live.title.ifBlank { known.title },
+                            artist = live.artist.ifBlank { known.artist },
+                            thumbnailUri = live.thumbnailUri ?: known.thumbnailUri,
+                            durationSec = live.durationSec.takeIf { it > 0 } ?: known.durationSec) ?: live
+                    }
                 }
                 if (snapshot != playbackManager.snapshot.value ||
                     (`in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff && snapshot.currentId != _uiState.value.currentTrack?.uuid)) return@collectLatest

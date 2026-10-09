@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 /** Application-owned remote state: UI and notification always observe the same snapshot. */
 object PlaybackCoordinator {
+    val notificationLoading = kotlinx.coroutines.flow.MutableStateFlow(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var controller: EchoController? = null
     private val consumers = mutableMapOf<String, Boolean>()

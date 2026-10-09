@@ -27,6 +27,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 
 /** A remote media session: no audio renderer or audio focus on this phone. */
 @UnstableApi
@@ -40,6 +41,7 @@ class RemotePlaybackService : MediaSessionService() {
     private lateinit var remote: EchoPlayer
     private var session: MediaSession? = null
     private var restoringNotification = false
+    private var skipSequence = 0L
     private var localServiceAnchor: ListenableFuture<androidx.media3.session.MediaController>? = null
 
     override fun onCreate() {
@@ -66,7 +68,7 @@ class RemotePlaybackService : MediaSessionService() {
             `in`.synthora.musicbox.network.NetworkFeedback.notify(it)
         } }
         scope.launch { PlaybackCoordinator.signedOut.collect { stopSelf() } }
-        remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else initialSnapshot ?: EchoState() }
+        remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else echo.state.value.takeIf { it.track != null } ?: initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
         setMediaNotificationProvider(GuardedMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
@@ -101,7 +103,7 @@ class RemotePlaybackService : MediaSessionService() {
             var first = true
             echo.state.collect {
                 try {
-                    if (!first || initialSnapshot?.track == null) { remote.snapshot = it; remote.refresh(); updateLike() }
+                    if (!first || it.track != null || remote.snapshot.track == null) { remote.snapshot = it; remote.refresh(); updateLike() }
                     first = false
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { `in`.synthora.musicbox.utils.SafeLog.e("RemotePlaybackService", "Remote state refresh failed", e) }
@@ -175,9 +177,25 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     private suspend fun command(action: String) {
-        if (phoneControlsSelected())
-            MobileDeviceConnection.control(MobileDeviceConnection.output.value, action)
-        else echo.command(action)
+        val skipping = action in setOf("next", "previous")
+        val sequence = if (skipping || action == "pause") ++skipSequence else skipSequence
+        val previous = echo.state.value.track?.ytVideoId
+        if (skipping) {
+            PlaybackCoordinator.notificationLoading.value = true
+            remote.refresh()
+        } else if (action == "pause") PlaybackCoordinator.notificationLoading.value = false
+        try {
+            if (phoneControlsSelected()) MobileDeviceConnection.control(MobileDeviceConnection.output.value, action)
+            else echo.command(action)
+            if (skipping) withTimeout(30_000) {
+                echo.state.first { it.track?.ytVideoId != previous && it.playing && it.confirmed && !it.processing }
+            }
+        } finally {
+            if (skipping && sequence == skipSequence) {
+                PlaybackCoordinator.notificationLoading.value = false
+                remote.refresh()
+            }
+        }
     }
 
     private fun updateLike() {
@@ -240,6 +258,7 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        PlaybackCoordinator.notificationLoading.value = false
         PlaybackService.leaveRemoteForeground(force = true)
         PlaybackCoordinator.observe(this, "notification", false)
         remote.snapshot = EchoState()
@@ -291,8 +310,8 @@ class RemotePlaybackService : MediaSessionService() {
                 Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
                 Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS).build())
                 .setPlaylist(playlist).setCurrentMediaItemIndex(index)
-                .setPlaybackState(if (track == null) Player.STATE_IDLE else if (snapshot.loading) Player.STATE_BUFFERING else Player.STATE_READY)
-                .setPlayWhenReady(snapshot.playing || snapshot.loading, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                .setPlaybackState(if (track == null) Player.STATE_IDLE else if (snapshot.loading || PlaybackCoordinator.notificationLoading.value) Player.STATE_BUFFERING else Player.STATE_READY)
+                .setPlayWhenReady(snapshot.playing || snapshot.loading || PlaybackCoordinator.notificationLoading.value, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                 .setContentPositionMs { snapshot.livePosition() }
                 .setDeviceVolume(if (localPhoneSelected()) localVolume() else RemoteVolumeControl.current(this@RemotePlaybackService) ?: 0)
                 .setDeviceInfo(DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE).setMinVolume(0).setMaxVolume(100).build()).build()

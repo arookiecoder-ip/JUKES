@@ -123,7 +123,13 @@ class PlaybackManager private constructor(private val context: Context) {
     private var pausedAtMs = android.os.SystemClock.elapsedRealtime()
     private fun publishSnapshot(ctrl: MediaController) {
         _snapshot.value = PhonePlaybackSnapshot((0 until ctrl.mediaItemCount).map { ctrl.getMediaItemAt(it).mediaId },
-            ctrl.currentMediaItem?.mediaId)
+            ctrl.currentMediaItem?.mediaId, ctrl.currentMediaItem?.let { item ->
+                val metadata = item.mediaMetadata
+                Track(uuid = item.mediaId, title = metadata.title?.toString().orEmpty(),
+                    artist = metadata.artist?.toString().orEmpty(), thumbnailUri = metadata.artworkUri?.toString(),
+                    durationSec = (ctrl.duration.coerceAtLeast(0) / 1000).toInt(),
+                    localUri = item.localConfiguration?.uri?.toString())
+            })
     }
 
     // Flow to emit current track UUID changes
@@ -242,7 +248,7 @@ class PlaybackManager private constructor(private val context: Context) {
                     // Add a Player.Listener on the controller's underlying player
                     playerListener = object : Player.Listener {
                         override fun onEvents(player: Player, events: Player.Events) {
-                            if (events.contains(Player.EVENT_TIMELINE_CHANGED) || events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION))
+                            if (events.contains(Player.EVENT_TIMELINE_CHANGED) || events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) || events.contains(Player.EVENT_MEDIA_METADATA_CHANGED))
                                 controller?.let(::publishSnapshot)
                         }
                         override fun onTimelineChanged(
