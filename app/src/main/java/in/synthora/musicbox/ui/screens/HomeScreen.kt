@@ -57,8 +57,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -487,7 +485,7 @@ private fun EmptyHomeState(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.verticalScroll(rememberScrollState()).padding(if (isShort) 16.dp else 32.dp)
+            modifier = Modifier.padding(if (isShort) 16.dp else 32.dp)
         ) {
             Box(
                 modifier = Modifier

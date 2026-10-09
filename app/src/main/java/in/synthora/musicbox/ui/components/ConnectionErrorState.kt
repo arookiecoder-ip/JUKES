@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun ConnectionErrorState(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier,
-    offline: Boolean = false) {
+    offline: Boolean = false, onOpenDownloads: (() -> Unit)? = null) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 340.dp).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -21,8 +21,10 @@ fun ConnectionErrorState(message: String, onRetry: () -> Unit, modifier: Modifie
                 Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(if (offline) "You're offline" else "Couldn't load this section",
                 style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-            Text(if (offline) "Connect to Wi-Fi or mobile data, then try again." else message,
+            Text(if (offline && onOpenDownloads != null) "Your downloaded music is available on this device. Online sections need a connection."
+                else if (offline) "Connect to Wi-Fi or mobile data, then try again." else message,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            if (offline && onOpenDownloads != null) Button(onClick = onOpenDownloads) { Text("Open downloads") }
             OutlinedButton(onClick = onRetry) { Text("Try again") }
         }
     }

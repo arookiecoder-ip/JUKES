@@ -80,6 +80,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun load(refresh: Boolean) {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
+            if (!`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
+                _uiState.update { it.copy(isLoading = false, isRefreshing = false, error = "You're offline. Your downloaded music is available in Library.") }
+                return@launch
+            }
             try {
                 val feed = Backend.get("/api/home/", if (refresh) mapOf("refresh" to "1") else emptyMap()).objectOrEmpty()
                 val liked = AccountRepository.liked.value

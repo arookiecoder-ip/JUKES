@@ -811,7 +811,10 @@ class MainActivity : ComponentActivity() {
                             `in`.synthora.musicbox.ui.components.ConnectionErrorState("", {
                                 `in`.synthora.musicbox.network.NetworkFeedback.refresh(context)
                             }, Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
-                                .padding(bottom = bottomPadding), offline = true)
+                                .padding(bottom = bottomPadding), offline = true, onOpenDownloads = {
+                                    downloadsOpenTrigger++
+                                    navController.navigate(Screen.Library.route) { launchSingleTop = true }
+                                })
                             if (currentRoute !in listOf(Screen.Home.route, Screen.Library.route)) {
                                 `in`.synthora.musicbox.ui.components.DetailBackButton({
                                     this@MainActivity.onBackPressedDispatcher.onBackPressed()

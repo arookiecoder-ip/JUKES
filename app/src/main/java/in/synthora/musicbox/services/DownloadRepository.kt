@@ -120,9 +120,11 @@ class DownloadRepository private constructor(private val context: Context) {
             val retained = (pending + completed).mapNotNull { it.track.ytVideoId }.toSet()
             queued.keys.removeAll(retained)
             initialized = true
-            ready.complete(Unit)
             batchTotal = pending.size + queued.size
-            save(); publishStatus(); pump(); poll()
+            save(); publishStatus()
+            // Publish the lookup map before waking offline playback callers.
+            ready.complete(Unit)
+            pump(); poll()
             if (_status.value.active > 0) DownloadService.start(context)
             for (snapshot in snapshots) try { withContext(Dispatchers.IO) { dao.replace(snapshot) } }
             catch (e: CancellationException) { throw e }
@@ -133,9 +135,11 @@ class DownloadRepository private constructor(private val context: Context) {
         json.decodeFromString<List<DownloadEntry>>(prefs.getString(key, "[]").orEmpty())
     }.getOrDefault(emptyList())
     private fun file(track: Track): File? = track.localUri?.let { File(it.toUri().path ?: it) }
-    fun localTrack(track: Track): Track? = completedByVideo[track.ytVideoId]?.takeIf {
-        file(it)?.let { f -> f.exists() && f.length() > 0 } == true
-    }?.let { track.copy(localUri = it.localUri, isStream = false) }
+    fun localTrack(track: Track): Track? {
+        val saved = completedByVideo[track.ytVideoId]?.let(::readableDownloadedTrack)
+        return saved?.let { track.copy(localUri = it.localUri, isStream = false) }
+            ?: readableDownloadedTrack(track)
+    }
 
     fun download(track: Track, silent: Boolean = false) {
         if (localTrack(track) != null) { if (!silent) NetworkFeedback.notify("Already downloaded"); return }

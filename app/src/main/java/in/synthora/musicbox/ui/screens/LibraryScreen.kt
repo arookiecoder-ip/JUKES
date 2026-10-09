@@ -90,6 +90,7 @@ fun LibraryScreen(
     val pager = rememberPagerState { LibraryFilter.entries.size }
     val scope = rememberCoroutineScope()
     val filter = LibraryFilter.entries[pager.currentPage]
+    LaunchedEffect(online) { if (!online) pager.scrollToPage(LibraryFilter.DOWNLOADS.ordinal) }
     LaunchedEffect(pager.currentPage) { selection.clear() }
     LaunchedEffect(downloadsOpenTrigger) { if (downloadsOpenTrigger > 0) pager.scrollToPage(LibraryFilter.DOWNLOADS.ordinal) }
     var createPlaylist by remember { mutableStateOf(false) }
