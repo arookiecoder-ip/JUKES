@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun reconnectGraceIsBoundedAndEndsOnConfirmedOwnership() {
+        val window = OfflineReconciliationWindow()
+        assertFalse(window.active(true, 0))
+        window.update(false, 100)
+        assertTrue(window.active(false, 10000))
+        window.update(true, 10000)
+        assertTrue(window.active(true, 13999))
+        window.update(true, 13000)
+        assertFalse(window.active(true, 14000))
+        window.update(false, 15000)
+        window.update(true, 16000)
+        window.reconciled()
+        assertFalse(window.active(true, 16001))
+    }
+
     @Test fun interruptedHttpReadsPreserveCacheButDamagedFilesAndParserErrorsAreRepaired() {
         assertFalse(shouldInvalidateAudio(2000, true, false, true))
         assertTrue(shouldInvalidateAudio(2000, true, false, false))

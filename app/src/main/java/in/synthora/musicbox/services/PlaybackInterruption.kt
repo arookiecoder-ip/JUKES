@@ -96,3 +96,15 @@ internal fun needsNetworkSourceRecovery(hasError: Boolean, idle: Boolean, buffer
 internal fun canContinueCachedOffline(online: Boolean, remoteControlled: Boolean, localSource: Boolean,
     fullyCached: Boolean, handingOff: Boolean, bufferedAudio: Boolean = false): Boolean =
     !online && !remoteControlled && !handingOff && (localSource || fullyCached || bufferedAudio)
+
+/** Allow one bounded ownership reconciliation after an outage, without extending it on polls. */
+internal class OfflineReconciliationWindow(private val graceMs: Long = 4_000) {
+    private var offline = false
+    private var deadline = 0L
+    fun update(online: Boolean, now: Long) {
+        if (!online) { offline = true; deadline = 0 }
+        else if (offline) { offline = false; deadline = now + graceMs }
+    }
+    fun active(online: Boolean, now: Long): Boolean = !online || now < deadline
+    fun reconciled() { deadline = 0 }
+}

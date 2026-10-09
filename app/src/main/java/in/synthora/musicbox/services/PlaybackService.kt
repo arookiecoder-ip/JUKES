@@ -289,6 +289,7 @@ class PlaybackService : MediaLibraryService() {
     }
     private val leaseInterruption = PlaybackInterruption()
     private val networkInterruption = PlaybackInterruption()
+    private val offlineReconciliation = OfflineReconciliationWindow()
     private var pausingForLease = false
     private val streamRetry = BackgroundRetry()
     private val bufferingStall = BufferingStall()
@@ -308,7 +309,8 @@ class PlaybackService : MediaLibraryService() {
 
     private fun canContinueCurrentAudioOffline(): Boolean {
         val config = player.currentMediaItem?.localConfiguration
-        return canContinueCachedOffline(`in`.synthora.musicbox.network.NetworkFeedback.online.value,
+        return canContinueCachedOffline(!offlineReconciliation.active(
+            `in`.synthora.musicbox.network.NetworkFeedback.online.value, android.os.SystemClock.elapsedRealtime()),
             PhonePlaybackOwnership.remoteControlled, config?.uri?.scheme in setOf("file", "content"),
             currentStreamFullyCached(), PhonePlaybackOwnership.localHandoff,
             player.playerError == null && player.bufferedPosition > player.currentPosition)
@@ -323,6 +325,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun recoverAfterLeaseRenewal() {
+        offlineReconciliation.reconciled()
         if (!leaseInterruption.canResume(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
                 PhonePlaybackOwnership.permitsPlayback(), PhonePlaybackOwnership.localHandoff, inCall()) ||
             outputPrefs.getString("playback_output", "PHONE") != "PHONE") return
@@ -1077,6 +1080,7 @@ class PlaybackService : MediaLibraryService() {
         preloadConnectivityJob = serviceScope.launch {
             `in`.synthora.musicbox.network.NetworkFeedback.online.collect { online ->
                 try {
+                    offlineReconciliation.update(online, android.os.SystemClock.elapsedRealtime())
                     if (!online && player.currentMediaItem?.localConfiguration?.uri?.scheme in setOf("http", "https")) {
                         networkInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
                             player.playWhenReady || recoveryShouldResume || leaseInterruption.pending || PhonePlaybackOwnership.remoteControlled)
