@@ -983,14 +983,18 @@ class PlaybackService : MediaLibraryService() {
         // The previous 600s max was causing ExoPlayer to stall — it attempted to buffer
         // 10 minutes ahead but couldn't fill it from a local file fast enough, causing
         // the player to enter STATE_BUFFERING and appear to "pause" with no content.
-        // For local file playback 30–120s is more than sufficient and stays responsive.
+        // Allow ordinary songs to finish loading instead of holding the cache writer
+        // behind an open network span at the old two-minute ceiling. Bound encoded
+        // sample memory separately so long tracks cannot fill the tablet heap.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 30_000,  // minBufferMs
-                120_000, // maxBufferMs (2 minutes ahead — enough without stalling)
+                600_000, // maxBufferMs: load ordinary songs to the end
                 1_500,   // bufferForPlaybackMs
                 3_000    // bufferForPlaybackAfterRebufferMs
             )
+            .setTargetBufferBytes(16 * 1024 * 1024)
+            .setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(
                 30_000, // backBufferDurationMs: 30s back-buffer for smooth seeking
                 true    // retainBackBufferFromKeyframe
