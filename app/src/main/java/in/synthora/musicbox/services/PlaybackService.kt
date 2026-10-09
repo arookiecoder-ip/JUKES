@@ -544,6 +544,7 @@ class PlaybackService : MediaLibraryService() {
     private var resumeFuture: SettableFuture<MediaSession.MediaItemsWithStartPosition>? = null
     private var restoreSessionJob: Job? = null
     private var resumeSessionJob: Job? = null
+    private var resumeSessionClaim: String? = null
     private var cancelledMedia3Resume = false
     private var resumptionForegroundStarted = false
     private var lastSavedResumeQueue = ""
@@ -695,9 +696,15 @@ class PlaybackService : MediaLibraryService() {
         }
         val original = player.currentMediaItem ?: return
         getSystemService(NotificationManager::class.java).cancel(1004)
-        if (resumeSessionJob?.isActive == true) return
+        if (resumeSessionJob?.isActive == true) {
+            if (resumeSessionClaim == PhonePlaybackOwnership.token) return
+            cancelSessionResume()
+            cancelledMedia3Resume = false // This is a new command under a different lease.
+        }
         val request = resumeCommands.play()
         val claimAtStart = PhonePlaybackOwnership.token
+        resumeSessionClaim = claimAtStart
+        var expectedClaim = claimAtStart
         val id = original.mediaId
         recoveryLoading.value = true
         resumeSessionJob = serviceScope.launch {
@@ -720,20 +727,23 @@ class PlaybackService : MediaLibraryService() {
                     check(downloaded || cached) { "This song isn't fully saved. Connect to the internet to resume it." }
                     check(!PhonePlaybackOwnership.remoteControlled && !PhonePlaybackOwnership.localHandoff) { "Playback is controlled by another device." }
                     PhonePlaybackOwnership.forget(allowOffline = true)
+                    expectedClaim = ""
                 } else if (!authorized) {
                     try {
                         val output = kotlinx.coroutines.withTimeout(4_000) { AlexaBackendApi.phoneOutputStatus() }
                         check(!blocksLocalResumption(output, PhonePlaybackOwnership.ownerId)) { "Playback is active on another device. Open Music Box to switch devices." }
-                        check(resumeCommands.current(request) && PhonePlaybackOwnership.token == claimAtStart &&
-                            outputPrefs.getString("playback_output", "PHONE") == "PHONE") { "Playback was superseded." }
-                        if (!PhonePlaybackOwnership.restoreIfCurrent(output)) {
+                        if (!resumeCommands.current(request) || PhonePlaybackOwnership.token != expectedClaim ||
+                            outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
+                        if (PhonePlaybackOwnership.restoreIfCurrent(output)) expectedClaim = PhonePlaybackOwnership.token
+                        else {
                             val claimed = kotlinx.coroutines.withTimeout(4_000) {
                                 AlexaBackendApi.phoneOutputRequest("claim", PhonePlaybackOwnership.ownerId,
                                     serial = outputPrefs.getString("echo_serial", "").orEmpty())
                             }
-                            check(resumeCommands.current(request) && PhonePlaybackOwnership.token == claimAtStart &&
-                                outputPrefs.getString("playback_output", "PHONE") == "PHONE") { "Playback was superseded." }
+                            if (!resumeCommands.current(request) || PhonePlaybackOwnership.token != expectedClaim ||
+                                outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
                             PhonePlaybackOwnership.accept(claimed)
+                            expectedClaim = claimed.token
                             resumeQueuePublicationPending = true
                         }
                     } catch (e: Exception) {
@@ -741,14 +751,15 @@ class PlaybackService : MediaLibraryService() {
                         check(ownershipServerUnavailable(e) && (downloaded || cached) &&
                             !PhonePlaybackOwnership.remoteControlled && !PhonePlaybackOwnership.localHandoff &&
                             !blocksLocalResumption(MobileDeviceConnection.output.value, PhonePlaybackOwnership.ownerId)) { throw e }
-                        check(resumeCommands.current(request) && PhonePlaybackOwnership.token == claimAtStart &&
-                            outputPrefs.getString("playback_output", "PHONE") == "PHONE") { throw e }
+                        if (!resumeCommands.current(request) || PhonePlaybackOwnership.token != expectedClaim ||
+                            outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
                         PhonePlaybackOwnership.forget(allowOffline = true)
+                        expectedClaim = ""
                     }
                 }
-                check(resumeCommands.current(request) && player.currentMediaItem?.mediaId == id &&
-                    outputPrefs.getString("playback_output", "PHONE") == "PHONE" &&
-                    (PhonePlaybackOwnership.permitsPlayback() || canContinueCurrentAudioOffline())) { "Playback was superseded." }
+                if (!resumeCommands.current(request) || player.currentMediaItem?.mediaId != id ||
+                    PhonePlaybackOwnership.token != expectedClaim || outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
+                check(PhonePlaybackOwnership.permitsPlayback() || canContinueCurrentAudioOffline()) { "Playback authorization expired. Tap Play to retry." }
                 publishResumedQueue()
                 if (player.playerError != null) recoverCurrentStream(manual = true)
                 else {
@@ -758,7 +769,8 @@ class PlaybackService : MediaLibraryService() {
                 }
             } catch (e: Exception) {
                 if (e is CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
-                if (resumeCommands.current(request)) {
+                if (resumeCommands.current(request) && PhonePlaybackOwnership.token == expectedClaim &&
+                    player.currentMediaItem?.mediaId == id) {
                     resumeCommands.pause()
                     player.pause()
                     showSessionResumeFailure(
