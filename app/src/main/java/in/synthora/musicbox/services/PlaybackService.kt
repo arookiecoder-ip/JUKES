@@ -294,9 +294,9 @@ class PlaybackService : MediaLibraryService() {
     private val bufferingStall = BufferingStall()
     private var backgroundMaintenance: Job? = null
 
-    private fun canContinueCurrentAudioOffline(): Boolean {
+    private fun currentStreamFullyCached(): Boolean {
         val config = player.currentMediaItem?.localConfiguration
-        val cached = config?.takeIf { it.uri.scheme in setOf("http", "https") }?.let {
+        return config?.takeIf { it.uri.scheme in setOf("http", "https") }?.let {
             val cache = StreamCacheManager.existingCache() ?: return@let false
             val key = it.customCacheKey ?: it.uri.toString()
             runCatching {
@@ -304,9 +304,13 @@ class PlaybackService : MediaLibraryService() {
                 length > 0 && cache.isCached(key, 0, length)
             }.getOrDefault(false)
         } ?: false
+    }
+
+    private fun canContinueCurrentAudioOffline(): Boolean {
+        val config = player.currentMediaItem?.localConfiguration
         return canContinueCachedOffline(`in`.synthora.musicbox.network.NetworkFeedback.online.value,
             PhonePlaybackOwnership.remoteControlled, config?.uri?.scheme in setOf("file", "content"),
-            cached, PhonePlaybackOwnership.localHandoff)
+            currentStreamFullyCached(), PhonePlaybackOwnership.localHandoff)
     }
 
     private fun pauseForExpiredLease() {
@@ -653,19 +657,24 @@ class PlaybackService : MediaLibraryService() {
                     `in`.synthora.musicbox.network.NetworkFeedback.notify("This audio is damaged. Connect to the internet to download it again.")
                     return@launch
                 }
-                val refreshed = if (local != null) local else {
+                val cachedSource = !malformed && player.currentMediaItem?.mediaId == trackId && currentStreamFullyCached()
+                val refreshed = if (local != null) local else if (cachedSource) {
+                    track.copy(localUri = original.localConfiguration!!.uri.toString(), isStream = true)
+                } else {
                     val video = track.ytVideoId ?: return@launch
                     if (!manual || httpFailure?.responseCode == 429) delay(retryDelay)
                     val url = withContext(Dispatchers.IO) { AlexaBackendApi.getStreamUrl(video) }
                     track.copy(localUri = url, isStream = true)
                 }
-                if (player.currentMediaItem?.mediaId != trackId || !PhonePlaybackOwnership.permitsPlayback(claim) ||
+                if (player.currentMediaItem?.mediaId != trackId || !(PhonePlaybackOwnership.permitsPlayback(claim) ||
+                        (PhonePlaybackOwnership.token == claim && canContinueCurrentAudioOffline())) ||
                     outputPrefs.getString("playback_output", "PHONE") == "ALEXA") return@launch
                 withContext(Dispatchers.IO) {
                     database.trackDao().insertTrack(refreshed.toEntity())
                     // Keep valid cached spans; a network interruption does not invalidate audio bytes.
                 }
-                if (player.currentMediaItem?.mediaId != trackId || !PhonePlaybackOwnership.permitsPlayback(claim) ||
+                if (player.currentMediaItem?.mediaId != trackId || !(PhonePlaybackOwnership.permitsPlayback(claim) ||
+                        (PhonePlaybackOwnership.token == claim && canContinueCurrentAudioOffline())) ||
                     outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@launch
                 val index = player.currentMediaItemIndex
                 val resume = recoveryShouldResume
