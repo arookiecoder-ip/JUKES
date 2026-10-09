@@ -50,6 +50,13 @@ class RemoteTransportPreviewTest {
         assertFalse(preview.matches(snapshot().copy(sharedOutput = SharedPlaybackOutput(mode = "phone", owner = "other")), 100))
         assertFalse(preview.matches(snapshot().copy(sharedOutput = snapshot().sharedOutput.copy(handoffPending = true)), 100))
     }
+    @Test fun matchingOldSnapshotStillRequiresANewerReceiverRevision() {
+        val preview = remoteTransportPreview("receiver", "pause", ui, 100).copy(baselineRevision = 5)
+        assertFalse(preview.matches(snapshot().copy(playbackRevision = 5), 100))
+        assertFalse(preview.matches(snapshot().copy(playbackRevision = 4), 100))
+        assertTrue(preview.matches(snapshot().copy(playbackRevision = 6), 100))
+        assertTrue(preview.matches(snapshot(), 100)) // Compatibility with older servers.
+    }
     @Test fun seekClampsAndQueueBoundaryNeverPredictsNonexistentSong() {
         val seek = remoteTransportPreview("receiver", "seek", ui, 100, Long.MAX_VALUE)
         assertEquals(180_000L, seek.position)

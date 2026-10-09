@@ -743,7 +743,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val initial = remoteTransportPreview.value?.takeIf { it.owner == target.owner }
             ?.present(uiState.value, now) ?: uiState.value
         val preview = `in`.synthora.musicbox.services.remoteTransportPreview(target.owner, action, initial, now,
-            payload["position_ms"]?.toString()?.toLongOrNull())
+            payload["position_ms"]?.toString()?.toLongOrNull()).copy(baselineRevision = echo.state.value.playbackRevision)
         val sequence = ++remoteTransportSequence
         remoteTransportJob?.cancel()
         remoteTransportPreview.value = preview
@@ -778,7 +778,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         // The next item can differ under shuffle/radio. Accept the receiver's
                         // settled transition rather than forcing our predicted row back on it.
                         val changed = action in setOf("next", "previous") && snapshot.confirmed && !snapshot.processing &&
+                            snapshot.sharedOutput.mode == "phone" && !snapshot.sharedOutput.handoffPending &&
                             snapshot.sharedOutput.owner == target.owner && snapshot.playing == preview.playing &&
+                            (preview.baselineRevision < 0 || snapshot.playbackRevision < 0 || snapshot.playbackRevision > preview.baselineRevision) &&
                             (snapshot.index != initial.queueIndex || snapshot.track?.ytVideoId != initial.currentTrack?.ytVideoId)
                         if (preview.matches(snapshot, currentTime) || changed) break
                         if (!retried && currentTime - now >= 3_000 && action in setOf("play", "pause", "seek")) {

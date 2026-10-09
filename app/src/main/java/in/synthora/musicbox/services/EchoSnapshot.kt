@@ -27,7 +27,8 @@ data class EchoState(
     val confirmed: Boolean = false,
     val processing: Boolean = false,
     val sharedOutput: SharedPlaybackOutput = SharedPlaybackOutput(),
-    val queueVersion: Long = -1
+    val queueVersion: Long = -1,
+    val playbackRevision: Long = -1
 ) {
     /** Pause is not buffering, even while its acknowledgment is pending. */
     val loading: Boolean get() = (sharedOutput.mode == "phone" && processing && !confirmed) ||
@@ -78,7 +79,8 @@ internal fun parseEchoSnapshot(np: JsonObject, now: Long, previousVolume: Int?, 
         confirmed = np.flag("playback_confirmed"),
         processing = np.flag("playback_processing"),
         sharedOutput = sharedPlaybackOutput(np),
-        queueVersion = np.number("queue_version")
+        queueVersion = np.number("queue_version"),
+        playbackRevision = if (np["playback_revision"] != null) np.number("playback_revision") else -1
     )
 }
 

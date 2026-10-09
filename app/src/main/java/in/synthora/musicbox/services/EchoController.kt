@@ -215,6 +215,9 @@ class EchoController(
             parseEchoSnapshot(np, now, previous.volume, preserveVolume, previous.queue, previous)
         }
         if (parsed.sharedOutput.olderThan(MobileDeviceConnection.output.value)) return
+        if (parsed.sharedOutput.mode == "phone" && parsed.sharedOutput.epoch.isNotBlank() &&
+            parsed.sharedOutput.epoch == previous.sharedOutput.epoch && parsed.sharedOutput.owner == previous.sharedOutput.owner &&
+            parsed.playbackRevision >= 0 && parsed.playbackRevision < previous.playbackRevision) return
         // A pause, close or volume preview during decoding wins over this response.
         _state.compareAndSet(previous, parsed)
     }
