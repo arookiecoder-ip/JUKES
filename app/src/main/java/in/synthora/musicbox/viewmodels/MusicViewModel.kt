@@ -785,7 +785,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                                 (preview.baselineEpoch.isNotBlank() && snapshot.sharedOutput.epoch != preview.baselineEpoch) ||
                                 snapshot.playbackRevision > preview.baselineRevision) &&
                             (snapshot.index != initial.queueIndex || snapshot.track?.ytVideoId != initial.currentTrack?.ytVideoId)
-                        if (preview.matches(snapshot, currentTime) || changed) break
+                        if (preview.matches(snapshot, currentTime) || changed) {
+                            // The shared snapshot and its presented StateFlow are collected
+                            // separately. Keep the preview until presentation catches up,
+                            // otherwise clearing it can briefly reveal the previous status.
+                            combinedState.first { presented ->
+                                presented.isPlaying == snapshot.playing && presented.queueIndex == snapshot.index &&
+                                    presented.currentTrack?.ytVideoId == snapshot.track?.ytVideoId &&
+                                    kotlin.math.abs(presented.position - snapshot.livePosition()) <= 2_000
+                            }
+                            break
+                        }
                         if (!retried && currentTime - now >= 3_000 && action in setOf("play", "pause", "seek")) {
                             if (action == "seek" && snapshot.track?.ytVideoId != preview.track?.ytVideoId)
                                 throw IllegalStateException("The song changed before the seek was confirmed. Try again on the current song.")
