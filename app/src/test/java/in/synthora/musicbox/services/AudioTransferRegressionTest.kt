@@ -116,6 +116,7 @@ class AudioTransferRegressionTest {
         val response = Response()
         val source = ValidatingAudioDataSource(object : DataSource by response {
             override fun open(spec: DataSpec): Long { response.open(spec); return spec.length }
+            override fun getResponseHeaders() = response.responseHeaders
         })
         val request = spec.buildUpon().setPosition(audio.size - 5L).setLength(20).build()
         try { assertEquals(5L, source.open(request)); assertArrayEquals(audio.takeLast(5).toByteArray(), readAll(source)) }

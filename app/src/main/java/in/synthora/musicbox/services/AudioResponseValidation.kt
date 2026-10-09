@@ -117,5 +117,7 @@ internal class ValidatingAudioDataSource(private val upstream: DataSource, priva
             throw EOFException("Audio transfer ended before its declared byte length")
         }
     }
+    // Java interface default methods are not forwarded by Kotlin delegation.
+    override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
     override fun close() { count = 0; cursor = 0; received = 0; expected = -1; upstream.close() }
 }
