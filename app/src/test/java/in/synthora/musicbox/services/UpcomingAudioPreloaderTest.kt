@@ -49,6 +49,7 @@ class UpcomingAudioPreloaderTest {
             try {
                 preloader.update(listOf(url)); finish()
                 assertFalse(cache.isCached(url, 0, 8_192))
+                preloader.networkRestored()
                 preloader.update(emptyList(), currentUrl = url); finish()
                 assertEquals(!limited, cache.isCached(url, 0, 8_192))
                 if (limited) {
