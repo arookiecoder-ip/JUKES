@@ -56,6 +56,8 @@ class RemoteTransportPreviewTest {
         assertFalse(preview.matches(snapshot().copy(playbackRevision = 4), 100))
         assertTrue(preview.matches(snapshot().copy(playbackRevision = 6), 100))
         assertTrue(preview.matches(snapshot(), 100)) // Compatibility with older servers.
+        assertTrue(preview.copy(baselineEpoch = "old").matches(snapshot().copy(playbackRevision = 1,
+            sharedOutput = snapshot().sharedOutput.copy(epoch = "restarted")), 100))
     }
     @Test fun seekClampsAndQueueBoundaryNeverPredictsNonexistentSong() {
         val seek = remoteTransportPreview("receiver", "seek", ui, 100, Long.MAX_VALUE)

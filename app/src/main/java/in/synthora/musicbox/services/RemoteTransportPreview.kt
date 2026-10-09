@@ -7,7 +7,7 @@ import `in`.synthora.musicbox.viewmodels.MusicUiState
 internal data class RemoteTransportPreview(
     val owner: String, val action: String, val track: Track?, val index: Int,
     val playing: Boolean, val position: Long, val startedAt: Long,
-    val waiting: Boolean = false, val error: String? = null, val baselineRevision: Long = -1
+    val waiting: Boolean = false, val error: String? = null, val baselineRevision: Long = -1, val baselineEpoch: String = ""
 ) {
     fun positionAt(now: Long): Long = (position + if (playing && !waiting && error == null)
         (now - startedAt).coerceAtLeast(0) else 0).coerceAtLeast(0)
@@ -23,7 +23,8 @@ internal data class RemoteTransportPreview(
     fun matches(state: EchoState, now: Long): Boolean {
         if (state.sharedOutput.mode != "phone" || state.sharedOutput.owner != owner ||
             state.sharedOutput.handoffPending || state.processing || !state.confirmed ||
-            (baselineRevision >= 0 && state.playbackRevision >= 0 && state.playbackRevision <= baselineRevision)) return false
+            (baselineRevision >= 0 && state.playbackRevision >= 0 &&
+                (baselineEpoch.isBlank() || baselineEpoch == state.sharedOutput.epoch) && state.playbackRevision <= baselineRevision)) return false
         return when (action) {
             "play", "pause" -> state.playing == playing
             "seek" -> sameTrack(track, state.track) && (kotlin.math.abs(state.livePosition(now) - positionAt(now)) <= 2_000 ||
