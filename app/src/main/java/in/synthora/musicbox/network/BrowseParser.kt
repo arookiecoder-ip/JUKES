@@ -112,4 +112,12 @@ fun Track.metadata(): JsonObject = buildJsonObject {
     put("video_id", ytVideoId.orEmpty()); put("title", title); put("artist", artist)
     put("thumbnail", thumbnailUri.orEmpty()); put("duration_ms", durationSec * 1000L)
     artistId?.let { put("artist_id", it) }
+    if (artists.isNotEmpty()) putJsonArray("artists") {
+        artists.filter { it.name.isNotBlank() }.forEach { credit ->
+            add(buildJsonObject {
+                put("name", credit.name)
+                credit.id?.takeIf { it.isNotBlank() }?.let { put("id", it) }
+            })
+        }
+    }
 }

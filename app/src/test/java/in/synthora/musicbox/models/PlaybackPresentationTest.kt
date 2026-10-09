@@ -2,6 +2,7 @@ package `in`.synthora.musicbox.models
 
 import `in`.synthora.musicbox.network.BrowseParser
 import `in`.synthora.musicbox.network.toTrack
+import `in`.synthora.musicbox.network.metadata
 import `in`.synthora.musicbox.viewmodels.MusicUiState
 import `in`.synthora.musicbox.viewmodels.withPendingPlayback
 import kotlinx.serialization.json.Json
@@ -100,6 +101,13 @@ class PlaybackPresentationTest {
         assertTrue(Track("song", "Song", " ", durationSec = 10).artistCredits().isEmpty())
         assertEquals(listOf(ArtistCredit("A")),
             Track("song", "Song", "A and a", durationSec = 10).artistCredits())
+    }
+
+    @Test fun queueMetadataPreservesAuthoritativeBandNamesOnRoundTrip() {
+        val credits = listOf(ArtistCredit("Of Monsters and Men", "UCband"), ArtistCredit("Guest", "UCguest"))
+        val track = Track("song", "Song", "Of Monsters and Men, Guest", durationSec = 10,
+            ytVideoId = "video", artists = credits)
+        assertEquals(credits, BrowseParser.item(track.metadata()).toTrack().artistCredits())
     }
 
 }
