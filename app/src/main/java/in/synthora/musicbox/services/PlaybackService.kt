@@ -803,7 +803,8 @@ class PlaybackService : MediaLibraryService() {
                             .associateBy { it.uuid }
                     }
                     val entries = ids.mapIndexedNotNull { slot, id -> stored[id]?.toTrack()?.takeIf { !it.ytVideoId.isNullOrBlank() }?.let { slot to it } }
-                    val selected = entries.firstOrNull { it.first == index } ?: return@withTimeout
+                    val selected = entries.firstOrNull { it.first == index }
+                    if (selected == null) { resumeQueuePublicationPending = false; return@withTimeout }
                     if (PhonePlaybackOwnership.token != claim || !PhonePlaybackOwnership.permitsPlayback(claim) ||
                         ids != (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId } ||
                         player.currentMediaItem?.mediaId != selected.second.uuid ||
