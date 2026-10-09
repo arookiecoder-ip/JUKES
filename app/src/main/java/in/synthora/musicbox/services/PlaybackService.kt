@@ -553,7 +553,7 @@ class PlaybackService : MediaLibraryService() {
     private val noisyDuringResume = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY &&
-                (restoreSessionJob?.isActive == true || resumeSessionJob?.isActive == true)) {
+                (resumeCommands.wantsPlay && !player.isPlaying)) {
                 cancelSessionResume()
                 player.pause()
             }
@@ -655,18 +655,20 @@ class PlaybackService : MediaLibraryService() {
                 resumeQueuePublicationPending = true
                 result.set(MediaSession.MediaItemsWithStartPosition(entries.map { it.third }, cursor.index, cursor.positionMs))
             } catch (e: CancellationException) {
-                cancelledMedia3Resume = true
+                if (resumeFuture === result) cancelledMedia3Resume = true
                 result.setException(e)
                 throw e
             } catch (e: Exception) {
-                cancelledMedia3Resume = true
-                resumeCommands.pause()
-                recoveryLoading.value = false
+                if (resumeFuture === result) {
+                    cancelledMedia3Resume = true
+                    resumeCommands.pause()
+                    recoveryLoading.value = false
+                    `in`.synthora.musicbox.network.NetworkFeedback.notify(e.message ?: "Couldn't restore playback. Open Music Box and choose a song.")
+                }
                 result.setException(e)
-                `in`.synthora.musicbox.network.NetworkFeedback.notify(e.message ?: "Couldn't restore playback. Open Music Box and choose a song.")
-            } finally { restoreSessionJob = null }
+            } finally { if (restoreSessionJob === coroutineContext[Job]) restoreSessionJob = null }
         }
-        result.addListener({ if (result.isCancelled) cancelSessionResume() }, androidx.core.content.ContextCompat.getMainExecutor(this))
+        result.addListener({ if (resumeFuture === result && result.isCancelled) cancelSessionResume() }, androidx.core.content.ContextCompat.getMainExecutor(this))
         return result
     }
 
@@ -686,7 +688,15 @@ class PlaybackService : MediaLibraryService() {
         resumeSessionJob = serviceScope.launch {
             try {
                 val config = original.localConfiguration
-                val downloaded = config?.uri?.scheme in setOf("file", "content")
+                val downloaded = withContext(Dispatchers.IO) {
+                    runCatching {
+                        when (config?.uri?.scheme) {
+                            "file" -> java.io.File(config.uri.path.orEmpty()).let { it.isFile && it.canRead() && it.length() > 0 }
+                            "content" -> contentResolver.openAssetFileDescriptor(config.uri, "r")?.use { true } ?: false
+                            else -> false
+                        }
+                    }.getOrDefault(false)
+                }
                 val cached = config != null && fullyCachedSource(config.uri.toString(), config.customCacheKey)
                 val online = `in`.synthora.musicbox.network.NetworkFeedback.online.value
                 val authorized = (PhonePlaybackOwnership.permitsPlayback(claimAtStart) &&
@@ -738,9 +748,11 @@ class PlaybackService : MediaLibraryService() {
                         `in`.synthora.musicbox.network.networkErrorMessage(e) ?: e.message ?: "Couldn't resume playback. Tap Play to retry.")
                 }
             } finally {
-                if (resumeSessionJob === coroutineContext[Job]) resumeSessionJob = null
-                recoveryLoading.value = false
-                mediaSession?.let { onUpdateNotification(it, false) }
+                if (resumeSessionJob === coroutineContext[Job]) {
+                    resumeSessionJob = null
+                    recoveryLoading.value = false
+                    mediaSession?.let { onUpdateNotification(it, false) }
+                }
             }
         }
     }
@@ -763,6 +775,7 @@ class PlaybackService : MediaLibraryService() {
                     val entries = ids.mapIndexedNotNull { slot, id -> stored[id]?.toTrack()?.takeIf { !it.ytVideoId.isNullOrBlank() }?.let { slot to it } }
                     val selected = entries.firstOrNull { it.first == index } ?: return@withTimeout
                     if (PhonePlaybackOwnership.token != claim || !PhonePlaybackOwnership.permitsPlayback(claim) ||
+                        ids != (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId } ||
                         player.currentMediaItem?.mediaId != selected.second.uuid ||
                         outputPrefs.getString("playback_output", "PHONE") != "PHONE") return@withTimeout
                     AlexaBackendApi.updateQueue("start", selected.second.ytVideoId!!, entries.map { AlexaBackendApi.backendTrack(it.second) },
@@ -1383,6 +1396,10 @@ class PlaybackService : MediaLibraryService() {
         }
         player.addListener(object : Player.Listener {
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && resumeQueuePublishJob?.isActive == true) {
+                    resumeQueuePublishJob?.cancel()
+                    resumeQueuePublicationPending = false
+                }
                 if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED &&
                     (resumeSessionJob?.isActive == true || (restoreSessionJob?.isActive == true && resumeFuture?.isDone == false))) {
                     cancelSessionResume()
@@ -1562,6 +1579,8 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun onPhoneForegroundDenied() {
+        cancelSessionResume()
+        cancelledMedia3Resume = true
         // Android did not grant a background playback start. Do not keep audio running
         // without its required foreground service or transfer it to another phone.
         recoveryShouldResume = false
