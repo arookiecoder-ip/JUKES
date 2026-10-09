@@ -241,7 +241,13 @@ class PlaybackService : MediaLibraryService() {
         fun removeTrackCache(uri: String?) {
             if (uri == null) return
             synchronized(this) {
-                cache?.removeResource(uri)
+                cache?.let { saved ->
+                    saved.removeResource(uri)
+                    val metadata = androidx.media3.datasource.cache.ContentMetadataMutations()
+                    androidx.media3.datasource.cache.ContentMetadataMutations.setContentLength(metadata, -1)
+                    androidx.media3.datasource.cache.ContentMetadataMutations.setRedirectedUri(metadata, null)
+                    saved.applyContentMetadataMutations(uri, metadata)
+                }
             }
         }
 
@@ -587,7 +593,7 @@ class PlaybackService : MediaLibraryService() {
         if (!manual && !streamRetry.ready(android.os.SystemClock.elapsedRealtime())) return
         recoveryAttempts[trackId] = attempt
         val claim = PhonePlaybackOwnership.token
-        val malformed = isMalformedAudio(player.playerError?.errorCode ?: 0) || hasTruncatedAudio(player.playerError)
+        val malformed = isMalformedAudio(player.playerError?.errorCode ?: 0) || hasTruncatedAudio(player.playerError) || hasInvalidAudioResponse(player.playerError)
         if (manual) malformedAudioRetried.remove(trackId)
         if (malformed && !malformedAudioRetried.add(trackId)) {
             recoveryShouldResume = false
@@ -601,7 +607,6 @@ class PlaybackService : MediaLibraryService() {
         val retryAfter = httpFailure?.headerFields?.entries?.firstOrNull { it.key.equals("Retry-After", true) }?.value?.firstOrNull()
         val retryDelay = `in`.synthora.musicbox.network.audioRetryDelay(httpFailure?.responseCode, retryAfter, attempt)
         streamRetry.failed(android.os.SystemClock.elapsedRealtime(), retryDelay)
-        if (malformed) upcomingPreloader?.clear()
         val position = player.currentPosition.coerceAtLeast(0)
         recoveryShouldResume = manual || player.playWhenReady || recoveryShouldResume
         streamRecoveryJob = serviceScope.launch {
@@ -610,6 +615,17 @@ class PlaybackService : MediaLibraryService() {
                 val track = withContext(Dispatchers.IO) { database.trackDao().getTrackByUuid(trackId)?.toTrack() }
                     ?: return@launch
                 DownloadRepository.get(applicationContext).awaitReady()
+                if (malformed) {
+                    upcomingPreloader?.clearAndAwait()
+                    DownloadRepository.get(applicationContext).invalidateDamagedDownload(track)
+                }
+                if (malformed && !`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
+                    malformedAudioRetried.remove(trackId)
+                    recoveryShouldResume = false
+                    player.pause()
+                    `in`.synthora.musicbox.network.NetworkFeedback.notify("This audio is damaged. Connect to the internet to download it again.")
+                    return@launch
+                }
                 val local = DownloadRepository.get(applicationContext).localTrack(track).takeUnless { malformed }
                 val refreshed = if (local != null) local else {
                     if (malformed) withContext(Dispatchers.IO) {
@@ -634,7 +650,7 @@ class PlaybackService : MediaLibraryService() {
                 // Media3 treats replacing an item with the same URI as a metadata update.
                 // Stop first so prepare actually discards the broken loader/socket.
                 player.stop()
-                player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).build())
+                player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).setMimeType(null).setCustomCacheKey(null).build())
                 player.seekTo(index, position)
                 player.prepare()
                 player.playWhenReady = resume && !inCall()
@@ -926,10 +942,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Configure Media3 to use the same Notification ID and Channel
         // This prevents notification conflicts on Samsung and other devices
-        val notificationProvider = DefaultMediaNotificationProvider.Builder(applicationContext)
-            .setNotificationId(1) // IMPORTANT: Must match the ID in onStartCommand
-            .setChannelId("media_playback")
-            .build()
+        val notificationProvider = MusicNotificationProvider(applicationContext, 1, "media_playback")
         setMediaNotificationProvider(GuardedMediaNotificationProvider(notificationProvider,
             { activeService.get() === this && outputPrefs.getString("playback_output", "PHONE") == "PHONE" },
             ::onPhoneForegroundDenied, { holdSongPreparationNotification() || holdNotificationHandoff() || holdRecoveryNotification() }))
@@ -1316,7 +1329,7 @@ class PlaybackService : MediaLibraryService() {
             .setIconResId(iconResId)
             .setSessionCommand(SessionCommand(CUSTOM_COMMAND_TOGGLE_FAVORITE_ACTION_ID, Bundle.EMPTY))
             .build()
-        mediaSession?.setCustomLayout(listOf(button))
+        mediaSession?.setCustomLayout(listOf(button, NotificationRadio.button()))
     }
 
     /**
@@ -1366,6 +1379,7 @@ class PlaybackService : MediaLibraryService() {
                             Bundle.EMPTY
                         )
                     )
+                    .add(SessionCommand(NotificationRadio.ACTION, Bundle.EMPTY))
                     .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
@@ -1381,6 +1395,8 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == NotificationRadio.ACTION) return Futures.immediateFuture(
+                SessionResult(if (NotificationRadio.start(this@PlaybackService)) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_INVALID_STATE))
             if (customCommand.customAction == CUSTOM_COMMAND_TOGGLE_FAVORITE_ACTION_ID) {
                 val currentTrackId = player.currentMediaItem?.mediaId
                 if (currentTrackId != null) {

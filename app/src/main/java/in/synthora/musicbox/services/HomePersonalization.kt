@@ -6,15 +6,15 @@ import `in`.synthora.musicbox.viewmodels.HomeShelf
 import kotlin.random.Random
 
 internal fun speedDialItems(shelves: List<HomeShelf>, recent: List<Track>): List<BrowseItem> {
-    val songs = recent.filter { !it.ytVideoId.isNullOrBlank() }.take(4).map {
+    val songs = recent.filter { !it.ytVideoId.isNullOrBlank() }.take(12).map {
         BrowseItem(id = it.ytVideoId!!, kind = "track", title = it.title, subtitle = it.artist,
             image = it.thumbnailUri.orEmpty(), videoId = it.ytVideoId.orEmpty(), playlistId = "", durationMs = it.durationSec * 1000L,
             artistId = it.artistId.orEmpty(), albumId = it.albumId.orEmpty(), editable = false,
             raw = kotlinx.serialization.json.JsonObject(emptyMap()))
     }
     return (songs + shelves.flatMap { it.items }.filter {
-        (it.kind == "track" && it.videoId.isNotBlank()) || (it.kind in setOf("album", "playlist") && it.id.isNotBlank())
-    }).distinctBy { if (it.kind == "track") "track:${it.videoId}" else "${it.kind}:${it.id}" }.take(8)
+        it.kind == "track" && it.videoId.isNotBlank()
+    }).distinctBy { if (it.kind == "track") "track:${it.videoId}" else "${it.kind}:${it.id}" }.take(12)
 }
 
 /** Home is account-personalized; listening history and likes bias its radio seeds. */

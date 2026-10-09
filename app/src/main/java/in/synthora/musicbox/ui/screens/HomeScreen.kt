@@ -176,7 +176,7 @@ internal fun HomeContent(
             if (shortcuts.isNotEmpty()) {
                 item(key = "speed-dial", contentType = "speed-dial") {
                     SpeedDial(shortcuts, uiState.shelves.any { it.tracks.isNotEmpty() } || uiState.recentTracks.isNotEmpty(),
-                        onPlaySomething, onOpenItem, onPlayCollection) { item ->
+                        onPlaySomething, onOpenItem) { item ->
                         val track = uiState.recentTracks.firstOrNull { it.ytVideoId == item.videoId }
                             ?: uiState.shelves.asSequence().flatMap { it.tracks.asSequence() }
                                 .firstOrNull { it.ytVideoId == item.videoId }
@@ -222,34 +222,45 @@ internal fun HomeContent(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SpeedDial(items: List<BrowseItem>, canPlaySomething: Boolean, onPlaySomething: () -> Unit,
-    onOpen: (BrowseItem) -> Unit, onPlayCollection: (BrowseItem) -> Unit,
+    onOpen: (BrowseItem) -> Unit,
     onPlayTrack: (BrowseItem) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Speed dial", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold)
-            Button(onClick = onPlaySomething, enabled = canPlaySomething,
+            Button(onClick = onPlaySomething, enabled = canPlaySomething, shape = androidx.compose.ui.graphics.RectangleShape,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                 Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp))
                 Text("Play something", Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelLarge)
             }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columns = when { maxWidth >= 800.dp -> 4; maxWidth >= 560.dp -> 3; else -> 2 }
-            val rows = remember(items, columns) { items.chunked(columns) }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val tablet = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= 600
+            val columns = if (tablet) 4 else 3
+            val rows = remember(items, columns) { items.take(columns * 3).chunked(columns) }
+            val artworkSize = (maxWidth - 6.dp * (columns - 1)) / columns
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 rows.forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEach { item ->
-                            Row(Modifier.weight(1f).height(68.dp).clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .combinedClickable(role = Role.Button,
-                                    onClick = { if (item.kind == "track") onPlayTrack(item) else onPlayCollection(item) },
-                                    onLongClick = { onOpen(item) }, onLongClickLabel = "Open ${item.title}"), verticalAlignment = Alignment.CenterVertically) {
-                                `in`.synthora.musicbox.ui.components.ListArtwork(item.image, 56.dp,
-                                    Modifier.padding(start = 6.dp).size(56.dp).clip(RoundedCornerShape(8.dp)))
-                                Text(item.title, Modifier.weight(1f).padding(horizontal = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            val click = Modifier.combinedClickable(role = Role.Button,
+                                onClick = { onPlayTrack(item) }, onLongClick = { onOpen(item) },
+                                onLongClickLabel = "Open ${item.title}")
+                            if (tablet) {
+                                Row(Modifier.weight(1f).height(68.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .then(click), verticalAlignment = Alignment.CenterVertically) {
+                                    `in`.synthora.musicbox.ui.components.ListArtwork(item.image, 56.dp,
+                                        Modifier.padding(start = 6.dp).size(56.dp))
+                                    Text(item.title, Modifier.weight(1f).padding(horizontal = 8.dp),
+                                        style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            } else {
+                                Column(Modifier.weight(1f).then(click)) {
+                                    `in`.synthora.musicbox.ui.components.ListArtwork(item.image, artworkSize,
+                                        Modifier.size(artworkSize))
+                                    Text(item.title, Modifier.fillMaxWidth().padding(top = 3.dp),
+                                        style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                         repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }

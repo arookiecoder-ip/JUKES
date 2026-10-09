@@ -21,14 +21,14 @@ class HomePersonalizationTest {
     }
     @Test fun dialIsBoundedAndUnplayableHistoryIsExcluded() {
         val items = speedDialItems(listOf(shelf((1..30).map { track("song$it") })), listOf(track("local").copy(ytVideoId = null)))
-        assertEquals(8, items.size)
+        assertEquals(12, items.size)
         assertFalse(items.any { it.id == "local" })
     }
-    @Test fun albumsAndPlaylistsAreKeptButArtistsAreExcludedFromPlaybackDial() {
+    @Test fun albumsPlaylistsAndArtistsAreExcludedFromPlaybackDial() {
         val items = listOf("album", "playlist", "artist").map {
             BrowseParser.item(Json.parseToJsonElement("""{"kind":"$it","id":"$it","title":"$it"}""").jsonObject)
         }
-        assertEquals(listOf("album", "playlist"), speedDialItems(listOf(HomeShelf("s", "s", "", items, emptyList())), emptyList()).map { it.kind })
+        assertTrue(speedDialItems(listOf(HomeShelf("s", "s", "", items, emptyList())), emptyList()).isEmpty())
     }
     @Test fun radioAvoidsRepeatingCurrentSongWhenAnotherSeedExists() {
         val songs = listOf(track("one"), track("two"))

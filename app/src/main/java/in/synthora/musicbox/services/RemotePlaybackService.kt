@@ -78,8 +78,7 @@ class RemotePlaybackService : MediaSessionService() {
         remote = EchoPlayer().apply { snapshot = if (prefs.getBoolean("remote_controls_dismissed", false)) EchoState() else echo.state.value.takeIf { it.track != null } ?: initialSnapshot ?: EchoState() }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel("alexa_playback", "Alexa playback", NotificationManager.IMPORTANCE_LOW))
-        setMediaNotificationProvider(GuardedMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
-            .setNotificationId(1002).setChannelId("alexa_playback").build().apply { setSmallIcon(R.drawable.media3_notification_small_icon) },
+        setMediaNotificationProvider(GuardedMediaNotificationProvider(MusicNotificationProvider(this, 1002, "alexa_playback").apply { setSmallIcon(R.drawable.media3_notification_small_icon) },
             { session != null && prefs.getString("playback_output", "PHONE") in setOf("ALEXA", "REMOTE_PHONE") && !prefs.getBoolean("remote_controls_dismissed", false) },
             { PlaybackService.leaveRemoteForeground(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() },
             onRecoveryUpdate = ::holdDestinationHandoff, onUpdated = ::updateForegroundBridge))
@@ -91,9 +90,11 @@ class RemotePlaybackService : MediaSessionService() {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
                     MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                            .add(SessionCommand(LIKE, Bundle.EMPTY)).build()).build()
+                            .add(SessionCommand(LIKE, Bundle.EMPTY)).add(SessionCommand(NotificationRadio.ACTION, Bundle.EMPTY)).build()).build()
                 override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
                     customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == NotificationRadio.ACTION) return Futures.immediateFuture(
+                        SessionResult(if (NotificationRadio.start(this@RemotePlaybackService)) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_INVALID_STATE))
                     if (customCommand.customAction != LIKE) return super.onCustomCommand(session, controller, customCommand, args)
                     val result = SettableFuture.create<SessionResult>()
                     scope.launch {
@@ -301,7 +302,7 @@ class RemotePlaybackService : MediaSessionService() {
         session?.setCustomLayout(listOf(CommandButton.Builder()
             .setDisplayName("Like").setIconResId(if (AccountRepository.isLiked(remote.snapshot.track?.ytVideoId))
                 R.drawable.thumb_up_filled else R.drawable.thumb_up_outline)
-            .setSessionCommand(SessionCommand(LIKE, Bundle.EMPTY)).build()))
+            .setSessionCommand(SessionCommand(LIKE, Bundle.EMPTY)).build(), NotificationRadio.button()))
     }
 
     private fun holdDestinationHandoff(): Boolean {

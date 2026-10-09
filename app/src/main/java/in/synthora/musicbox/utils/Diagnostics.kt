@@ -46,6 +46,8 @@ object Diagnostics {
             }
             appendLine("Recent audio failures (codes and exception types only):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioFailures().forEach { appendLine("  $it") }
+            appendLine("Recent audio responses (network source, MIME and byte length only):")
+            `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioResponses().forEach { appendLine("  $it") }
             appendLine("Playback timings:")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.snapshot().forEach { (stage, value) ->
                 appendLine("  $stage: $value")

@@ -141,6 +141,15 @@ class DownloadRepository private constructor(private val context: Context) {
             ?: readableDownloadedTrack(track)
     }
 
+    /** Remove only this repository's damaged completed copy, retaining collection membership. */
+    suspend fun invalidateDamagedDownload(track: Track) {
+        awaitReady()
+        val entries = completed.filter { it.track.ytVideoId == track.ytVideoId && track.ytVideoId != null }
+        completed.removeAll(entries.toSet())
+        save(); publishStatus()
+        withContext(Dispatchers.IO) { entries.forEach { manager.remove(it.id); file(it.track)?.delete() } }
+    }
+
     fun download(track: Track, silent: Boolean = false) {
         if (localTrack(track) != null) { if (!silent) NetworkFeedback.notify("Already downloaded"); return }
         if (enqueue(listOf(track)) && !silent) NetworkFeedback.notify("Downloading ${track.title}")
@@ -283,7 +292,7 @@ class DownloadRepository private constructor(private val context: Context) {
                     when (status) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
                             pending.remove(entry); entry.track.ytVideoId?.let { rateLimitAttempts.remove(it) }; changed = true
-                            if (file(entry.track)?.let { it.exists() && it.length() > 0 } == true) {
+                            if (withContext(Dispatchers.IO) { validCompletedAudio(file(entry.track), bytes, total) }) {
                                 completed.removeAll { it.track.ytVideoId == entry.track.ytVideoId }; completed += entry; unavailable.remove(entry.track.ytVideoId); batchCompleted++
                             } else { batchFailed++
                                 unavailable[entry.track.ytVideoId.orEmpty()] = manifest("unavailable", entry.track.ytVideoId.orEmpty(), "missing", json.encodeToString(entry))

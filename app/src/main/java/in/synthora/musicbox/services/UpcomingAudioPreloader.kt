@@ -106,6 +106,11 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
         }
     }
     fun clear() { update(emptyList()); completed.clear() }
+    suspend fun clearAndAwait() {
+        val writers = work.values.map { it.job }
+        clear()
+        writers.forEach { it.join() }
+    }
 }
 
 @UnstableApi

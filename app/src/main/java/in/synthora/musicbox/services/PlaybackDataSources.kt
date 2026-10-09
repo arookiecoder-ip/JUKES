@@ -24,8 +24,8 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
                 spec.withAdditionalHeaders(mapOf(credential) + if (prefetch) mapOf("X-MusicBox-Prefetch" to "1") else emptyMap())
             } else spec
         }
-        val upstreamDataSourceFactory =
-            DefaultDataSource.Factory(context, authenticatedAudio)
+        val rawUpstream = DefaultDataSource.Factory(context, authenticatedAudio)
+        val upstreamDataSourceFactory = DataSource.Factory { ValidatingAudioDataSource(rawUpstream.createDataSource()) }
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(upstreamDataSourceFactory)

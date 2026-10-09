@@ -48,7 +48,7 @@ internal fun ExpandableTrackSlider(
     val thickness by animateDpAsState(if (active) draggingHeight else restingHeight,
         animationSpec = tween(120), label = "trackThickness")
     val fill = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.38f)
-    val cacheShade = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.46f)
+    val cacheShade = androidx.compose.ui.graphics.Color(0xFFB9DDEB)
     val background = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.24f else 0.12f)
     Slider(
         value = if (active) local else value.coerceIn(0f, 1f),
