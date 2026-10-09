@@ -239,6 +239,7 @@ class PlaybackService : MediaLibraryService() {
                 cache?.let { c ->
                     c.keys.toList().forEach { key ->
                         c.removeResource(key)
+                        clearAudioRepresentation(c, key)
                     }
                 }
             }
@@ -250,10 +251,7 @@ class PlaybackService : MediaLibraryService() {
             synchronized(this) {
                 cache?.let { saved ->
                     saved.removeResource(uri)
-                    val metadata = androidx.media3.datasource.cache.ContentMetadataMutations()
-                    androidx.media3.datasource.cache.ContentMetadataMutations.setContentLength(metadata, -1)
-                    androidx.media3.datasource.cache.ContentMetadataMutations.setRedirectedUri(metadata, null)
-                    saved.applyContentMetadataMutations(uri, metadata)
+                    clearAudioRepresentation(saved, uri)
                 }
             }
         }
@@ -326,6 +324,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun pauseForExpiredLease() {
         if (canContinueCurrentAudioOffline()) return
+        recordPlaybackEvent("lease_expired")
         leaseInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
             player.playWhenReady || recoveryShouldResume)
         Log.w(TAG, "Playback held: ownership lease expired; networkOnline=${`in`.synthora.musicbox.network.NetworkFeedback.online.value}; serverUnavailable=${PhonePlaybackOwnership.serverUnavailable}; position=${player.currentPosition}; buffered=${player.bufferedPosition}; cached=${currentStreamFullyCached()}")
@@ -923,7 +922,8 @@ class PlaybackService : MediaLibraryService() {
         recoveryAttempts[trackId] = attempt
         val claim = PhonePlaybackOwnership.token
         val malformed = shouldInvalidateAudio(player.playerError?.errorCode ?: 0, hasTruncatedAudio(player.playerError),
-            hasInvalidAudioResponse(player.playerError), original.localConfiguration?.uri?.scheme in setOf("http", "https"))
+            hasInvalidAudioResponse(player.playerError) || hasChangedAudioRepresentation(player.playerError) || hasInvalidCachedAudio(player.playerError),
+            original.localConfiguration?.uri?.scheme in setOf("http", "https"))
         if (manual) malformedAudioRetried.remove(trackId)
         if (malformed && !malformedAudioRetried.add(trackId)) {
             recoveryShouldResume = false
@@ -1089,8 +1089,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private fun recordPlaybackEvent(event: String, reason: Int = 0) {
+        PlaybackDiagnostics.recordPlaybackEvent(event, reason, player.playbackState, player.playWhenReady,
+            player.currentPosition, player.bufferedPosition, currentStreamFullyCached())
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            recordPlaybackEvent("state")
             when (playbackState) {
                 Player.STATE_ENDED -> { Log.d(TAG, "Playback ended"); maybeExtendPhoneQueue() }
                 Player.STATE_READY -> Log.d(TAG, "Player ready")
@@ -1100,6 +1106,7 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            recordPlaybackEvent("error", error.errorCode)
             val causes = generateSequence<Throwable>(error) { it.cause }.take(8).toList()
             val status = causes.filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
             PlaybackDiagnostics.recordAudioFailure(error.errorCode, causes.map { it.javaClass.simpleName }, status)
@@ -1108,6 +1115,7 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            recordPlaybackEvent("intent", reason)
             Log.d(TAG, "Playback intent changed: play=$playWhenReady; reason=$reason; state=${player.playbackState}; position=${player.currentPosition}; buffered=${player.bufferedPosition}; serverUnavailable=${PhonePlaybackOwnership.serverUnavailable}")
             if (playWhenReady && !PhonePlaybackOwnership.permitsPlayback()) {
                 pauseForExpiredLease()

@@ -25,9 +25,13 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
             } else spec
         }
         val rawUpstream = DefaultDataSource.Factory(context, authenticatedAudio)
-        val upstreamDataSourceFactory = DataSource.Factory { ValidatingAudioDataSource(rawUpstream.createDataSource()) }
+        val upstreamDataSourceFactory = DataSource.Factory {
+            val checked = ValidatingAudioDataSource(rawUpstream.createDataSource(), cache)
+            if (readOnlyCache) CachedAudioFallbackDataSource(checked, cache) else checked
+        }
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(cache)
+            .setCacheReadDataSourceFactory { checkedCacheFileSource(cache) }
             .setUpstreamDataSourceFactory(upstreamDataSourceFactory)
             // Cache errors are non-fatal — fall through to the network.
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR or

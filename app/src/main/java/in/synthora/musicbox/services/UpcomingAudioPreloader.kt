@@ -72,6 +72,7 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
                 if (newlyCached > 0) guard?.progress()
             }
             val job = scope.launch(start = CoroutineStart.LAZY) {
+                var changedRepresentation = false
                 try {
                     slots.withPermit {
                         try {
@@ -85,11 +86,13 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
                     if (work[url]?.writer === writer) {
                         val stored = if (targetLength < 0) fullyCached(url) else cache.isCached(url, 0, targetLength)
                         if (!stored) throw java.io.IOException("Audio read completed without a complete saved cache")
+                        if (fullyCached(url)) withContext(Dispatchers.IO) { checkCompletedAudioCache(cache, url) }
                         completed[url] = targetLength
                         retries.remove(url)
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (error: Exception) {
+                    changedRepresentation = hasChangedAudioRepresentation(error) || hasInvalidCachedAudio(error)
                     val limited = generateSequence<Throwable>(error) { it.cause }.take(8)
                         .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
                         .firstOrNull()?.responseCode == 429
@@ -101,6 +104,14 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
                     }
                 } finally {
                     withContext(Dispatchers.IO + NonCancellable) { runCatching { source.close() } }
+                    if (changedRepresentation && work[url]?.writer === writer) {
+                        withContext(Dispatchers.IO + NonCancellable) {
+                            runCatching {
+                                cache.removeResource(url)
+                                clearAudioRepresentation(cache, url)
+                            }.onFailure { PlaybackDiagnostics.recordTransferFailure("cache_cleanup_failed", -1, -1) }
+                        }
+                    }
                     if (work[url]?.writer === writer) work.remove(url)
                 }
             }

@@ -48,6 +48,10 @@ object Diagnostics {
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioFailures().forEach { appendLine("  $it") }
             appendLine("Recent audio responses (network source, MIME and byte length only):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioResponses().forEach { appendLine("  $it") }
+            appendLine("Recent audio transfers (byte counts and outcome only):")
+            `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioTransfers().forEach { appendLine("  $it") }
+            appendLine("Recent playback events (elapsed time, numeric state/reason and cursor only):")
+            `in`.synthora.musicbox.services.PlaybackDiagnostics.recentPlaybackEvents().forEach { appendLine("  $it") }
             appendLine("Playback timings:")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.snapshot().forEach { (stage, value) ->
                 appendLine("  $stage: $value")
