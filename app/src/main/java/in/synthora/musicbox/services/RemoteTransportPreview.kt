@@ -29,7 +29,9 @@ internal data class RemoteTransportPreview(
             "play", "pause" -> state.playing == playing
             "seek" -> sameTrack(track, state.track) && (kotlin.math.abs(state.livePosition(now) - positionAt(now)) <= 2_000 ||
                 kotlin.math.abs(state.positionMs - position) <= 2_000)
-            "next", "previous" -> sameTrack(track, state.track) && state.index == index && state.playing == playing
+            "next", "previous" -> sameTrack(track, state.track) && state.index == index && state.playing == playing &&
+                (action != "previous" || kotlin.math.abs(state.positionMs - position) <= 2_000 ||
+                    kotlin.math.abs(state.livePosition(now) - positionAt(now)) <= 2_000)
             else -> false
         }
     }
@@ -39,7 +41,7 @@ internal fun remoteTransportPreview(owner: String, action: String, state: MusicU
     now: Long, seek: Long? = null): RemoteTransportPreview {
     val targetIndex = when (action) {
         "next" -> (state.queueIndex + 1).takeIf { it in state.queue.indices }
-        "previous" -> (state.queueIndex - 1).takeIf { it in state.queue.indices }
+        "previous" -> (state.queueIndex - 1).takeIf { state.position <= 3_000 && it in state.queue.indices }
         else -> null
     }
     val target = targetIndex?.let(state.queue::get) ?: state.currentTrack
@@ -49,7 +51,7 @@ internal fun remoteTransportPreview(owner: String, action: String, state: MusicU
         else -> state.position
     }
     return RemoteTransportPreview(owner, action, target, targetIndex ?: state.queueIndex,
-        when (action) { "play" -> true; "pause" -> false; else -> state.isPlaying }, position, now)
+        when { action == "play" -> true; action == "pause" -> false; targetIndex != null -> true; else -> state.isPlaying }, position, now)
 }
 
 private fun sameTrack(a: Track?, b: Track?): Boolean = a != null && b != null &&

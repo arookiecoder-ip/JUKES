@@ -59,6 +59,16 @@ class RemoteTransportPreviewTest {
         assertTrue(preview.copy(baselineEpoch = "old").matches(snapshot().copy(playbackRevision = 1,
             sharedOutput = snapshot().sharedOutput.copy(epoch = "restarted")), 100))
     }
+    @Test fun previousRestartsCurrentSongAfterThreeSecondsAndWaitsForResetClock() {
+        val preview = remoteTransportPreview("receiver", "previous", ui, 100)
+        assertEquals(one, preview.track); assertEquals(0, preview.index)
+        assertFalse(preview.matches(snapshot(true), 100))
+        assertTrue(preview.matches(snapshot(true).copy(positionMs = 0), 100))
+        val previous = remoteTransportPreview("receiver", "previous", ui.copy(currentTrack = two,
+            queueIndex = 1, position = 1_000, isPlaying = false), 100)
+        assertEquals(one, previous.track); assertTrue(previous.playing)
+        assertTrue(remoteTransportPreview("receiver", "next", ui.copy(isPlaying = false), 100).playing)
+    }
     @Test fun seekClampsAndQueueBoundaryNeverPredictsNonexistentSong() {
         val seek = remoteTransportPreview("receiver", "seek", ui, 100, Long.MAX_VALUE)
         assertEquals(180_000L, seek.position)
