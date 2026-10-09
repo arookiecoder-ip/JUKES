@@ -624,7 +624,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
                 val local = DownloadRepository.get(applicationContext).localTrack(track).takeUnless {
-                    malformed && sameAudioSource(it.localUri, original.localConfiguration?.uri?.toString())
+                    malformed && sameAudioSource(it?.localUri, original.localConfiguration?.uri?.toString())
                 }
                 if (malformed && local == null && !`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
                     malformedAudioRetried.remove(trackId)
