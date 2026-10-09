@@ -56,7 +56,6 @@ class PlaybackResumeTest {
     @Test fun restoredQueuePreservesDuplicateOccurrenceAndRemapsMissingNeighbors() {
         assertEquals(ResumeCursor(1, 42000), resumeCursor(2, 42000, listOf(0, 2, 3), 180000, false, false))
         assertEquals(ResumeCursor(2, 42000), resumeCursor(2, 42000, listOf(0, 1, 2), 180000, false, false))
-        assertEquals(ResumeCursor(0, 0), resumeCursor(9, 42000, listOf(0, 2, 3), 180000, false, false))
         assertEquals(ResumeCursor(0, 0), resumeCursor(0, -1, listOf(0), 180000, false, false))
     }
 
@@ -106,6 +105,11 @@ class PlaybackResumeTest {
         session.stop()
         assertFalse(commands.current(requests.last()))
         assertEquals(listOf("pause", "stop"), rendererEvents)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun deletedCurrentSongNeverSilentlyStartsItsNeighbor() {
+        resumeCursor(1, 42000, listOf(0, 2), 180000, false, false)
     }
 
 }

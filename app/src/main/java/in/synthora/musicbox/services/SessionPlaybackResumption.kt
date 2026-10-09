@@ -36,8 +36,9 @@ internal data class ResumeCursor(val index: Int, val positionMs: Long)
 internal fun resumeCursor(savedIndex: Int, savedPosition: Long, availableIndices: List<Int>,
     durationMs: Long, repeatOne: Boolean, repeatAll: Boolean): ResumeCursor {
     require(availableIndices.isNotEmpty()) { "Choose a song in Music Box to resume playback." }
-    val index = availableIndices.indexOf(savedIndex).takeIf { it >= 0 } ?: 0
-    val position = if (availableIndices[index] == savedIndex) savedPosition.coerceAtLeast(0) else 0L
+    val index = availableIndices.indexOf(savedIndex)
+    require(index >= 0) { "The previous song is unavailable. Open Music Box and choose a song." }
+    val position = savedPosition.coerceAtLeast(0)
     if (durationMs > 0 && position >= durationMs) {
         return ResumeCursor(when {
             repeatOne -> index
