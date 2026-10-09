@@ -22,18 +22,27 @@ internal fun checkCompletedAudioCache(cache: Cache, key: String) {
     val total = ContentMetadata.getContentLength(metadata)
     if (total <= 0 || !cache.isCached(key, 0, total) || metadata.get(AUDIO_INTEGRITY_LENGTH, -1L) == total) return
     val source = CacheDataSource.Factory().setCache(cache).createDataSource()
+    var windowStart = -1L
+    var window = byteArrayOf()
     fun bytes(position: Long, size: Int): ByteArray {
-        val result = ByteArray(size)
+        if (position >= windowStart && position - windowStart + size <= window.size) {
+            val start = (position - windowStart).toInt()
+            return window.copyOfRange(start, start + size)
+        }
+        // Read ahead for adjacent fragment headers. Large media boxes are
+        // still skipped, and a long fragmented song needs no arbitrary box cap.
+        val result = ByteArray(minOf(4_096L, total - position).toInt())
         try {
-            source.open(DataSpec.Builder().setUri("cache-audio:").setKey(key).setPosition(position).setLength(size.toLong()).build())
+            source.open(DataSpec.Builder().setUri("cache-audio:").setKey(key).setPosition(position).setLength(result.size.toLong()).build())
             var count = 0
-            while (count < size) {
-                val read = source.read(result, count, size - count)
+            while (count < result.size) {
+                val read = source.read(result, count, result.size - count)
                 if (read < 0) throw InvalidCachedAudioException()
                 count += read
             }
         } finally { source.close() }
-        return result
+        windowStart = position; window = result
+        return result.copyOfRange(0, size)
     }
     fun unsigned(data: ByteArray, start: Int, size: Int): Long {
         var value = 0L
@@ -44,10 +53,9 @@ internal fun checkCompletedAudioCache(cache: Cache, key: String) {
     var valid = !isAudioErrorDocument(prefix)
     if (valid && prefix.size >= 8 && String(prefix, 4, 4, Charsets.US_ASCII) == "ftyp") {
         var position = 0L
-        var boxes = 0
         var moov = false
         var media = false
-        while (position < total && valid && ++boxes <= 10_000) {
+        while (position < total && valid) {
             if (total - position < 8) { valid = false; break }
             val header = bytes(position, 8)
             val type = String(header, 4, 4, Charsets.US_ASCII)

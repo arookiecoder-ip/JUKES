@@ -273,4 +273,18 @@ class AudioTransferRegressionTest {
             catch (_: InvalidCachedAudioException) { assertEquals(15, tail.size) }
         }
     }
+
+    @Test fun longFragmentedMp4HasNoArtificialBoxCountLimit() = withCache { cache ->
+        val bytes = java.io.ByteArrayOutputStream()
+        fun box(type: String, payload: Int = 0) {
+            bytes.write(java.nio.ByteBuffer.allocate(8 + payload).putInt(8 + payload).put(type.toByteArray())
+                .put(ByteArray(payload)).array())
+        }
+        box("ftyp", 8); box("moov")
+        repeat(5_100) { box("moof"); box("mdat", 1) }
+        val source = writer(cache, ByteArrayDataSource(bytes.toByteArray()))
+        try { CacheWriter(source, spec, null, null).cache() } finally { source.close() }
+        checkCompletedAudioCache(cache, url)
+        assertEquals(bytes.size().toLong(), cache.getContentMetadata(url).get(AUDIO_INTEGRITY_LENGTH, -1L))
+    }
 }
