@@ -105,6 +105,9 @@ class PlaybackResumeTest {
         session.stop()
         assertFalse(commands.current(requests.last()))
         assertEquals(listOf("pause", "stop"), rendererEvents)
+        session.seekToNextMediaItem()
+        session.seekTo(12000L)
+        assertEquals(listOf("pause", "stop", "seekToNextMediaItem", "seekTo"), rendererEvents)
     }
 
     @Test(expected = IllegalArgumentException::class)

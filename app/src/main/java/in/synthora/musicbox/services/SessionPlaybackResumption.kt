@@ -4,6 +4,18 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 
+internal fun resumptionFailureNotification(context: android.content.Context, title: String?, message: String): android.app.Notification {
+    val intent = android.content.Intent(context, `in`.synthora.musicbox.MainActivity::class.java)
+        .putExtra("open_player", true)
+    val action = android.app.PendingIntent.getActivity(context, 1004, intent,
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+    return androidx.core.app.NotificationCompat.Builder(context, "media_playback")
+        .setSmallIcon(`in`.synthora.musicbox.R.drawable.media3_notification_small_icon)
+        .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Music Box")
+        .setContentText(message).setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(message))
+        .setContentIntent(action).setAutoCancel(true).setOnlyAlertOnce(true).build()
+}
+
 /** Route both forms of Play/Pause through the same preparation and cancellation path. */
 @UnstableApi
 internal class ResumableSessionPlayer(player: Player, private val onPlay: () -> Unit,

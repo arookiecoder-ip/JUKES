@@ -581,6 +581,18 @@ class PlaybackService : MediaLibraryService() {
         edit.apply()
     }
 
+    private fun showSessionResumeFailure(message: String) {
+        Log.w(TAG, "Notification playback resumption failed: $message")
+        `in`.synthora.musicbox.network.NetworkFeedback.notify(message)
+        // An explicit background Play must have visible feedback even though
+        // routine network errors intentionally suppress background toasts.
+        runCatching {
+            getSystemService(NotificationManager::class.java).notify(1004,
+                resumptionFailureNotification(this, player.currentMediaItem?.mediaMetadata?.title?.toString()
+                    ?: resumePrefs.getString("resume_title", null), message))
+        }.onFailure { Log.w(TAG, "Resumption error notification unavailable: ${it.javaClass.simpleName}") }
+    }
+
     private fun cancelSessionResume() {
         resumeCommands.pause()
         mainHandler.removeCallbacks(resumeAfterCall)
@@ -609,6 +621,7 @@ class PlaybackService : MediaLibraryService() {
     private fun restoreSessionPlaylist(): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
         resumeFuture?.takeIf { !it.isDone }?.let { return it }
         cancelledMedia3Resume = false
+        getSystemService(NotificationManager::class.java).cancel(1004)
         val request = resumeCommands.play()
         val expectedOutput = outputPrefs.getString("playback_output", "PHONE")
         val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
@@ -663,7 +676,7 @@ class PlaybackService : MediaLibraryService() {
                     cancelledMedia3Resume = true
                     resumeCommands.pause()
                     recoveryLoading.value = false
-                    `in`.synthora.musicbox.network.NetworkFeedback.notify(e.message ?: "Couldn't restore playback. Open Music Box and choose a song.")
+                    showSessionResumeFailure(e.message ?: "Couldn't restore playback. Open Music Box and choose a song.")
                 }
                 result.setException(e)
             } finally { if (restoreSessionJob === coroutineContext[Job]) restoreSessionJob = null }
@@ -676,10 +689,11 @@ class PlaybackService : MediaLibraryService() {
     private fun resumeFromSession() {
         if (cancelledMedia3Resume) return
         if (outputPrefs.getString("playback_output", "PHONE") != "PHONE") {
-            `in`.synthora.musicbox.network.NetworkFeedback.notify("Playback is selected on another device. Open Music Box to select this phone.")
+            showSessionResumeFailure("Playback is selected on another device. Open Music Box to select this phone.")
             return
         }
         val original = player.currentMediaItem ?: return
+        getSystemService(NotificationManager::class.java).cancel(1004)
         if (resumeSessionJob?.isActive == true) return
         val request = resumeCommands.play()
         val claimAtStart = PhonePlaybackOwnership.token
@@ -701,7 +715,7 @@ class PlaybackService : MediaLibraryService() {
                 val online = `in`.synthora.musicbox.network.NetworkFeedback.online.value
                 val authorized = (PhonePlaybackOwnership.permitsPlayback(claimAtStart) &&
                     (claimAtStart.isNotBlank() || PhonePlaybackOwnership.preparingSong)) || canContinueCurrentAudioOffline()
-                if (!authorized && !online) {
+                if (!authorized && (!online || !AlexaBackendApi.isConfigured())) {
                     check(downloaded || cached) { "This song isn't fully saved. Connect to the internet to resume it." }
                     check(!PhonePlaybackOwnership.remoteControlled && !PhonePlaybackOwnership.localHandoff) { "Playback is controlled by another device." }
                     PhonePlaybackOwnership.forget(allowOffline = true)
@@ -726,6 +740,8 @@ class PlaybackService : MediaLibraryService() {
                         check(ownershipServerUnavailable(e) && (downloaded || cached) &&
                             !PhonePlaybackOwnership.remoteControlled && !PhonePlaybackOwnership.localHandoff &&
                             !blocksLocalResumption(MobileDeviceConnection.output.value, PhonePlaybackOwnership.ownerId)) { throw e }
+                        check(resumeCommands.current(request) && PhonePlaybackOwnership.token == claimAtStart &&
+                            outputPrefs.getString("playback_output", "PHONE") == "PHONE") { throw e }
                         PhonePlaybackOwnership.forget(allowOffline = true)
                     }
                 }
@@ -739,13 +755,14 @@ class PlaybackService : MediaLibraryService() {
                     if (player.playbackState == Player.STATE_IDLE) player.prepare()
                     if (inCall()) mainHandler.postDelayed(resumeAfterCall, 500) else player.play()
                 }
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) {
+            } catch (e: Exception) {
+                if (e is CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
                 if (resumeCommands.current(request)) {
                     resumeCommands.pause()
                     player.pause()
-                    `in`.synthora.musicbox.network.NetworkFeedback.notify(
-                        `in`.synthora.musicbox.network.networkErrorMessage(e) ?: e.message ?: "Couldn't resume playback. Tap Play to retry.")
+                    showSessionResumeFailure(
+                        if (e is kotlinx.coroutines.TimeoutCancellationException) "The server did not respond. Tap Play to retry."
+                        else `in`.synthora.musicbox.network.networkErrorMessage(e) ?: e.message ?: "Couldn't resume playback. Tap Play to retry.")
                 }
             } finally {
                 if (resumeSessionJob === coroutineContext[Job]) {
