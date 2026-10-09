@@ -21,6 +21,48 @@ import java.util.concurrent.atomic.AtomicBoolean
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class UpcomingAudioPreloaderTest {
+    @Test fun openPlaybackReaderDoesNotBlockWholeSongCachingAndOfflineReplay() = runBlocking {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "reader-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val url = "https://audio.example/current"
+        val bytes = ByteArray(8_192) { 7 }
+        val reader = playbackDataSources(RuntimeEnvironment.getApplication(), cache,
+            readOnlyCache = true).let { it as CacheDataSource.Factory }
+            .setUpstreamDataSourceFactory { ByteArrayDataSource(bytes) }.createDataSource()
+        val writer = CacheDataSource.Factory().setCache(cache)
+            .setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE)
+            .setUpstreamDataSourceFactory { ByteArrayDataSource(bytes) }.createDataSource()
+        try {
+            reader.open(DataSpec.Builder().setUri(url).build())
+            reader.read(ByteArray(256), 0, 256)
+            withTimeout(5_000) { withContext(Dispatchers.IO) {
+                CacheWriter(writer, DataSpec.Builder().setUri(url).build(), null, null).cache()
+            } }
+            assertTrue(cache.isCached(url, 0, bytes.size.toLong()))
+            reader.close()
+            val offline = playbackDataSources(RuntimeEnvironment.getApplication(), cache,
+                readOnlyCache = true).let { it as CacheDataSource.Factory }
+                .setUpstreamDataSourceFactory { object : DataSource {
+                    override fun addTransferListener(listener: TransferListener) {}
+                    override fun open(spec: DataSpec): Long = throw IOException("Offline")
+                    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw IOException("Offline")
+                    override fun getUri(): Uri? = null
+                    override fun close() {}
+                } }.createDataSource()
+            try {
+                offline.open(DataSpec.Builder().setUri(url).build())
+                val result = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(512)
+                while (true) {
+                    val count = offline.read(buffer, 0, buffer.size)
+                    if (count == -1) break
+                    result.write(buffer, 0, count)
+                }
+                assertArrayEquals(bytes, result.toByteArray())
+            } finally { offline.close() }
+        } finally { reader.close(); writer.close(); cache.release(); directory.deleteRecursively() }
+    }
+
     @Test fun wholeCurrentAndFiveUpcomingSongsAreCachedAndEvictionIsDetected() = runBlocking {
         val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "priority-${System.nanoTime()}")
         val cache = SimpleCache(directory, NoOpCacheEvictor())

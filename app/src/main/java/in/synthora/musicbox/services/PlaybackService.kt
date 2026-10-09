@@ -977,24 +977,17 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         val mediaSourceFactory = DefaultMediaSourceFactory(playbackDataSources(
-            applicationContext, StreamCacheManager.getCache(applicationContext), transferListener = transferListener))
+            applicationContext, StreamCacheManager.getCache(applicationContext), transferListener = transferListener, readOnlyCache = true))
 
-        // Balanced LoadControl: 30s min buffer / 120s max buffer.
-        // The previous 600s max was causing ExoPlayer to stall — it attempted to buffer
-        // 10 minutes ahead but couldn't fill it from a local file fast enough, causing
-        // the player to enter STATE_BUFFERING and appear to "pause" with no content.
-        // Allow ordinary songs to finish loading instead of holding the cache writer
-        // behind an open network span at the old two-minute ceiling. Bound encoded
-        // sample memory separately so long tracks cannot fill the tablet heap.
+        // Keep decoded/sample buffering modest; the independent disk warmer saves
+        // the whole song without requiring the player to buffer it all in RAM.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 30_000,  // minBufferMs
-                600_000, // maxBufferMs: load ordinary songs to the end
+                120_000, // maxBufferMs
                 1_500,   // bufferForPlaybackMs
                 3_000    // bufferForPlaybackAfterRebufferMs
             )
-            .setTargetBufferBytes(16 * 1024 * 1024)
-            .setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(
                 30_000, // backBufferDurationMs: 30s back-buffer for smooth seeking
                 true    // retainBackBufferFromKeyframe
