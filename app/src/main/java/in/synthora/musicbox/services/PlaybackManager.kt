@@ -124,7 +124,7 @@ class PlaybackManager private constructor(private val context: Context) {
     private fun publishSnapshot(ctrl: MediaController) {
         _snapshot.value = PhonePlaybackSnapshot((0 until ctrl.mediaItemCount).map { ctrl.getMediaItemAt(it).mediaId },
             ctrl.currentMediaItem?.mediaId, ctrl.currentMediaItem?.let { item ->
-                val metadata = item.mediaMetadata
+                val metadata = ctrl.mediaMetadata
                 Track(uuid = item.mediaId, title = metadata.title?.toString().orEmpty(),
                     artist = metadata.artist?.toString().orEmpty(), thumbnailUri = metadata.artworkUri?.toString(),
                     durationSec = (ctrl.duration.coerceAtLeast(0) / 1000).toInt(),

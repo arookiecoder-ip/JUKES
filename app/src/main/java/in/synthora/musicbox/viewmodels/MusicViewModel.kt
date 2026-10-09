@@ -173,7 +173,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var skipLoadingJob: Job? = null
     private val playbackBusy = combine(_isSwitchingOutput, _echoRequests, playbackManager.isBufferingFlow,
         `in`.synthora.musicbox.services.PlaybackService.recoveryLoading, allSkipLoading) { switching, requests, buffering, recovering, skipping ->
-        switching || skipping || ((buffering || recovering) && _output.value == PlaybackOutput.PHONE)
+        switching || (skipping && _output.value != PlaybackOutput.PHONE) || ((buffering || recovering) && _output.value == PlaybackOutput.PHONE)
     }
     private val likedQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()
     private val echoQueuePresentation = `in`.synthora.musicbox.services.TrackQueuePresentation()
