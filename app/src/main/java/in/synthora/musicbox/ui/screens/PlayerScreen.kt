@@ -256,6 +256,8 @@ fun PlayerScreen(
     configuration.screenHeightDp.dp
     val isTablet = minOf(configuration.screenWidthDp, configuration.screenHeightDp) >= 600
     val tabletLandscape = isTablet && configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // Render the already observed queue immediately; reconcile in the background.
+    LaunchedEffect(tabletLandscape) { if (tabletLandscape) musicViewModel.refreshQueue() }
     val shareSong = `in`.synthora.musicbox.ui.components.rememberShareAction()
 
 
@@ -383,11 +385,9 @@ fun PlayerScreen(
             density = playerDensity, initialValue = androidx.compose.material3.SheetValue.Expanded)
     }
     val entrance = remember { androidx.compose.animation.core.Animatable(0f) }
-    var queueReady by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         entrance.animateTo(1f, androidx.compose.animation.core.tween(200,
             easing = androidx.compose.animation.core.FastOutSlowInEasing))
-        queueReady = true
     }
     // Modal Sheet for Player
     ModalBottomSheet(
@@ -463,7 +463,7 @@ fun PlayerScreen(
                         else if (output == `in`.synthora.musicbox.viewmodels.PlaybackOutput.PHONE) PhoneVolumeRow()
                         Spacer(Modifier.height(8.dp))
                     }
-                }, queue = { if (queueReady) queueContent() else Box(Modifier.fillMaxSize()) })
+                }, queue = { queueContent() })
             }
         }
         }
@@ -480,18 +480,30 @@ fun PlayerScreen(
 
     // Queue Sheet
     if (showQueue) {
+        val queueSheet = remember(playerDensity) {
+            androidx.compose.material3.SheetState(skipPartiallyExpanded = true,
+                density = playerDensity, initialValue = androidx.compose.material3.SheetValue.Expanded)
+        }
+        val queueEntrance = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(Unit) {
+            queueEntrance.animateTo(1f, androidx.compose.animation.core.tween(160,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        }
         ModalBottomSheet(
             shape = androidx.compose.ui.graphics.RectangleShape,
             containerColor = `in`.synthora.musicbox.ui.theme.glassSheetColor(),
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             onDismissRequest = { showQueue = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            sheetState = queueSheet,
             modifier = Modifier.fillMaxWidth(),
             dragHandle = null
         ) {
-            val rec by musicViewModel.recStatus.collectAsStateWithLifecycle()
-            val queueError by musicViewModel.queueLoadError.collectAsStateWithLifecycle()
-            Box(Modifier.fillMaxWidth().height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.75f)) {
+            Box(Modifier.fillMaxWidth()
+                .height(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.75f)
+                .graphicsLayer {
+                    alpha = queueEntrance.value
+                    translationY = (1f - queueEntrance.value) * 24.dp.toPx()
+                }) {
             queueContent()
             }
         }

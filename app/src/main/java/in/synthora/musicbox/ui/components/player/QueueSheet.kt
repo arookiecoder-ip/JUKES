@@ -53,11 +53,10 @@ fun QueueBottomSheetContent(currentTrack: Track, queue: List<Track>, queueIndex:
     val currentIndex = if (queue.isEmpty()) 0 else queueIndex.takeIf { it in queue.indices }
         ?: queue.indexOfFirst { it.uuid == currentTrack.uuid || (it.ytVideoId != null && it.ytVideoId == currentTrack.ytVideoId) }
     val upcoming = (rows.size - currentIndex - 1).coerceAtLeast(0)
-    val list = rememberLazyListState()
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = (currentIndex - 1).coerceAtLeast(0))
     val rowHeight = with(LocalDensity.current) { 64.dp.toPx() }
     var toolsOpen by remember { mutableStateOf(false) }
-    // Anchor once when opened. Polling must not move the list while the user is scrolling it.
-    LaunchedEffect(Unit) { if (currentIndex > 0) list.scrollToItem((currentIndex - 1).coerceAtLeast(0)) }
+    // Start at the current song on the first frame. Updates preserve the user's scroll position.
     val keys = remember(rows) {
         val occurrences = mutableMapOf<String, Int>()
         val videoCounts = rows.groupingBy { it.ytVideoId ?: it.uuid }.eachCount()
