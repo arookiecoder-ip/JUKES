@@ -310,7 +310,8 @@ class PlaybackService : MediaLibraryService() {
         val config = player.currentMediaItem?.localConfiguration
         return canContinueCachedOffline(`in`.synthora.musicbox.network.NetworkFeedback.online.value,
             PhonePlaybackOwnership.remoteControlled, config?.uri?.scheme in setOf("file", "content"),
-            currentStreamFullyCached(), PhonePlaybackOwnership.localHandoff)
+            currentStreamFullyCached(), PhonePlaybackOwnership.localHandoff,
+            player.playerError == null && player.bufferedPosition > player.currentPosition)
     }
 
     private fun pauseForExpiredLease() {

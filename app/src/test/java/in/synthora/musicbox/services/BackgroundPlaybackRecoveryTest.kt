@@ -22,6 +22,9 @@ class BackgroundPlaybackRecoveryTest {
     @Test fun offlineCacheExemptionCannotBypassRemoteControlOrHandoffs() {
         assertTrue(canContinueCachedOffline(false, false, false, true, false))
         assertTrue(canContinueCachedOffline(false, false, true, false, false))
+        assertTrue(canContinueCachedOffline(false, false, false, false, false, true))
+        assertFalse(canContinueCachedOffline(false, true, false, false, false, true))
+        assertFalse(canContinueCachedOffline(false, false, false, false, true, true))
         assertFalse(canContinueCachedOffline(false, false, false, false, false))
         assertFalse(canContinueCachedOffline(false, true, false, true, false))
         assertFalse(canContinueCachedOffline(false, false, false, true, true))
