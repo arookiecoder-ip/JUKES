@@ -10,7 +10,7 @@ import `in`.synthora.musicbox.network.Backend
 /** The production audio pipeline is shared with the native playback regression tests. */
 @UnstableApi
 fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = Backend.audioBaseUrl,
-    apiKey: String = Backend.apiKey, transferListener: TransferListener? = null, prefetch: Boolean = false): DataSource.Factory {
+    apiKey: String = Backend.apiKey, transferListener: TransferListener? = null, prefetch: Boolean = false, cacheWarm: Boolean = false): DataSource.Factory {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(`in`.synthora.musicbox.network.DEVICE_AUDIO_READ_TIMEOUT_MS)
@@ -30,6 +30,7 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
             .setCache(cache)
             .setUpstreamDataSourceFactory(upstreamDataSourceFactory)
             // Cache errors are non-fatal — fall through to the network.
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR or
+                if (cacheWarm) CacheDataSource.FLAG_BLOCK_ON_CACHE else 0)
         return cacheDataSourceFactory
 }

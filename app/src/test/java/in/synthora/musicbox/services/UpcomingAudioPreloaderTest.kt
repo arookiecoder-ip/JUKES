@@ -21,6 +21,66 @@ import java.util.concurrent.atomic.AtomicBoolean
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class UpcomingAudioPreloaderTest {
+    @Test fun wholeCurrentAndFiveUpcomingSongsAreCachedAndEvictionIsDetected() = runBlocking {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "priority-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val opens = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory {
+            object : DataSource {
+                val delegate = ByteArrayDataSource(ByteArray(8_192))
+                override fun addTransferListener(listener: TransferListener) = delegate.addTransferListener(listener)
+                override fun open(spec: DataSpec): Long { opens.add(spec.uri.toString()); return delegate.open(spec) }
+                override fun read(buffer: ByteArray, offset: Int, length: Int) = delegate.read(buffer, offset, length)
+                override fun getUri() = delegate.uri
+                override fun close() = delegate.close()
+            }
+        }
+        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val preloader = UpcomingAudioPreloader(factory, childScope, policyOverride = { PreloadPolicy(5, -1) })
+        val current = "https://audio.example/current"
+        val next = (1..5).map { "https://audio.example/next$it" }
+        suspend fun finish() { withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } } }
+        try {
+            preloader.update(next, buffering = true, currentUrl = current); finish()
+            assertEquals(listOf(current), opens.toList())
+            assertTrue(cache.isCached(current, 0, 8_192))
+            preloader.update(next, currentUrl = current); finish()
+            next.forEach { assertTrue(cache.isCached(it, 0, 8_192)) }
+            cache.removeResource(current)
+            opens.clear()
+            preloader.update(next, currentUrl = current); finish()
+            assertEquals(listOf(current), opens.toList())
+            assertTrue(cache.isCached(current, 0, 8_192))
+        } finally {
+            preloader.clear(); childScope.coroutineContext[Job]?.cancelAndJoin()
+            cache.release(); directory.deleteRecursively()
+        }
+    }
+
+    @Test fun cachePressureRetainsPlayingAudioAndReleasesItAfterSongChanges() {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "pin-${System.nanoTime()}")
+        val evictor = PlayingAudioCacheEvictor(8_192)
+        val cache = SimpleCache(directory, evictor)
+        fun cacheSong(url: String) {
+            val source = CacheDataSource.Factory().setCache(cache)
+                .setUpstreamDataSourceFactory { ByteArrayDataSource(ByteArray(4_096)) }.createDataSource()
+            try { CacheWriter(source, DataSpec.Builder().setUri(url).build(), null, null).cache() }
+            finally { source.close() }
+        }
+        try {
+            evictor.playingKey = "https://audio.example/current"
+            cacheSong(evictor.playingKey!!)
+            repeat(5) { cacheSong("https://audio.example/next$it") }
+            assertTrue(cache.isCached(evictor.playingKey!!, 0, 4_096))
+            assertTrue(cache.cacheSpace <= 8_192)
+            val previous = evictor.playingKey!!
+            evictor.playingKey = "https://audio.example/new"
+            cacheSong(evictor.playingKey!!)
+            cacheSong("https://audio.example/later")
+            assertFalse(cache.isCached(previous, 0, 4_096))
+        } finally { cache.release(); directory.deleteRecursively() }
+    }
+
     @Test fun partialWarmPromotesToWholeCurrentSong() = runBlocking {
         val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "full-${System.nanoTime()}")
         val cache = SimpleCache(directory, NoOpCacheEvictor())

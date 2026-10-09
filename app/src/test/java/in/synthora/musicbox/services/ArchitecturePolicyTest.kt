@@ -15,9 +15,9 @@ class ArchitecturePolicyTest {
         assertEquals(0, preloadPolicy(true, false, false, true).tracks)
         assertEquals(0, preloadPolicy(true, true, false, false).tracks)
         assertEquals(0, preloadPolicy(false, false, true, false).tracks)
-        assertEquals(1, preloadPolicy(true, true, true, false).tracks)
+        assertEquals(5, preloadPolicy(true, true, true, false).tracks)
         assertEquals(5, preloadPolicy(true, false, false, false).tracks)
-        assertEquals(2L * 1024 * 1024, preloadPolicy(true, false, false, false).bytesPerTrack)
+        assertEquals(-1L, preloadPolicy(true, false, false, false).bytesPerTrack)
     }
     @Test fun `playback phases preserve real buffering without treating paused metadata as loading`() {
         assertEquals(PlaybackPhase.PAUSED, playbackPhase(true, false, false, false, false, false))

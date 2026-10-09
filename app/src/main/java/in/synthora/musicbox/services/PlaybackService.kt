@@ -208,6 +208,8 @@ class PlaybackService : MediaLibraryService() {
 
         @Volatile
         private var cache: SimpleCache? = null
+        private var playingEvictor: PlayingAudioCacheEvictor? = null
+        fun protectPlaying(key: String?) { playingEvictor?.playingKey = key }
 
         fun existingCache(): SimpleCache? = cache
 
@@ -216,7 +218,7 @@ class PlaybackService : MediaLibraryService() {
                 cache ?: run {
                     val cacheDir = java.io.File(context.cacheDir, "stream_cache")
                     val cacheMb = context.getSharedPreferences("music_settings_prefs", Context.MODE_PRIVATE).getInt("stream_cache_mb", 256).coerceIn(128, 1024)
-                    val evictor = LeastRecentlyUsedCacheEvictor(cacheMb.toLong() * 1024 * 1024)
+                    val evictor = PlayingAudioCacheEvictor(cacheMb.toLong() * 1024 * 1024).also { playingEvictor = it }
                     val databaseProvider =
                         androidx.media3.database.StandaloneDatabaseProvider(context)
                     SimpleCache(cacheDir, evictor, databaseProvider).also { cache = it }
@@ -393,9 +395,10 @@ class PlaybackService : MediaLibraryService() {
     }
     private fun updatePreloader() {
         if (!::player.isInitialized) return
+        StreamCacheManager.protectPlaying(player.currentMediaItem?.localConfiguration?.let { it.customCacheKey ?: it.uri.toString() })
         val connected = getSystemService(android.net.ConnectivityManager::class.java).activeNetwork != null &&
             `in`.synthora.musicbox.network.NetworkFeedback.online.value
-        val warming = connected && player.playbackState == Player.STATE_READY && player.playWhenReady && !PhonePlaybackOwnership.localHandoff
+        val warming = connected && player.playbackState in setOf(Player.STATE_READY, Player.STATE_BUFFERING) && player.playWhenReady && !PhonePlaybackOwnership.localHandoff
         upcomingPreloader?.update(if (warming) upcomingAudioUrls(player) else emptyList(),
             player.playbackState == Player.STATE_BUFFERING,
             if (warming) player.currentMediaItem?.localConfiguration?.uri?.toString() else null)
@@ -1024,8 +1027,8 @@ class PlaybackService : MediaLibraryService() {
         )
 
         upcomingPreloader = UpcomingAudioPreloader(playbackDataSources(applicationContext,
-            StreamCacheManager.getCache(applicationContext), prefetch = true), serviceScope, applicationContext,
-            demandFactory = playbackDataSources(applicationContext, StreamCacheManager.getCache(applicationContext), prefetch = false))
+            StreamCacheManager.getCache(applicationContext), prefetch = true, cacheWarm = true), serviceScope, applicationContext,
+            demandFactory = playbackDataSources(applicationContext, StreamCacheManager.getCache(applicationContext), prefetch = false, cacheWarm = true))
         getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(preloadNetworkCallback)
         preloadConnectivityJob = serviceScope.launch {
             `in`.synthora.musicbox.network.NetworkFeedback.online.collect { online ->
@@ -1245,6 +1248,7 @@ class PlaybackService : MediaLibraryService() {
         outputPrefs.unregisterOnSharedPreferenceChangeListener(outputListener)
         runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(preloadNetworkCallback) }
         upcomingPreloader?.clear()
+        StreamCacheManager.protectPlaying(null)
         serviceScope.coroutineContext[Job]?.cancel()
         // Clean up pending resume operations
         mainHandler.removeCallbacks(resumeAfterCall)
