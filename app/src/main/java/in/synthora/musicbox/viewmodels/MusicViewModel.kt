@@ -772,6 +772,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     while (isRemotePhone && _remoteMobileOutput.value.owner == target.owner) {
                         try { echo.refreshSharedPhone() }
                         catch (e: CancellationException) { throw e }
+                        catch (e: BackendAuthException) { throw e }
                         catch (_: Exception) { /* A temporary polling failure must not erase the intent. */ }
                         val snapshot = echo.state.value
                         val currentTime = android.os.SystemClock.elapsedRealtime()
@@ -801,6 +802,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     remoteTransportPreview.value = preview.copy(error = message)
                     _messages.tryEmit(message)
                 }
+            } catch (e: BackendAuthException) {
+                if (sequence == remoteTransportSequence) remoteTransportPreview.value = null
+                _signedOut.tryEmit(Unit)
             } catch (e: Exception) {
                 if (sequence == remoteTransportSequence) {
                     val message = `in`.synthora.musicbox.network.networkErrorMessage(e) ?: e.message ?: "Couldn't control the playback device"
