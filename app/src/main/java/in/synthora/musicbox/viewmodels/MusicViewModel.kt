@@ -201,8 +201,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var serverPlaybackChecked = false
     private var playbackRequestId = 0L
 
-    val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback) { state, busy, pending ->
-        val presented = withPendingPlayback(state.copy(isLoading = state.isLoading || busy), pending)
+    private val remoteTransportPreview = MutableStateFlow<`in`.synthora.musicbox.services.RemoteTransportPreview?>(null)
+    private var remoteTransportJob: Job? = null
+    private var remoteTransportSequence = 0L
+    private val remoteTransportMutex = kotlinx.coroutines.sync.Mutex()
+
+    val uiState: StateFlow<MusicUiState> = combine(combinedState, playbackBusy, pendingPlayback, remoteTransportPreview) { state, busy, pending, preview ->
+        val base = withPendingPlayback(state.copy(isLoading = state.isLoading || busy), pending)
+        val presented = if (isRemotePhone && pending == null && preview != null && preview.owner == _remoteMobileOutput.value.owner)
+            preview.present(base, android.os.SystemClock.elapsedRealtime()) else base
         presented.copy(phase = `in`.synthora.musicbox.services.playbackPhase(presented.currentTrack != null,
             _isSwitchingOutput.value, pending != null,
             presented.isLoading, presented.isPlaying, presented.error != null))
@@ -595,6 +602,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onSignedOut() {
         skipLoadingJob?.cancel()
+        remoteTransportJob?.cancel()
+        remoteTransportPreview.value = null
         transportLoading.value = false
         `in`.synthora.musicbox.services.MobileDeviceConnection.stop()
         collectionCache.clear()
@@ -717,19 +726,103 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        if (action in setOf("play", "pause", "seek")) { optimisticRemoteTransport(action, payload); return }
         viewModelScope.launch { runEcho {
-            if (action == "play") {
-                `in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff = true
-                try {
-                    val selected = `in`.synthora.musicbox.services.MobileDeviceConnection.resume(_remoteMobileOutput.value)
-                    if (selected != null) startTransferredPhone(selected, playOverride = true)
-                } finally { `in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff = false }
-            } else `in`.synthora.musicbox.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload)
+            `in`.synthora.musicbox.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload)
         } }
+    }
+
+    /** Preview locally, then verify receiver state without letting stale polls undo the tap. */
+    private fun optimisticRemoteTransport(action: String, payload: JsonObject = buildJsonObject {}) {
+        val target = _remoteMobileOutput.value
+        if (target.owner.isBlank() || target.handoffPending) {
+            _messages.tryEmit("The selected device is unavailable. Choose an online device.")
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val initial = remoteTransportPreview.value?.takeIf { it.owner == target.owner }
+            ?.present(uiState.value, now) ?: uiState.value
+        val preview = `in`.synthora.musicbox.services.remoteTransportPreview(target.owner, action, initial, now,
+            payload["position_ms"]?.toString()?.toLongOrNull())
+        val sequence = ++remoteTransportSequence
+        remoteTransportJob?.cancel()
+        remoteTransportPreview.value = preview
+        remoteTransportJob = viewModelScope.launch {
+            val delayedFeedback = launch {
+                delay(900)
+                if (sequence == remoteTransportSequence) remoteTransportPreview.update { it?.copy(waiting = true) }
+            }
+            suspend fun send(retry: Boolean) {
+                remoteTransportMutex.withLock {
+                    if (sequence != remoteTransportSequence || !isRemotePhone || _remoteMobileOutput.value.owner != target.owner)
+                        throw CancellationException("Remote target changed")
+                    if (action == "play" && !retry) {
+                        `in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff = true
+                        try {
+                            val selected = `in`.synthora.musicbox.services.MobileDeviceConnection.resume(target)
+                            if (selected != null) startTransferredPhone(selected, playOverride = true)
+                        } finally { `in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff = false }
+                    } else `in`.synthora.musicbox.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload)
+                }
+            }
+            try {
+                kotlinx.coroutines.withTimeout(12_000) {
+                    send(false)
+                    var retried = false
+                    while (isRemotePhone && _remoteMobileOutput.value.owner == target.owner) {
+                        try { echo.refreshSharedPhone() }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { /* A temporary polling failure must not erase the intent. */ }
+                        val snapshot = echo.state.value
+                        val currentTime = android.os.SystemClock.elapsedRealtime()
+                        // The next item can differ under shuffle/radio. Accept the receiver's
+                        // settled transition rather than forcing our predicted row back on it.
+                        val changed = action in setOf("next", "previous") && snapshot.confirmed && !snapshot.processing &&
+                            snapshot.sharedOutput.owner == target.owner && snapshot.playing == preview.playing &&
+                            (snapshot.index != initial.queueIndex || snapshot.track?.ytVideoId != initial.currentTrack?.ytVideoId)
+                        if (preview.matches(snapshot, currentTime) || changed) break
+                        if (!retried && currentTime - now >= 3_000 && action in setOf("play", "pause", "seek")) {
+                            send(true); retried = true
+                        }
+                        delay(750)
+                    }
+                }
+                if (sequence == remoteTransportSequence) remoteTransportPreview.value = null
+            } catch (e: CancellationException) {
+                if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                if (sequence == remoteTransportSequence) {
+                    val message = "The playback device did not confirm $action. Check its connection and try again."
+                    remoteTransportPreview.value = preview.copy(error = message)
+                    _messages.tryEmit(message)
+                }
+            } catch (e: Exception) {
+                if (sequence == remoteTransportSequence) {
+                    val message = `in`.synthora.musicbox.network.networkErrorMessage(e) ?: e.message ?: "Couldn't control the playback device"
+                    remoteTransportPreview.value = preview.copy(error = message)
+                    _messages.tryEmit(message)
+                }
+            } finally {
+                delayedFeedback.cancel()
+                if (sequence == remoteTransportSequence && remoteTransportPreview.value?.error != null) {
+                    // A late acknowledgement heals the error using the normal shared connection.
+                    viewModelScope.launch {
+                        val acknowledged = kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                            echo.state.first { preview.matches(it, android.os.SystemClock.elapsedRealtime()) }
+                        }
+                        if (acknowledged != null && sequence == remoteTransportSequence) remoteTransportPreview.value = null
+                    }
+                }
+                if (sequence == remoteTransportSequence && (!isRemotePhone || _remoteMobileOutput.value.owner != target.owner))
+                    remoteTransportPreview.value = null
+            }
+        }
     }
 
     /** Select another online phone without starting the same song on this phone. */
     fun switchToMobile(deviceId: String) {
+        ++remoteTransportSequence
+        remoteTransportJob?.cancel()
+        remoteTransportPreview.value = null
         if (deviceId == `in`.synthora.musicbox.services.PhonePlaybackOwnership.ownerId) { switchOutput(null); return }
         if (_isSwitchingOutput.value) { outputSwitchRequests.request("mobile:$deviceId"); return }
         outputSwitchRequests.request("mobile:$deviceId")
@@ -953,6 +1046,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
      * and play/pause state move with it.
      */
     fun switchOutput(serial: String?) {
+        ++remoteTransportSequence
+        remoteTransportJob?.cancel()
+        remoteTransportPreview.value = null
         if (serial?.startsWith("mobile:") == true) { switchToMobile(serial.removePrefix("mobile:")); return }
         if (_isSwitchingOutput.value) {
             outputSwitchRequests.request(serial)
@@ -1206,6 +1302,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Show the requested song immediately, until local preparation or Echo confirmation finishes. */
     private fun launchPlayback(track: Track, block: suspend () -> Unit) {
+        ++remoteTransportSequence
+        remoteTransportJob?.cancel()
+        remoteTransportPreview.value = null
         val requestId = ++playbackRequestId
         pendingPlaybackJob?.cancel()
         // A new song supersedes any in-flight playlist backfill: its chunks
@@ -1776,7 +1875,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     fun togglePlayPause() {
-        if (isRemotePhone) { remoteControl(if (_remoteMobileOutput.value.owner.isNotBlank() && uiState.value.isPlaying) "pause" else "play"); return }
+        if (isRemotePhone) { remoteControl(if (remoteTransportPreview.value?.takeIf { it.owner == _remoteMobileOutput.value.owner && it.error == null }?.playing ?: uiState.value.isPlaying) "pause" else "play"); return }
         if (isAlexa) {
             val playing = echo.state.value.playing
             launchEcho { echo.command(if (playing) "pause" else "play") }
@@ -1899,6 +1998,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun skipRemote(action: String) {
+        if (isRemotePhone) { optimisticRemoteTransport(action); return }
         val previous = echo.state.value.track?.ytVideoId
         skipLoadingJob?.cancel()
         transportLoading.value = true
