@@ -42,6 +42,13 @@ class RemotePlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var restoringNotification = false
     private var skipSequence = 0L
+    private var boundaryJob: Job? = null
+    private var boundaryConfirmationJob: Job? = null
+    private var boundaryPreview: RemoteTrackEndPreview? = null
+    private var attemptedBoundary: String? = null
+    private var authoritativeSnapshot: EchoState? = null
+    private var boundaryArtworkJob: Job? = null
+    private var boundaryArtworkKey: String? = null
     private var localServiceAnchor: ListenableFuture<androidx.media3.session.MediaController>? = null
 
     override fun onCreate() {
@@ -91,7 +98,7 @@ class RemotePlaybackService : MediaSessionService() {
                     val result = SettableFuture.create<SessionResult>()
                     scope.launch {
                         try {
-                            echo.state.value.track?.ytVideoId?.let { AccountRepository.setLiked(it, !AccountRepository.isLiked(it)) }
+                            remote.snapshot.track?.ytVideoId?.let { AccountRepository.setLiked(it, !AccountRepository.isLiked(it)) }
                             result.set(SessionResult(SessionResult.RESULT_SUCCESS))
                         } catch (e: Exception) { result.setException(e) }
                     }
@@ -103,7 +110,7 @@ class RemotePlaybackService : MediaSessionService() {
             var first = true
             echo.state.collect {
                 try {
-                    if (!first || it.track != null || remote.snapshot.track == null) { remote.snapshot = it; remote.refresh(); updateLike() }
+                    if (!first || it.track != null || remote.snapshot.track == null) { applyRemoteSnapshot(it) }
                     first = false
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { `in`.synthora.musicbox.utils.SafeLog.e("RemotePlaybackService", "Remote state refresh failed", e) }
@@ -116,6 +123,20 @@ class RemotePlaybackService : MediaSessionService() {
         } }
         if (!prefs.getBoolean("remote_controls_dismissed", false) && !isRemotePhone()) PlaybackCoordinator.observe(this, "notification", true)
         scope.launch { MobileDeviceConnection.devices.collect { remote.refresh() } }
+        scope.launch {
+            var observedSerial = echo.serial.value
+            echo.serial.collect { serial ->
+                if (serial != observedSerial) {
+                    observedSerial = serial
+                    cancelBoundaryPreview()
+                    authoritativeSnapshot = null
+                    attemptedBoundary = null
+                    remote.snapshot = EchoState()
+                    remote.refresh(); updateLike()
+                }
+            }
+        }
+        applyRemoteSnapshot(remote.snapshot)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -155,6 +176,82 @@ class RemotePlaybackService : MediaSessionService() {
         return START_STICKY
     }
 
+    private fun cancelBoundaryPreview() {
+        boundaryJob?.cancel(); boundaryJob = null
+        boundaryConfirmationJob?.cancel(); boundaryConfirmationJob = null
+        boundaryPreview = null
+    }
+
+    private fun applyRemoteSnapshot(state: EchoState) {
+        if (authoritativeSnapshot?.let { olderRemoteNotificationSnapshot(state, it) } == true) return
+        authoritativeSnapshot = state
+        val now = android.os.SystemClock.elapsedRealtime()
+        val preview = boundaryPreview
+        if (preview != null && !preview.retainFor(state, now)) {
+            boundaryPreview = null
+            boundaryConfirmationJob?.cancel(); boundaryConfirmationJob = null
+        }
+        remote.snapshot = boundaryPreview?.present(state) ?: state
+        remote.refresh(); updateLike()
+        boundaryJob?.cancel(); boundaryJob = null
+        if (boundaryPreview != null || PlaybackCoordinator.notificationLoading.value) return
+        if (state.durationMs > 0 && state.livePosition(now) < state.durationMs - 2_000) attemptedBoundary = null
+        val key = state.remoteBoundaryKey()
+        if (attemptedBoundary == key) return
+        val remaining = remoteTrackEndDelay(state, now) ?: return
+        warmBoundaryArtwork(state.queue[state.index + 1])
+        val serial = echo.serial.value
+        val output = getSharedPreferences("music_settings_prefs", MODE_PRIVATE).getString("playback_output", "PHONE")
+        if (output !in setOf("ALEXA", "REMOTE_PHONE")) return
+        boundaryJob = scope.launch {
+            delay(remaining)
+            val prefs = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
+            val current = echo.state.value
+            if (echo.serial.value != serial || prefs.getString("playback_output", "PHONE") != output ||
+                prefs.getBoolean("remote_controls_dismissed", false) || PlaybackCoordinator.notificationLoading.value ||
+                current.remoteBoundaryKey() != key ||
+                authoritativeSnapshot?.let { olderRemoteNotificationSnapshot(current, it) } == true) return@launch
+            val predicted = remoteTrackEndPreview(current, android.os.SystemClock.elapsedRealtime()) ?: return@launch
+            attemptedBoundary = key
+            boundaryPreview = predicted
+            remote.snapshot = predicted.present(current)
+            remote.refresh(); updateLike()
+            boundaryConfirmationJob = scope.launch {
+                delay(30_000)
+                if (boundaryPreview === predicted && predicted.expired(android.os.SystemClock.elapsedRealtime())) {
+                    boundaryPreview = null
+                    applyRemoteSnapshot(authoritativeSnapshot ?: echo.state.value)
+                    `in`.synthora.musicbox.network.NetworkFeedback.notify("The remote device hasn't confirmed the next song. Check its connection.")
+                }
+            }
+            // One boundary refresh, reusing the existing request path; no fast polling loop.
+            try {
+                if (isRemotePhone()) echo.refreshSharedPhone() else echo.refresh(force = true, stateOnly = true)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { /* Existing observation retries; preview has a bounded deadline. */ }
+        }
+    }
+
+    private fun warmBoundaryArtwork(track: `in`.synthora.musicbox.models.Track) {
+        val source = track.thumbnailUri.orEmpty()
+        val key = track.ytVideoId ?: source
+        if (key.isBlank() || key == boundaryArtworkKey) return
+        boundaryArtworkJob?.cancel()
+        boundaryArtworkKey = key
+        val prefs = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
+        val metered = getSystemService(android.net.ConnectivityManager::class.java).isActiveNetworkMetered
+        if (!`in`.synthora.musicbox.network.NetworkFeedback.online.value ||
+            (metered && !prefs.getBoolean("prefetch_mobile_data", false))) return
+        boundaryArtworkJob = scope.launch {
+            try {
+                withTimeoutOrNull(8_000) {
+                    `in`.synthora.musicbox.network.ArtworkRepository.load(applicationContext, source, track.ytVideoId)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Artwork never blocks the boundary timer or playback controls. */ }
+        }
+    }
+
     private fun isRemotePhone() = getSharedPreferences("music_settings_prefs", MODE_PRIVATE)
         .getString("playback_output", "PHONE") == "REMOTE_PHONE"
 
@@ -177,6 +274,8 @@ class RemotePlaybackService : MediaSessionService() {
     }
 
     private suspend fun command(action: String) {
+        cancelBoundaryPreview()
+        remote.snapshot = echo.state.value
         val skipping = action in setOf("next", "previous")
         val sequence = if (skipping || action == "pause") ++skipSequence else skipSequence
         val previous = echo.state.value.track?.ytVideoId
@@ -331,6 +430,8 @@ class RemotePlaybackService : MediaSessionService() {
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> =
             send { command(if (playWhenReady) "play" else "pause") }
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> = send {
+            cancelBoundaryPreview()
+            remote.snapshot = echo.state.value
             when (seekCommand) {
                 Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> command("next")
                 Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> command("previous")
