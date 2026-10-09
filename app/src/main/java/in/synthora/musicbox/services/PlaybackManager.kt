@@ -411,7 +411,7 @@ class PlaybackManager private constructor(private val context: Context) {
                     val queued = pendingQueueAction
                     pendingQueueAction = null
                     if (queued != null) queued(requireNotNull(controller))
-                    else if (!userQueueRequested || connected.mediaItemCount == 0) scope.launch { restorePlaybackState(restoreEmptyController = true) }
+                    else if (connected.mediaItemCount == 0) scope.launch { restorePlaybackState(restoreEmptyController = true) }
                 },
                 androidx.core.content.ContextCompat.getMainExecutor(context)
             )
@@ -1153,7 +1153,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
             // MediaController methods must be called on main thread
             withContext(Dispatchers.Main) {
-                if (userQueueRequested && (!restoreEmptyController || controller?.mediaItemCount != 0)) return@withContext
+                if (controller?.mediaItemCount != 0 || (userQueueRequested && !restoreEmptyController)) return@withContext
                 controller?.apply {
                     setMediaItems(
                         mediaItems,
