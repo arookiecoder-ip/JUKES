@@ -794,10 +794,6 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private val playerListener = object : Player.Listener {
-        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-            Log.d(TAG, "Playback position changed: reason=$reason; old=${oldPosition.positionMs}; new=${newPosition.positionMs}")
-        }
-
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_ENDED -> { Log.d(TAG, "Playback ended"); maybeExtendPhoneQueue() }
@@ -956,6 +952,7 @@ class PlaybackService : MediaLibraryService() {
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
+            Log.d(TAG, "Playback position changed: reason=$reason; old=${oldPosition.positionMs}; new=${newPosition.positionMs}")
             // Seek or track change: the sleeping progress check was timed for the old position.
             if (player.isPlaying) {
                 progressHandler.removeCallbacks(progressRunnable)
