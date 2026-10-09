@@ -752,7 +752,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 delay(900)
                 if (sequence == remoteTransportSequence) remoteTransportPreview.update { it?.copy(waiting = true) }
             }
-            suspend fun send(retry: Boolean) {
+            suspend fun send(retry: Boolean, receiver: `in`.synthora.musicbox.services.SharedPlaybackOutput = target) {
                 remoteTransportMutex.withLock {
                     if (sequence != remoteTransportSequence || !isRemotePhone || _remoteMobileOutput.value.owner != target.owner)
                         throw CancellationException("Remote target changed")
@@ -762,7 +762,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             val selected = `in`.synthora.musicbox.services.MobileDeviceConnection.resume(target)
                             if (selected != null) startTransferredPhone(selected, playOverride = true)
                         } finally { `in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff = false }
-                    } else `in`.synthora.musicbox.services.MobileDeviceConnection.control(_remoteMobileOutput.value, action, payload)
+                    } else `in`.synthora.musicbox.services.MobileDeviceConnection.control(receiver, action, payload)
                 }
             }
             try {
@@ -786,7 +786,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             (snapshot.index != initial.queueIndex || snapshot.track?.ytVideoId != initial.currentTrack?.ytVideoId)
                         if (preview.matches(snapshot, currentTime) || changed) break
                         if (!retried && currentTime - now >= 3_000 && action in setOf("play", "pause", "seek")) {
-                            send(true); retried = true
+                            if (action == "seek" && snapshot.track?.ytVideoId != preview.track?.ytVideoId)
+                                throw IllegalStateException("The song changed before the seek was confirmed. Try again on the current song.")
+                            send(true, snapshot.sharedOutput); retried = true
                         }
                         delay(750)
                     }

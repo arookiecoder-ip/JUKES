@@ -33,6 +33,7 @@ class RemoteTransportPreviewTest {
         val preview = remoteTransportPreview("receiver", "seek", ui, 100, 90_000)
         assertEquals(90_200L, preview.present(ui, 300).position)
         assertFalse(preview.matches(snapshot(true), 300))
+        assertFalse(preview.matches(snapshot(true).copy(track = two, positionMs = 90_000), 300))
         assertTrue(preview.copy(waiting = true).matches(snapshot(true).copy(positionMs = 90_000), 5_000))
     }
     @Test fun loadingAndErrorsAppearOnlyWhenConfirmationDoesNotArrive() {
