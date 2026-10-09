@@ -4,6 +4,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun serverOutagesAreFencedToTheFailedTokenAndResetOnReconciliation() {
+        val health = OwnershipServerHealth()
+        assertFalse(health.unavailable("lease"))
+        health.failed("lease", "lease", true)
+        assertTrue(health.unavailable("lease"))
+        assertFalse(health.unavailable("new lease"))
+        health.failed("old lease", "lease", false)
+        assertTrue(health.unavailable("lease"))
+        health.failed("lease", "lease", false)
+        assertFalse(health.unavailable("lease"))
+        health.failed("lease", "lease", true)
+        health.clear()
+        assertFalse(health.unavailable("lease"))
+        health.failed("", "", true)
+        assertFalse(health.unavailable(""))
+    }
+
+    @Test fun ownershipOutagesIncludeTransportTimeoutAndTemporaryServerErrorsButNotAuthOrConflict() {
+        assertTrue(ownershipServerUnavailable(java.io.IOException("Disconnected")))
+        assertTrue(ownershipServerUnavailable(IllegalStateException("Wrapped", java.net.SocketTimeoutException())))
+        for (code in listOf(429, 500, 502, 503, 504))
+            assertTrue(ownershipServerUnavailable(`in`.synthora.musicbox.network.BackendHttpException(code, "Unavailable")))
+        for (code in listOf(400, 401, 403, 404, 409))
+            assertFalse(ownershipServerUnavailable(`in`.synthora.musicbox.network.BackendHttpException(code, "Rejected")))
+        assertFalse(ownershipServerUnavailable(IllegalArgumentException("Invalid action")))
+    }
+
     @Test fun reconnectGraceIsBoundedAndEndsOnConfirmedOwnership() {
         val window = OfflineReconciliationWindow()
         assertFalse(window.active(true, 0))

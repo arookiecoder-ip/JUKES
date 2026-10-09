@@ -108,3 +108,21 @@ internal class OfflineReconciliationWindow(private val graceMs: Long = 4_000) {
     fun active(online: Boolean, now: Long): Boolean = !online || now < deadline
     fun reconciled() { deadline = 0 }
 }
+
+/** Connectivity capabilities do not establish whether the ownership server is reachable. */
+internal class OwnershipServerHealth {
+    private var failedToken = ""
+    @Synchronized fun failed(expected: String, current: String, unavailable: Boolean) {
+        if (expected.isBlank() || expected != current) return
+        failedToken = if (unavailable) current else ""
+    }
+    @Synchronized fun unavailable(current: String): Boolean = current.isNotBlank() && failedToken == current
+    @Synchronized fun clear() { failedToken = "" }
+}
+
+internal fun ownershipServerUnavailable(error: Throwable): Boolean =
+    generateSequence(error) { it.cause }.take(8).any {
+        it is java.io.IOException || it is kotlinx.coroutines.TimeoutCancellationException ||
+            (it is `in`.synthora.musicbox.network.BackendHttpException && (it.statusCode == 429 || it.statusCode >= 500)) ||
+            it is io.ktor.client.plugins.HttpRequestTimeoutException
+    }

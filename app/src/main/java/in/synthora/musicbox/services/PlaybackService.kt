@@ -88,6 +88,11 @@ class PlaybackService : MediaLibraryService() {
     private val TAG = "PlaybackService"
 
     companion object {
+        internal fun canResumeAvailablePhoneAudio(): Boolean {
+            val service = activeService.get() ?: return false
+            return service.outputPrefs.getString("playback_output", "PHONE") == "PHONE" &&
+                service.player.currentMediaItem != null && service.canContinueCurrentAudioOffline()
+        }
         val recoveryLoading = kotlinx.coroutines.flow.MutableStateFlow(false)
         internal fun resetExplicitStreamRetry() {
             val service = activeService.get() ?: return
@@ -308,9 +313,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun canContinueCurrentAudioOffline(): Boolean {
+        if (!PhonePlaybackOwnership.permitsLocalContinuation()) return false
         val config = player.currentMediaItem?.localConfiguration
-        return canContinueCachedOffline(!offlineReconciliation.active(
-            `in`.synthora.musicbox.network.NetworkFeedback.online.value, android.os.SystemClock.elapsedRealtime()),
+        return canContinueCachedOffline(!(PhonePlaybackOwnership.serverUnavailable || offlineReconciliation.active(
+            `in`.synthora.musicbox.network.NetworkFeedback.online.value, android.os.SystemClock.elapsedRealtime())),
             PhonePlaybackOwnership.remoteControlled, config?.uri?.scheme in setOf("file", "content"),
             currentStreamFullyCached(), PhonePlaybackOwnership.localHandoff,
             player.playerError == null && player.bufferedPosition > player.currentPosition)
@@ -320,13 +326,14 @@ class PlaybackService : MediaLibraryService() {
         if (canContinueCurrentAudioOffline()) return
         leaseInterruption.remember(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
             player.playWhenReady || recoveryShouldResume)
+        Log.w(TAG, "Playback held: ownership lease expired; networkOnline=${`in`.synthora.musicbox.network.NetworkFeedback.online.value}; serverUnavailable=${PhonePlaybackOwnership.serverUnavailable}; position=${player.currentPosition}; buffered=${player.bufferedPosition}; cached=${currentStreamFullyCached()}")
         pausingForLease = true
         try { player.pause() } finally { pausingForLease = false }
     }
 
     private fun recoverAfterLeaseRenewal() {
         if (!leaseInterruption.canResume(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
-                PhonePlaybackOwnership.permitsPlayback(), PhonePlaybackOwnership.localHandoff, inCall()) ||
+                PhonePlaybackOwnership.permitsPlayback() || canContinueCurrentAudioOffline(), PhonePlaybackOwnership.localHandoff, inCall()) ||
             outputPrefs.getString("playback_output", "PHONE") != "PHONE") return
         leaseInterruption.clear()
         recoveryShouldResume = true
@@ -787,6 +794,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            Log.d(TAG, "Playback position changed: reason=$reason; old=${oldPosition.positionMs}; new=${newPosition.positionMs}")
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_ENDED -> { Log.d(TAG, "Playback ended"); maybeExtendPhoneQueue() }
@@ -805,6 +816,7 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            Log.d(TAG, "Playback intent changed: play=$playWhenReady; reason=$reason; state=${player.playbackState}; position=${player.currentPosition}; buffered=${player.bufferedPosition}; serverUnavailable=${PhonePlaybackOwnership.serverUnavailable}")
             if (playWhenReady && !PhonePlaybackOwnership.permitsPlayback()) {
                 pauseForExpiredLease()
                 return
@@ -1057,6 +1069,7 @@ class PlaybackService : MediaLibraryService() {
             extendQueue = { maybeExtendPhoneQueue() }, pauseForLease = ::pauseForExpiredLease,
             leaseRenewed = { offlineReconciliation.reconciled(); recoverAfterLeaseRenewal() },
             offlineAudioAvailable = ::canContinueCurrentAudioOffline,
+            ownershipOutage = ::recoverAfterLeaseRenewal,
             recoveryPending = { leaseInterruption.pending || networkInterruption.pending || recoveryShouldResume },
             pauseForHandoff = { pausePhoneForHandoff() }).start()
 

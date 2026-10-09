@@ -1924,7 +1924,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             launchPlayback(current) { phoneSetQueue(queue, index, playbackManager.getResumePosition(current.uuid, state.position)) }
         } else viewModelScope.launch {
             runEcho {
-                if (!playbackManager.isPlayingFlow.value && !`in`.synthora.musicbox.services.PhonePlaybackOwnership.permitsPlayback()) {
+                if (!playbackManager.isPlayingFlow.value && !`in`.synthora.musicbox.services.PhonePlaybackOwnership.permitsPlayback() &&
+                    !`in`.synthora.musicbox.services.PlaybackService.canResumeAvailablePhoneAudio()) {
                     if (`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
                         `in`.synthora.musicbox.services.PhonePlaybackOwnership.claim(echo.serial.value)
                         serverPlaybackChecked = true

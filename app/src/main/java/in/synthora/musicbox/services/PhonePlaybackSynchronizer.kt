@@ -15,6 +15,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
     private val pauseForLease: () -> Unit, private val leaseRenewed: () -> Unit,
     private val offlineAudioAvailable: () -> Boolean = { false },
     private val recoveryPending: () -> Boolean = { false },
+    private val ownershipOutage: () -> Unit = {},
     private val pauseForHandoff: suspend () -> Pair<Boolean, Long> = {
         val playing = player.playWhenReady
         val position = player.currentPosition.coerceAtLeast(0)
@@ -58,7 +59,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                 try {
                     if (player.playWhenReady) extendQueue()
                     val attemptAt = android.os.SystemClock.elapsedRealtime()
-                    if (attemptAt - lastOwnershipAttempt < (if (player.playWhenReady || recoveryPending()) 2_000 else 5_000)) continue
+                    if (attemptAt - lastOwnershipAttempt < (if (PhonePlaybackOwnership.serverUnavailable) 5_000 else if (player.playWhenReady || recoveryPending()) 2_000 else 5_000)) continue
                     lastOwnershipAttempt = attemptAt
                     val status = kotlinx.coroutines.withTimeoutOrNull(4_000) {
                         try {
@@ -67,6 +68,10 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                             if (e.statusCode != 409) throw e
                             `in`.synthora.musicbox.network.AlexaBackendApi.phoneOutputStatus()
                         }
+                    }
+                    if (status == null) {
+                        PhonePlaybackOwnership.ownershipRequestFailed(claim, true)
+                        if (canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) ownershipOutage()
                     }
                     if (!canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) continue
                     if (status != null && !status.belongsToPhone(PhonePlaybackOwnership.ownerId, claim)) {
@@ -88,6 +93,9 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     if (status != null) { PhonePlaybackOwnership.accept(status); leaseRenewed() }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) {
+                    val unavailable = ownershipServerUnavailable(e)
+                    PhonePlaybackOwnership.ownershipRequestFailed(claim, unavailable)
+                    if (unavailable && canApplyPhoneOwnershipPoll(claim, PhonePlaybackOwnership.token, PhonePlaybackOwnership.localHandoff)) ownershipOutage()
                     if (e is `in`.synthora.musicbox.network.BackendHttpException && e.statusCode == 409 && PhonePlaybackOwnership.token == claim)
                         PhonePlaybackOwnership.queueNeedsSync.tryEmit(Unit)
                     Log.w(TAG, "Playback ownership refresh failed: ${e.javaClass.simpleName}")
