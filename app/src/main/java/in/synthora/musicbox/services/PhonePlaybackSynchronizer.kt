@@ -61,6 +61,7 @@ class PhonePlaybackSynchronizer(private val applicationContext: Context,
                     val attemptAt = android.os.SystemClock.elapsedRealtime()
                     if (attemptAt - lastOwnershipAttempt < (if (PhonePlaybackOwnership.serverUnavailable) 5_000 else if (player.playWhenReady || recoveryPending()) 2_000 else 5_000)) continue
                     lastOwnershipAttempt = attemptAt
+                    PhonePlaybackOwnership.checkingOwnership(claim)
                     val status = kotlinx.coroutines.withTimeoutOrNull(4_000) {
                         try {
                             `in`.synthora.musicbox.network.AlexaBackendApi.phoneOutputRequest("heartbeat", PhonePlaybackOwnership.ownerId, claim)

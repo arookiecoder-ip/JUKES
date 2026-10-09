@@ -112,12 +112,21 @@ internal class OfflineReconciliationWindow(private val graceMs: Long = 4_000) {
 /** Connectivity capabilities do not establish whether the ownership server is reachable. */
 internal class OwnershipServerHealth {
     private var failedToken = ""
+    private var pendingToken = ""
+    private var pendingUntil = 0L
+    @Synchronized fun checking(expected: String, current: String, now: Long) {
+        if (expected.isBlank() || expected != current) return
+        pendingToken = current; pendingUntil = now + 4_000
+    }
+    @Synchronized fun checking(current: String, now: Long): Boolean =
+        current.isNotBlank() && current == pendingToken && now < pendingUntil
     @Synchronized fun failed(expected: String, current: String, unavailable: Boolean) {
         if (expected.isBlank() || expected != current) return
+        pendingToken = ""; pendingUntil = 0
         failedToken = if (unavailable) current else ""
     }
     @Synchronized fun unavailable(current: String): Boolean = current.isNotBlank() && failedToken == current
-    @Synchronized fun clear() { failedToken = "" }
+    @Synchronized fun clear() { failedToken = ""; pendingToken = ""; pendingUntil = 0 }
 }
 
 internal fun ownershipServerUnavailable(error: Throwable): Boolean =

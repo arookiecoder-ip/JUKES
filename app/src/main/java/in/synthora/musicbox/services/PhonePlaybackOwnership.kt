@@ -25,6 +25,8 @@ object PhonePlaybackOwnership {
     private val preparation = PhonePreparationGuard()
     private val serverHealth = OwnershipServerHealth()
     val serverUnavailable: Boolean get() = serverHealth.unavailable(token)
+    val checkingServer: Boolean get() = serverHealth.checking(token, SystemClock.elapsedRealtime())
+    fun checkingOwnership(expectedToken: String) = serverHealth.checking(expectedToken, token, SystemClock.elapsedRealtime())
     fun ownershipRequestFailed(expectedToken: String, unavailable: Boolean) =
         serverHealth.failed(expectedToken, token, unavailable)
     fun permitsLocalContinuation(expectedToken: String = token): Boolean =

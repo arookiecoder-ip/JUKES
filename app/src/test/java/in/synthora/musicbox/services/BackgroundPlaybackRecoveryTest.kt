@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPlaybackRecoveryTest {
+    @Test fun anInFlightOwnershipCheckHasABoundedTokenFencedGrace() {
+        val health = OwnershipServerHealth()
+        health.checking("lease", "lease", 1000)
+        assertTrue(health.checking("lease", 4999))
+        assertFalse(health.checking("lease", 5000))
+        assertFalse(health.checking("other lease", 2000))
+        health.checking("old lease", "lease", 2000)
+        assertFalse(health.checking("lease", 5000))
+        health.checking("lease", "lease", 6000)
+        health.failed("lease", "lease", true)
+        assertFalse(health.checking("lease", 6001))
+        assertTrue(health.unavailable("lease"))
+        health.checking("lease", "lease", 7000)
+        health.clear()
+        assertFalse(health.checking("lease", 7001))
+        assertFalse(health.unavailable("lease"))
+    }
+
     @Test fun serverOutagesAreFencedToTheFailedTokenAndResetOnReconciliation() {
         val health = OwnershipServerHealth()
         assertFalse(health.unavailable("lease"))

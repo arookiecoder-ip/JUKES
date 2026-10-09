@@ -315,7 +315,7 @@ class PlaybackService : MediaLibraryService() {
     private fun canContinueCurrentAudioOffline(): Boolean {
         if (!PhonePlaybackOwnership.permitsLocalContinuation()) return false
         val config = player.currentMediaItem?.localConfiguration
-        return canContinueCachedOffline(!(PhonePlaybackOwnership.serverUnavailable || offlineReconciliation.active(
+        return canContinueCachedOffline(!(PhonePlaybackOwnership.serverUnavailable || PhonePlaybackOwnership.checkingServer || offlineReconciliation.active(
             `in`.synthora.musicbox.network.NetworkFeedback.online.value, android.os.SystemClock.elapsedRealtime())),
             PhonePlaybackOwnership.remoteControlled, config?.uri?.scheme in setOf("file", "content"),
             currentStreamFullyCached(), PhonePlaybackOwnership.localHandoff,
