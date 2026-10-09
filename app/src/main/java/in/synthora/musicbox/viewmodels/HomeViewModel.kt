@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import `in`.synthora.musicbox.models.Track
+import `in`.synthora.musicbox.database.toTrack
 import `in`.synthora.musicbox.network.Backend
 import `in`.synthora.musicbox.network.BackendAuthException
 import `in`.synthora.musicbox.network.BrowseItem
@@ -37,6 +38,7 @@ data class HomeShelf(
 data class HomeUiState(
     val greeting: String = "",
     val shelves: List<HomeShelf> = emptyList(),
+    val recentTracks: List<Track> = emptyList(),
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val error: String? = null
@@ -55,11 +57,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     val signedOut: SharedFlow<Unit> = _signedOut.asSharedFlow()
 
     private var loadJob: Job? = null
+    private var historyJob: Job? = null
     private val cache = `in`.synthora.musicbox.services.HomeFeedCache(
         application.getSharedPreferences("home_feed_cache", android.content.Context.MODE_PRIVATE))
     private var savedAt = 0L
 
     fun loadHomeData() {
+        refreshRecent()
         if (loadJob?.isActive == true) return
         if (_uiState.value.shelves.isNotEmpty() &&
             `in`.synthora.musicbox.services.isHomeFeedFresh(savedAt, System.currentTimeMillis())) return
@@ -68,12 +72,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clear() {
         loadJob?.cancel()
+        historyJob?.cancel()
         cache.clear()
         savedAt = 0L
         _uiState.value = HomeUiState(greeting = buildGreeting())
     }
 
     fun refresh() {
+        refreshRecent()
         _uiState.update { it.copy(isRefreshing = true) }
         load(refresh = true)
     }
@@ -81,7 +87,25 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     /** Accounts changed (YouTube connected or signed in again): rebuild the feed. */
     fun reload() {
         clear()
+        refreshRecent()
         load(refresh = true)
+    }
+
+    fun pickSomething(currentVideoId: String?): Track? = `in`.synthora.musicbox.services.chooseHomeRadioSeed(
+        _uiState.value.shelves, _uiState.value.recentTracks, AccountRepository.liked.value, currentVideoId)
+
+    private fun refreshRecent() {
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            val recent = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    `in`.synthora.musicbox.database.MusicDatabase.getDatabase(getApplication()).trackDao()
+                        .getRecentlyPlayed(20).map { it.toTrack() }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { emptyList() }
+            _uiState.update { it.copy(recentTracks = recent) }
+        }
     }
 
     private fun load(refresh: Boolean) {

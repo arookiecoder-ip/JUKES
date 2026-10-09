@@ -21,6 +21,166 @@ import java.util.concurrent.atomic.AtomicBoolean
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class UpcomingAudioPreloaderTest {
+    @Test fun activeLazyDownloadIsPromotedToDemandWhenItsSongStarts() = runBlocking {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "promote-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val stopped = java.util.concurrent.CountDownLatch(1)
+        val demandOpens = AtomicInteger()
+        val acquired = AtomicInteger()
+        val released = AtomicInteger()
+        val url = "https://audio.example/next"
+        val lazyFactory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory {
+            object : DataSource {
+                override fun addTransferListener(listener: TransferListener) {}
+                override fun open(spec: DataSpec): Long = 8_192
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    entered.countDown(); check(stopped.await(5, java.util.concurrent.TimeUnit.SECONDS)); throw IOException("Lazy download cancelled")
+                }
+                override fun getUri(): Uri = Uri.parse(url)
+                override fun close() { stopped.countDown() }
+            }
+        }
+        val demandFactory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory {
+            object : DataSource {
+                val delegate = ByteArrayDataSource(ByteArray(8_192))
+                override fun addTransferListener(listener: TransferListener) = delegate.addTransferListener(listener)
+                override fun open(spec: DataSpec): Long { demandOpens.incrementAndGet(); return delegate.open(spec) }
+                override fun read(buffer: ByteArray, offset: Int, length: Int) = delegate.read(buffer, offset, length)
+                override fun getUri() = delegate.uri
+                override fun close() = delegate.close()
+            }
+        }
+        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val preloader = UpcomingAudioPreloader(lazyFactory, childScope, policyOverride = { PreloadPolicy(1, -1) },
+            demandFactory = demandFactory, guardFactory = {
+                acquired.incrementAndGet()
+                object : AudioDownloadGuard {
+                    override fun progress() {}
+                    override fun close() { released.incrementAndGet() }
+                }
+            })
+        try {
+            preloader.update(listOf(url))
+            withContext(Dispatchers.IO) { assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+            preloader.update(emptyList(), currentUrl = url)
+            withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } }
+            assertTrue(cache.isCached(url, 0, 8_192))
+            assertEquals(1, demandOpens.get()); assertEquals(1, acquired.get()); assertEquals(1, released.get())
+        } finally {
+            stopped.countDown(); preloader.clear(); childScope.coroutineContext[Job]?.cancelAndJoin()
+            cache.release(); directory.deleteRecursively()
+        }
+    }
+
+    @Test fun failedCurrentDownloadReleasesGuardAndDoesNotBusyRetry() = runBlocking {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "failed-guard-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val acquired = AtomicInteger()
+        val released = AtomicInteger()
+        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory {
+            object : DataSource {
+                override fun addTransferListener(listener: TransferListener) {}
+                override fun open(spec: DataSpec): Long = throw IOException("Offline")
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int = -1
+                override fun getUri(): Uri? = null
+                override fun close() {}
+            }
+        }
+        val preloader = UpcomingAudioPreloader(factory, childScope, policyOverride = { PreloadPolicy(0, 0) }, nowMs = { 0 },
+            guardFactory = {
+                acquired.incrementAndGet()
+                object : AudioDownloadGuard {
+                    override fun progress() {}
+                    override fun close() { released.incrementAndGet() }
+                }
+            })
+        val url = "https://audio.example/current"
+        suspend fun finish() { withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } } }
+        try {
+            preloader.update(emptyList(), currentUrl = url); finish()
+            assertEquals(1, acquired.get()); assertEquals(1, released.get())
+            preloader.update(emptyList(), currentUrl = url); finish()
+            assertEquals(1, acquired.get()); assertEquals(1, released.get())
+        } finally {
+            preloader.clear(); childScope.coroutineContext[Job]?.cancelAndJoin()
+            cache.release(); directory.deleteRecursively()
+        }
+    }
+
+    @Test fun currentDownloadHoldsGuardOnlyUntilCompletionAndUpcomingSongsDoNotAcquireIt() = runBlocking {
+        val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "guard-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val acquired = AtomicInteger()
+        val released = AtomicInteger()
+        val progressed = AtomicInteger()
+        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val preloader = UpcomingAudioPreloader(CacheDataSource.Factory().setCache(cache)
+            .setUpstreamDataSourceFactory { ByteArrayDataSource(ByteArray(8_192)) }, childScope,
+            policyOverride = { PreloadPolicy(5, -1) }, guardFactory = {
+                acquired.incrementAndGet()
+                object : AudioDownloadGuard {
+                    override fun progress() { progressed.incrementAndGet() }
+                    override fun close() { released.incrementAndGet() }
+                }
+            })
+        suspend fun finish() { withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } } }
+        val current = "https://audio.example/current"
+        val next = listOf("https://audio.example/next")
+        try {
+            preloader.update(next, currentUrl = current); finish()
+            assertEquals(1, acquired.get()); assertEquals(1, released.get()); assertTrue(progressed.get() > 0)
+            preloader.update(next, currentUrl = current); finish()
+            assertTrue(cache.isCached(next.single(), 0, 8_192))
+            assertEquals(1, acquired.get()); assertEquals(1, released.get())
+        } finally {
+            preloader.clear(); childScope.coroutineContext[Job]?.cancelAndJoin()
+            cache.release(); directory.deleteRecursively()
+        }
+    }
+
+    @Test fun partialAudioBecomesReadableBeforeWholeBackgroundDownloadCompletes() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        val directory = java.io.File(app.cacheDir, "fragments-${System.nanoTime()}")
+        val cache = SimpleCache(directory, NoOpCacheEvictor())
+        val paused = java.util.concurrent.CountDownLatch(1)
+        val resume = java.util.concurrent.CountDownLatch(1)
+        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val url = "https://audio.example/current"
+        val total = 1_048_576
+        val factory = (playbackDataSources(app, cache, cacheWarm = true) as CacheDataSource.Factory)
+            .setUpstreamDataSourceFactory {
+                object : DataSource {
+                    val delegate = ByteArrayDataSource(ByteArray(total) { 9 })
+                    var read = 0
+                    override fun addTransferListener(listener: TransferListener) = delegate.addTransferListener(listener)
+                    override fun open(spec: DataSpec): Long = delegate.open(spec)
+                    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                        if (read >= 524_288 && resume.count > 0) { paused.countDown(); check(resume.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+                        val count = delegate.read(buffer, offset, length)
+                        if (count > 0) read += count
+                        return count
+                    }
+                    override fun getUri() = delegate.uri
+                    override fun close() { resume.countDown(); delegate.close() }
+                }
+            }
+        val preloader = UpcomingAudioPreloader(factory, childScope, policyOverride = { PreloadPolicy(0, 0) })
+        try {
+            preloader.update(emptyList(), currentUrl = url)
+            withContext(Dispatchers.IO) { assertTrue(paused.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+            assertFalse(cache.isCached(url, 0, total.toLong()))
+            assertTrue(cache.isCached(url, 0, 262_144))
+            resume.countDown()
+            withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } }
+            assertTrue(cache.isCached(url, 0, total.toLong()))
+        } finally {
+            resume.countDown(); preloader.clear(); childScope.coroutineContext[Job]?.cancelAndJoin()
+            cache.release(); directory.deleteRecursively()
+        }
+    }
+
     @Test fun openPlaybackReaderDoesNotBlockWholeSongCachingAndOfflineReplay() = runBlocking {
         val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "reader-${System.nanoTime()}")
         val cache = SimpleCache(directory, NoOpCacheEvictor())

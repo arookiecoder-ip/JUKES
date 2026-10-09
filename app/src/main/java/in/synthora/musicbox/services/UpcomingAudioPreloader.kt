@@ -16,8 +16,9 @@ import kotlinx.coroutines.sync.withPermit
 class UpcomingAudioPreloader(private val factory: DataSource.Factory, private val scope: CoroutineScope, private val context: android.content.Context? = null,
     private val policyOverride: ((Boolean) -> PreloadPolicy)? = null,
     private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
-    private val demandFactory: DataSource.Factory = factory) {
-    private data class Work(val writer: CacheWriter, val source: CacheDataSource, val job: Job)
+    private val demandFactory: DataSource.Factory = factory,
+    private val guardFactory: (() -> AudioDownloadGuard)? = null) {
+    private data class Work(val writer: CacheWriter, val source: CacheDataSource, val job: Job, val demand: Boolean)
     private val work = mutableMapOf<String, Work>()
     private val completed = mutableMapOf<String, Long>()
     private val slots = Semaphore(1)
@@ -44,7 +45,9 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
                 if (length > remaining) false else { if (length > 0) remaining -= length; true }
             }.toSet()
         val wanted = if (current != null && (!currentComplete || buffering)) setOf(current) else upcoming + listOfNotNull(current)
-        (work.keys - wanted).forEach { key -> work.remove(key)?.let { obsolete ->
+        // A lazy next-song writer must become a demand writer when that song starts.
+        val promoted = work.filter { (url, item) -> url == current && !currentComplete && !item.demand }.keys
+        ((work.keys - wanted) + promoted).forEach { key -> work.remove(key)?.let { obsolete ->
             obsolete.writer.cancel(); obsolete.job.cancel()
             scope.launch(Dispatchers.IO + NonCancellable) { runCatching { obsolete.source.close() } }
         } }
@@ -57,10 +60,22 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
             retries[it]?.ready(nowMs()) != false }.forEach { url ->
             val targetLength = if (url == current) androidx.media3.common.C.LENGTH_UNSET.toLong() else policy.bytesPerTrack
             val source = (if (url == current) demandFactory else factory).createDataSource() as CacheDataSource
-            val writer = CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setLength(targetLength).build(), null, null)
+            var guard: AudioDownloadGuard? = null
+            val writer = CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setLength(targetLength)
+                .setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION).build(), null) { _, _, newlyCached ->
+                if (newlyCached > 0) guard?.progress()
+            }
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    slots.withPermit { withContext(Dispatchers.IO) { writer.cache() } }
+                    slots.withPermit {
+                        try {
+                            if (url == current) guard = runCatching { guardFactory?.invoke() ?: context?.let(::currentAudioDownloadGuard) }.getOrNull()
+                            withContext(Dispatchers.IO) { writer.cache() }
+                        } finally {
+                            guard?.close()
+                            guard = null
+                        }
+                    }
                     if (work[url]?.writer === writer) {
                         val stored = if (targetLength < 0) fullyCached(url) else cache.isCached(url, 0, targetLength)
                         if (!stored) throw java.io.IOException("Audio read completed without a complete saved cache")
@@ -78,7 +93,7 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
                     if (work[url]?.writer === writer) work.remove(url)
                 }
             }
-            work[url] = Work(writer, source, job); job.start()
+            work[url] = Work(writer, source, job, demand = url == current); job.start()
         }
     }
     fun clear() { update(emptyList()); completed.clear() }

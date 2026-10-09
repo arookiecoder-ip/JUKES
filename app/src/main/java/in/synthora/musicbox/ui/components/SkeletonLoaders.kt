@@ -215,6 +215,23 @@ fun HomeSkeleton(
             }
         }
 
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ShapedSkeletonBlock(Modifier.width(120.dp).height(24.dp), RoundedCornerShape(6.dp))
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val columns = when { maxWidth >= 800.dp -> 4; maxWidth >= 560.dp -> 3; else -> 2 }
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        repeat(2) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                repeat(columns) {
+                                    ShapedSkeletonBlock(Modifier.weight(1f).height(68.dp), RoundedCornerShape(12.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         item { HomeSkeletonSection() }
         item { TrackRowsSkeleton(4) }
         item { HomeSkeletonSection() }

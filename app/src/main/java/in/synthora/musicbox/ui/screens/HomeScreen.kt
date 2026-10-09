@@ -135,7 +135,11 @@ fun HomeScreen(
         onSettingsClick = { haptic.click(); onSettingsClick() }, onRefresh = homeViewModel::refresh,
         onSearchClick = onSearchClick, onOpenItem = onOpenItem,
         onPlayTracks = { tracks, index -> musicViewModel.setQueue(tracks, index) },
-        onPlayCollection = musicViewModel::playCollection
+        onPlayCollection = musicViewModel::playCollection,
+        onPlaySomething = {
+            if (!musicViewModel.uiState.value.isLoading) homeViewModel.pickSomething(
+                musicViewModel.uiState.value.currentTrack?.ytVideoId)?.let(musicViewModel::startRadio)
+        }
     )
 }
 
@@ -151,8 +155,12 @@ internal fun HomeContent(
     onOpenItem: (BrowseItem) -> Unit = {},
     onPlayTracks: (List<Track>, Int) -> Unit = { _, _ -> },
     onPlayCollection: (BrowseItem) -> Unit = {},
-    jamActive: Boolean = false
+    jamActive: Boolean = false,
+    onPlaySomething: () -> Unit = {}
 ) {
+    val shortcuts = remember(uiState.shelves, uiState.recentTracks) {
+        `in`.synthora.musicbox.services.speedDialItems(uiState.shelves, uiState.recentTracks)
+    }
     PullToRefreshBox(
         isRefreshing = uiState.isRefreshing,
         onRefresh = { onRefresh() },
@@ -164,6 +172,17 @@ internal fun HomeContent(
         ) {
             item(key = "home-header") {
                 HomeHeader(alexaStatus = alexaStatus, onSettingsClick = { onSettingsClick() }, jamActive = jamActive)
+            }
+            if (shortcuts.isNotEmpty()) {
+                item(key = "speed-dial", contentType = "speed-dial") {
+                    SpeedDial(shortcuts, uiState.shelves.any { it.tracks.isNotEmpty() } || uiState.recentTracks.isNotEmpty(),
+                        onPlaySomething, onOpenItem, onPlayCollection) { item ->
+                        val track = uiState.recentTracks.firstOrNull { it.ytVideoId == item.videoId }
+                            ?: uiState.shelves.asSequence().flatMap { it.tracks.asSequence() }
+                                .firstOrNull { it.ytVideoId == item.videoId }
+                        if (track != null) onPlayTracks(listOf(track), 0)
+                    }
+                }
             }
             if (uiState.shelves.isEmpty()) {
                 item(key = "empty-home") {
@@ -192,6 +211,48 @@ internal fun HomeContent(
                             onTrackClick = { onPlayTracks(shelf.tracks, it) },
                             onOpen = onOpenItem, onPlayCollection = { onPlayCollection(it) }
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Bounded rows inside Home's single scrolling list; no nested vertical scroll. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SpeedDial(items: List<BrowseItem>, canPlaySomething: Boolean, onPlaySomething: () -> Unit,
+    onOpen: (BrowseItem) -> Unit, onPlayCollection: (BrowseItem) -> Unit,
+    onPlayTrack: (BrowseItem) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Speed dial", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold)
+            Button(onClick = onPlaySomething, enabled = canPlaySomething,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp))
+                Text("Play something", Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = when { maxWidth >= 800.dp -> 4; maxWidth >= 560.dp -> 3; else -> 2 }
+            val rows = remember(items, columns) { items.chunked(columns) }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                rows.forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { item ->
+                            Row(Modifier.weight(1f).height(68.dp).clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .combinedClickable(role = Role.Button,
+                                    onClick = { if (item.kind == "track") onPlayTrack(item) else onPlayCollection(item) },
+                                    onLongClick = { onOpen(item) }, onLongClickLabel = "Open ${item.title}"), verticalAlignment = Alignment.CenterVertically) {
+                                `in`.synthora.musicbox.ui.components.ListArtwork(item.image, 56.dp,
+                                    Modifier.padding(start = 6.dp).size(56.dp).clip(RoundedCornerShape(8.dp)))
+                                Text(item.title, Modifier.weight(1f).padding(horizontal = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
