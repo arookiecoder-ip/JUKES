@@ -1,6 +1,7 @@
 package `in`.synthora.musicbox.viewmodels
 
 import android.app.Application
+import `in`.synthora.musicbox.services.resolveTracks
 import `in`.synthora.musicbox.utils.SafeLog as Log
 import android.widget.Toast
 import androidx.compose.ui.graphics.Color
@@ -491,15 +492,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val tracks = withContext(Dispatchers.IO) {
                     val missing = snapshot.queueIds.filter { it !in old }.chunked(500)
                         .flatMap { trackDao.getTracksByUuids(it) }.associate { it.uuid to it.toTrack() }
-                    snapshot.queueIds.mapNotNull { id ->
-                        val known = old[id] ?: missing[id]
-                        val live = snapshot.currentMetadata?.takeIf { it.uuid == id }
-                        if (live == null) known else known?.copy(
-                            title = live.title.ifBlank { known.title },
-                            artist = live.artist.ifBlank { known.artist },
-                            thumbnailUri = live.thumbnailUri ?: known.thumbnailUri,
-                            durationSec = live.durationSec.takeIf { it > 0 } ?: known.durationSec) ?: live
-                    }
+                    snapshot.resolveTracks(old + missing)
                 }
                 if (snapshot != playbackManager.snapshot.value ||
                     (`in`.synthora.musicbox.services.PhonePlaybackOwnership.localHandoff && snapshot.currentId != _uiState.value.currentTrack?.uuid)) return@collectLatest

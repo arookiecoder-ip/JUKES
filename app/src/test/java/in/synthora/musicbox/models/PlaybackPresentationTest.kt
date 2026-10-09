@@ -8,8 +8,23 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
+import `in`.synthora.musicbox.services.resolveTracks
 
 class PlaybackPresentationTest {
+    @Test fun liveMetadataUpdatesArtworkAndMissingCurrentRowsStillChangeTheSong() {
+        val old = Track("old", "Old", "Artist", durationSec = 100)
+        val stored = Track("next", "Stale", "Stale artist", thumbnailUri = "stale.jpg", durationSec = 100, ytVideoId = "video")
+        val live = stored.copy(title = "New", artist = "New artist", thumbnailUri = "new.jpg", durationSec = 200, ytVideoId = null)
+        val snapshot = `in`.synthora.musicbox.services.PhonePlaybackSnapshot(listOf("old", "next"), "next", live)
+        val resolved = snapshot.resolveTracks(mapOf("old" to old, "next" to stored))
+        assertEquals("New", resolved[1].title)
+        assertEquals("new.jpg", resolved[1].thumbnailUri)
+        assertEquals("video", resolved[1].ytVideoId)
+        val missing = snapshot.resolveTracks(mapOf("old" to old))
+        val state = `in`.synthora.musicbox.viewmodels.reconcilePhonePlayback(MusicUiState(currentTrack = old), missing, "next")
+        assertEquals(live, state.currentTrack)
+    }
+
     @Test fun requestedSongStaysLoadingUntilPlaybackIsConfirmed() {
         val old = Track("old", "Old", "Artist", durationSec = 100)
         val next = Track("next", "Next", "Artist", durationSec = 200)
