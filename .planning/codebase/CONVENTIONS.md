@@ -49,7 +49,7 @@
 2. Kotlin standard library (`kotlin.*`)
 3. AndroidX libraries (`androidx.*`)
 4. Third-party libraries (coil, ktor, etc.)
-5. App local imports (`com.example.juke.*`)
+5. App local imports (`in.synthora.musicbox.*`)
 
 **Example:**
 ```kotlin
@@ -59,8 +59,8 @@ import androidx.lifecycle.ViewModel
 import androidx.compose.material3.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import io.ktor.client.*
-import com.example.juke.database.MusicDatabase
-import com.example.juke.models.Track
+import in.synthora.musicbox.database.MusicDatabase
+import in.synthora.musicbox.models.Track
 ```
 
 ## Error Handling

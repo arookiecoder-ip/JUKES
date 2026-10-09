@@ -39,10 +39,10 @@
 # 2. SAFETY RULES (Prevent Release Crashes)
 # -----------------------------------------------------------------
 # Keep your data models. If R8 renames these, JSON parsing and Room DB will fail.
--keep class com.example.juke.models.** { *; }
+-keep class in.synthora.musicbox.models.** { *; }
 
 # Keep Room Database classes
--keep class com.example.juke.database.** { *; }
+-keep class in.synthora.musicbox.database.** { *; }
 
 # Keep JNI/Native methods if you use any (Standard safety)
 -keepclasseswithmembernames class * {
@@ -55,7 +55,7 @@
 # Keep network API response models (@Serializable). The API classes themselves (SpotifyApi,
 # RecommenderApi, ...) are left to R8 so they can be shrunk and optimised; Gson only parses
 # into JsonObject, so it needs no keep on our classes.
--keep @kotlinx.serialization.Serializable class com.example.juke.network.** { *; }
+-keep @kotlinx.serialization.Serializable class in.synthora.musicbox.network.** { *; }
 
 # Keep attributes for serialization
 -keepattributes *Annotation*, InnerClasses

@@ -19,21 +19,21 @@
 
 **UI Layer (Compose):**
 - Purpose: Display data and capture user input with reactive UI
-- Location: `app/src/main/java/com/example/juke/ui/`
+- Location: `app/src/main/java/in/synthora/musicbox/ui/`
 - Contains: Screens (HomeScreen, SearchScreen, etc.), components (MiniPlayer, etc.), theme (JUKETheme)
 - Depends on: ViewModels (via viewModel() delegate), Services (for direct calls like analytics)
 - Used by: MainActivity (sets content via setContent)
 
 **ViewModel Layer:**
 - Purpose: Manage UI state, business logic coordination, survive configuration changes
-- Location: `app/src/main/java/com/example/juke/viewmodels/`
+- Location: `app/src/main/java/in/synthora/musicbox/viewmodels/`
 - Contains: MusicViewModel (central playback state), SearchViewModel, LibraryViewModel, AlbumDetailViewModel, PlaylistDetailViewModel, PlayerViewModel, HomeViewModel
 - Depends on: Services (MusicService, PlaybackManager, QueueManager), DAOs, API clients (SpotifyApi, RecommenderApi), Models
 - Used by: UI layer (Compose screens via viewModel() delegate), Services (for callbacks)
 
 **Service Layer:**
 - Purpose: Core business logic (playback, downloads, queue management, audio effects, updates)
-- Location: `app/src/main/java/com/example/juke/services/`
+- Location: `app/src/main/java/in/synthora/musicbox/services/`
 - Contains: 
   - PlaybackService (Media3 service for audio playback, foreground service, media session)
   - PlaybackManager (singleton for ExoPlayer control via MediaController)
@@ -46,28 +46,28 @@
 
 **Data Layer (Room):**
 - Purpose: Local SQLite database access with type converters and migrations
-- Location: `app/src/main/java/com/example/juke/database/`
+- Location: `app/src/main/java/in/synthora/musicbox/database/`
 - Contains: MusicDatabase (Room database with 9 migrations), TrackDao, PlaylistDao, TrackEntity/PlaylistEntity models
 - Depends on: Room runtime, TypeConverters (for List<String> storage)
 - Used by: Services (for persistence), ViewModels (for UI state synchronization)
 
 **Network Layer:**
 - Purpose: HTTP API communication with Spotify and recommendation services
-- Location: `app/src/main/java/com/example/juke/network/`
+- Location: `app/src/main/java/in/synthora/musicbox/network/`
 - Contains: ApiClient (singleton Ktor HttpClient config), SpotifyApi (Spotify Web API wrapper), RecommenderApi (YouTube Music-based recommendations)
 - Depends on: Ktor client (OkHttp engine, JSON serialization, timeout/logging plugins)
 - Used by: Services (MusicService for downloads/streams, QueueManager for recommendations)
 
 **Utils Layer:**
 - Purpose: Cross-cutting utility functions and helpers
-- Location: `app/src/main/java/com/example/juke/utils/`
+- Location: `app/src/main/java/in/synthora/musicbox/utils/`
 - Contains: FastDownloader (multi-threaded download), ArtistUtils (artist name matching), BlacklistManager, DatabaseMigrationHelper, HapticHelper, LyricsRomanizer
 - Depends on: Kotlin stdlib, Android SDK
 - Used by: Services (primary consumers), ViewModels (occasionally)
 
 **Analytics Layer:**
 - Purpose: User behavior tracking and analytics
-- Location: `app/src/main/java/com/example/juke/analytics/`
+- Location: `app/src/main/java/in/synthora/musicbox/analytics/`
 - Contains: AnalyticsManager (PostHog integration), AnalyticsEvent (event definitions), PlayerAnalyticsHelper (playback-specific tracking), UsageExamples
 - Depends on: PostHog Android SDK
 - Used by: MainActivity (app lifecycle), PlaybackService (playback events), Services (feature usage)
@@ -127,58 +127,58 @@
 - Purpose: Central state holder for playback, downloads, queue, and UI coordination
 - Examples: `MusicUiState` (current track, queue, playback state, download queue, extracted colors), `DownloadItem`, `DownloadStatus`
 - Pattern: Single source of truth for playback state with UI event handling
-- Location: `app/src/main/java/com/example/juke/viewmodels/MusicViewModel.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/viewmodels/MusicViewModel.kt`
 
 **PlaybackManager (Singleton):**
 - Purpose: Control ExoPlayer via MediaController, abstract service communication
 - Examples: `playTrack()`, `addToQueue()`, `seekTo()`, `toggleShuffle()`, `getCurrentPosition()`
 - Pattern: Singleton with companion object, delegates to PlaybackService via MediaController
-- Location: `app/src/main/java/com/example/juke/services/PlaybackManager.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/services/PlaybackManager.kt`
 
 **QueueManager (Singleton):**
 - Purpose: Smart recommendation engine and queue management logic
 - Examples: `initializeQueue()`, `fetchAndQueueRecommendations()`, `replaceTrackInQueue()`
 - Pattern: Singleton managing background coroutine scope for recommendation work
-- Location: `app/src/main/java/com/example/juke/services/QueueManager.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/services/QueueManager.kt`
 
 **MusicService:**
 - Purpose: Download and stream management with fallback mechanisms
 - Examples: `smartDownloadAndIndex()`, `streamTrack()`, `promoteStreamToDownload()`
 - Pattern: Context-dependent service class with lazy initialization of dependencies
-- Location: `app/src/main/java/com/example/juke/services/MusicService.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/services/MusicService.kt`
 
 **SpotifyApi (Object):**
 - Purpose: Spotify Web API wrapper with authentication and retry logic
 - Examples: `search()`, `getTrack()`, `getPlaylist()`, `getArtist()`, `getAlbum()`
 - Pattern: Object declaration with Ktor client, token refresh mutex
-- Location: `app/src/main/java/com/example/juke/network/SpotifyApi.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/network/SpotifyApi.kt`
 
 **RecommenderApi (Object):**
 - Purpose: YouTube Music-based recommendation engine
 - Examples: `getRadioQueue()`, `getRelatedContent()`
 - Pattern: Object declaration with Ktor client, YouTube Music web scraping
-- Location: `app/src/main/java/com/example/juke/network/RecommenderApi.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/network/RecommenderApi.kt`
 
 **PlaybackService (Media3 Service):**
 - Purpose: Foreground service handling audio playback, media session, notifications
 - Examples: ExoPlayer setup, Media3 session creation, audio focus handling, call state handling
 - Pattern: Android Service extending MediaLibraryService with Media3 (ExoPlayer)
-- Location: `app/src/main/java/com/example/juke/services/PlaybackService.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/services/PlaybackService.kt`
 
 ## Entry Points
 
 **MainActivity:**
-- Location: `app/src/main/java/com/example/juke/MainActivity.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/MainActivity.kt`
 - Triggers: App launch (LAUNCHER intent), intent handling (open_player), newIntent
 - Responsibilities: Navigation (NavHost), permission handling (READ_PHONE_STATE), update checks (UpdateManager), UI theming, analytics tracking
 
 **PlaybackService (Media3):**
-- Location: `app/src/main/java/com/example/juke/services/PlaybackService.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/services/PlaybackService.kt`
 - Triggers: Media button presses, notification actions, Android Auto browse/play commands
 - Responsibilities: Foreground service management, ExoPlayer preparation microbiome, media session callbacks, notification updates, audio focus handling, call state interruption handling
 
 **JukeApplication:**
-- Location: `app/src/main/java/com/example/juke/JukeApplication.kt`
+- Location: `app/src/main/java/in/synthora/musicbox/JukeApplication.kt`
 - Triggers: App start (onCreate)
 - Responsibilities: PostHog initialization (AnalyticsManager), Coil ImageLoaderFactory setup (memory/disk cache configuration)
 

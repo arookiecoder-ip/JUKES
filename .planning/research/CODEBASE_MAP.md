@@ -11,7 +11,7 @@ JUKES is an Android music streaming application built with Kotlin and Jetpack Co
 ## Package Structure
 
 ```
-app/src/main/java/com/example/juke/
+app/src/main/java/in/synthora/musicbox/
 ├── JukeApplication.kt              # Application class
 ├── MainActivity.kt                  # Main activity with Compose UI
 │
@@ -263,7 +263,7 @@ app/src/main/java/com/example/juke/
 | File | Purpose |
 |------|---------|
 | `build.gradle.kts` (root) | Plugin declarations: Android application, Kotlin Android, Kotlin Compose, Kotlin Serialization, KSP |
-| `app/build.gradle.kts` | App configuration: namespace `com.example.juke`, compileSdk 36, minSdk 26, targetSdk 36, version 2.3.2-beta-unreleased, dependencies, BuildConfig fields for Spotify/PostHog credentials |
+| `app/build.gradle.kts` | App configuration: namespace `in.synthora.musicbox`, compileSdk 36, minSdk 26, targetSdk 36, version 2.3.2-beta-unreleased, dependencies, BuildConfig fields for Spotify/PostHog credentials |
 | `settings.gradle.kts` | Plugin management, repositories, project name "JUKE", include `:app` |
 
 ### Properties

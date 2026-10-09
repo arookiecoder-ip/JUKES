@@ -9,7 +9,7 @@ JUKES/
 ├── app/                          # Main application module
 │   ├── src/
 │   │   ├── main/
-│   │   │   ├── java/com/example/juke/
+│   │   │   ├── java/in/synthora/musicbox/
 │   │   │   │   ├── MainActivity.kt
 │   │   │   │   ├── JukeApplication.kt
 │   │   │   │   ├── analytics/          # Analytics and tracking
@@ -38,7 +38,7 @@ JUKES/
 
 ## Directory Purposes
 
-**`app/src/main/java/com/example/juke/`**
+**`app/src/main/java/in/synthora/musicbox/`**
 - Purpose: All Kotlin source code
 - Contains: All packages below
 
@@ -89,9 +89,9 @@ JUKES/
 ## Key File Locations
 
 **Entry Points:**
-- `app/src/main/java/com/example/juke/MainActivity.kt` - Main Activity with NavHost and UI setup
-- `app/src/main/java/com/example/juke/JukeApplication.kt` - Application class for global init
-- `app/src/main/java/com/example/juke/services/PlaybackService.kt` - Media3 foreground service
+- `app/src/main/java/in/synthora/musicbox/MainActivity.kt` - Main Activity with NavHost and UI setup
+- `app/src/main/java/in/synthora/musicbox/JukeApplication.kt` - Application class for global init
+- `app/src/main/java/in/synthora/musicbox/services/PlaybackService.kt` - Media3 foreground service
 
 **Configuration:**
 - `app/build.gradle.kts` - App build configuration and dependencies
@@ -100,14 +100,14 @@ JUKES/
 - `app/proguard-rules.pro` - R8 rules for release builds
 
 **Core Logic:**
-- `app/src/main/java/com/example/juke/viewmodels/MusicViewModel.kt` - Central playback and download state
-- `app/src/main/java/com/example/juke/services/QueueManager.kt` - Recommendation engine and queue management
-- `app/src/main/java/com/example/juke/services/MusicService.kt` - Download and stream management
-- `app/src/main/java/com/example/juke/database/MusicDatabase.kt` - Room database configuration
-- `app/src/main/java/com/example/juke/services/PlaybackManager.kt` - ExoPlayer control abstraction
+- `app/src/main/java/in/synthora/musicbox/viewmodels/MusicViewModel.kt` - Central playback and download state
+- `app/src/main/java/in/synthora/musicbox/services/QueueManager.kt` - Recommendation engine and queue management
+- `app/src/main/java/in/synthora/musicbox/services/MusicService.kt` - Download and stream management
+- `app/src/main/java/in/synthora/musicbox/database/MusicDatabase.kt` - Room database configuration
+- `app/src/main/java/in/synthora/musicbox/services/PlaybackManager.kt` - ExoPlayer control abstraction
 
 **Testing:**
-- `app/src/test/java/com/example/juke/ExampleUnitTest.kt` - Unit test example
+- `app/src/test/java/in/synthora/musicbox/ExampleUnitTest.kt` - Unit test example
 - `app/src/androidTest/` - Instrumented test source set
 
 ## Naming Conventions

@@ -1,0 +1,192 @@
+package `in`.synthora.musicbox.viewmodels
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import `in`.synthora.musicbox.models.Track
+import `in`.synthora.musicbox.database.toTrack
+import `in`.synthora.musicbox.network.Backend
+import `in`.synthora.musicbox.network.BackendAuthException
+import `in`.synthora.musicbox.network.BrowseItem
+import `in`.synthora.musicbox.network.BrowseParser
+import `in`.synthora.musicbox.network.array
+import `in`.synthora.musicbox.network.objectOrEmpty
+import `in`.synthora.musicbox.network.text
+import `in`.synthora.musicbox.network.toTrack
+import `in`.synthora.musicbox.services.AccountRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.util.Calendar
+
+/** One Home shelf. [tracks] are its playable songs in order; [items] keep every card. */
+data class HomeShelf(
+    val id: String,
+    val title: String,
+    val layout: String,
+    val items: List<BrowseItem>,
+    val tracks: List<Track>
+)
+
+data class HomeUiState(
+    val greeting: String = "",
+    val shelves: List<HomeShelf> = emptyList(),
+    val recentTracks: List<Track> = emptyList(),
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    val error: String? = null
+)
+
+/**
+ * Home recommendations from the server's YouTube Music feed: the signed-in account's own Home
+ * when YouTube is connected, otherwise charts and trending music.
+ */
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _uiState = MutableStateFlow(HomeUiState(greeting = buildGreeting()))
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private val _signedOut = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val signedOut: SharedFlow<Unit> = _signedOut.asSharedFlow()
+
+    private var loadJob: Job? = null
+    private var historyJob: Job? = null
+    private val cache = `in`.synthora.musicbox.services.HomeFeedCache(
+        application.getSharedPreferences("home_feed_cache", android.content.Context.MODE_PRIVATE))
+    private var savedAt = 0L
+
+    fun loadHomeData() {
+        refreshRecent()
+        if (loadJob?.isActive == true) return
+        if (_uiState.value.shelves.isNotEmpty() &&
+            `in`.synthora.musicbox.services.isHomeFeedFresh(savedAt, System.currentTimeMillis())) return
+        load(refresh = false)
+    }
+
+    fun clear() {
+        loadJob?.cancel()
+        historyJob?.cancel()
+        cache.clear()
+        savedAt = 0L
+        _uiState.value = HomeUiState(greeting = buildGreeting())
+    }
+
+    fun refresh() {
+        refreshRecent()
+        _uiState.update { it.copy(isRefreshing = true) }
+        load(refresh = true)
+    }
+
+    /** Accounts changed (YouTube connected or signed in again): rebuild the feed. */
+    fun reload() {
+        clear()
+        refreshRecent()
+        load(refresh = true)
+    }
+
+    fun pickSomething(currentVideoId: String?): Track? = `in`.synthora.musicbox.services.chooseHomeRadioSeed(
+        _uiState.value.shelves, _uiState.value.recentTracks, AccountRepository.liked.value, currentVideoId)
+
+    private fun refreshRecent() {
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            val recent = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    `in`.synthora.musicbox.database.MusicDatabase.getDatabase(getApplication()).trackDao()
+                        .getRecentlyPlayed(20).map { it.toTrack() }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { emptyList() }
+            _uiState.update { it.copy(recentTracks = recent) }
+        }
+    }
+
+    private fun load(refresh: Boolean) {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            if (!refresh && _uiState.value.shelves.isEmpty()) {
+                val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { cache.read() }
+                if (cached != null) {
+                    val shelves = parseShelves(cached.feed)
+                    if (shelves.isNotEmpty()) {
+                        savedAt = cached.savedAt
+                        _uiState.update { it.copy(shelves = shelves, greeting = buildGreeting(), isLoading = false, error = null) }
+                        if (cached.isFresh(System.currentTimeMillis())) return@launch
+                    }
+                }
+            }
+            if (!`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
+                _uiState.update { it.copy(isLoading = false, isRefreshing = false, error = "You're offline. Your downloaded music is available in Library.") }
+                return@launch
+            }
+            try {
+                val feed = Backend.get("/api/home/", if (refresh || savedAt > 0) mapOf("refresh" to "1") else emptyMap()).objectOrEmpty()
+                val shelves = parseShelves(feed)
+                if (shelves.isNotEmpty()) {
+                    val serialized = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { feed.toString() }
+                    savedAt = System.currentTimeMillis()
+                    cache.save(serialized, savedAt)
+                }
+                _uiState.update {
+                    it.copy(
+                        greeting = buildGreeting(),
+                        shelves = shelves.ifEmpty { it.shelves },
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = if (shelves.isEmpty()) "No recommendations yet. Pull down to try again." else null
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BackendAuthException) {
+                _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
+                _signedOut.tryEmit(Unit)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = `in`.synthora.musicbox.network.networkErrorMessage(e) ?: "Couldn't load recommendations. Pull down to try again."
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun parseShelves(feed: kotlinx.serialization.json.JsonObject): List<HomeShelf> {
+        val liked = AccountRepository.liked.value
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            feed.array("shelves").mapNotNull { raw ->
+                val shelf = raw.objectOrEmpty()
+                val items = shelf.array("items").mapNotNull {
+                    (it as? kotlinx.serialization.json.JsonObject)?.let(BrowseParser::item)
+                }
+                if (items.isEmpty()) return@mapNotNull null
+                HomeShelf(
+                    id = shelf.text("id"),
+                    title = shelf.text("title"),
+                    layout = shelf.text("layout"),
+                    items = items,
+                    tracks = items.filter { it.kind == "track" && it.videoId.isNotBlank() }.map { it.toTrack(liked) }
+                )
+            }
+        }
+    }
+
+    private fun buildGreeting(): String {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return when (hour) {
+            in 5..11 -> "First Light Sounds !"
+            in 12..16 -> "Afternoon Drift !"
+            in 17..20 -> "The Golden Hour !"
+            else -> "After Dark !"
+        }
+    }
+}

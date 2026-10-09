@@ -67,7 +67,7 @@ Data Layer
 ### Directory Structure
 
 ```
-app/src/main/java/com/example/juke/
+app/src/main/java/in/synthora/musicbox/
 ├── analytics/         # Analytics tracking
 ├── database/          # Room entities, DAOs, MusicDatabase
 ├── models/            # Data classes (Track, Artist, Album, etc.)
@@ -157,7 +157,7 @@ app/src/main/java/com/example/juke/
 
 ### Naming Conventions
 
-- **Packages**: `com.example.juke.{feature}` (lowercase)
+- **Packages**: `in.synthora.musicbox.{feature}` (lowercase)
 - **Classes**: PascalCase (ViewModels end with `ViewModel`)
 - **Functions/Variables**: camelCase
 - **Constants**: UPPER_SNAKE_CASE in companion objects

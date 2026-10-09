@@ -32,6 +32,25 @@ on:
         default: false
 
 jobs:
+  verify-connect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Check playback, queue and device protocol (no emulator)
+        run: sh ./gradlew testDebugUnitTest --tests 'in.synthora.musicbox.services.BufferedPlaybackTest' --tests 'in.synthora.musicbox.services.ArchitecturePolicyTest' --tests 'in.synthora.musicbox.services.PlaybackResumeTest' --tests 'in.synthora.musicbox.services.DeviceConnectionServiceTest' --tests 'in.synthora.musicbox.services.ControllerBindingReleaseTest' --tests 'in.synthora.musicbox.services.QueueInstallationTest' --tests 'in.synthora.musicbox.network.ArtworkTest' --tests 'in.synthora.musicbox.services.SharedPlaybackOutputTest' --tests 'in.synthora.musicbox.services.DeviceQueueStartupTest' --tests 'in.synthora.musicbox.services.PhoneQueuePublicationTest' --tests 'in.synthora.musicbox.services.UpcomingAudioPreloaderTest' --tests 'in.synthora.musicbox.services.BackgroundPlaybackRecoveryTest' --tests 'in.synthora.musicbox.services.PlaybackHandoffTest' --tests 'in.synthora.musicbox.services.OutputSwitchRequestsTest' --tests 'in.synthora.musicbox.services.RemoteTransportPreviewTest' --tests 'in.synthora.musicbox.services.OfflinePlaybackTest' --tests 'in.synthora.musicbox.services.HomeFeedCacheTest' --tests 'in.synthora.musicbox.services.HomePersonalizationTest' --tests 'in.synthora.musicbox.services.RemoteTrackEndPreviewTest' --tests 'in.synthora.musicbox.services.AudioResponseValidationTest' --tests 'in.synthora.musicbox.services.NotificationRadioTest' --tests 'in.synthora.musicbox.services.CurrentAudioDownloadGuardTest' --tests 'in.synthora.musicbox.services.SilentPlaybackWatchdogTest' --tests 'in.synthora.musicbox.services.PhonePlaylistBackfillTest' --tests 'in.synthora.musicbox.viewmodels.PlaylistRemainderTest' --no-daemon
+
+      - name: Upload focused device protocol test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-protocol-tests
+          path: app/build/test-results/testDebugUnitTest
+
   build:
     runs-on: ubuntu-latest
 
@@ -109,11 +128,11 @@ jobs:
 
       - name: Check audio output handoff and ownership
         if: ${{ inputs.handoff_tests == true }}
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'in.synthora.musicbox.services.UpcomingAudioPreloaderTest' --tests 'in.synthora.musicbox.services.BackgroundPlaybackRecoveryTest' --tests 'in.synthora.musicbox.services.PlaybackHandoffTest' --tests 'in.synthora.musicbox.services.SharedPlaybackOutputTest' --tests 'in.synthora.musicbox.services.OutputSwitchRequestsTest' --tests 'in.synthora.musicbox.services.RemoteTransportPreviewTest' --tests 'in.synthora.musicbox.services.OfflinePlaybackTest' --tests 'in.synthora.musicbox.services.HomeFeedCacheTest' --tests 'in.synthora.musicbox.services.HomePersonalizationTest' --tests 'in.synthora.musicbox.services.RemoteTrackEndPreviewTest' --tests 'in.synthora.musicbox.services.AudioResponseValidationTest' --tests 'in.synthora.musicbox.services.NotificationRadioTest' --tests 'in.synthora.musicbox.services.CurrentAudioDownloadGuardTest' --no-daemon
 
       - name: Check affected download, playlist and queue logic
         if: ${{ inputs.library_player_tests == true && inputs.stable_release != true }}
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.database.DownloadManifestDatabaseTest' --tests 'com.example.juke.services.ArchitecturePolicyTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.network.CollectionContentTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.services.PlaybackResumeTest' --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.RateLimitRetryTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.PhoneQueueRequestTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.services.QueueContinuationTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'in.synthora.musicbox.database.DownloadManifestDatabaseTest' --tests 'in.synthora.musicbox.services.ArchitecturePolicyTest' --tests 'in.synthora.musicbox.services.EchoSnapshotTest' --tests 'in.synthora.musicbox.network.CollectionContentTest' --tests 'in.synthora.musicbox.network.ArtworkTest' --tests 'in.synthora.musicbox.services.ArchitecturePolicyTest' --tests 'in.synthora.musicbox.services.PlaybackResumeTest' --tests 'in.synthora.musicbox.services.DeviceConnectionServiceTest' --tests 'in.synthora.musicbox.network.DownloadCookiesTest' --tests 'in.synthora.musicbox.network.RateLimitRetryTest' --tests 'in.synthora.musicbox.network.BrowseParserTest' --tests 'in.synthora.musicbox.network.PhoneQueueRequestTest' --tests 'in.synthora.musicbox.services.DownloadedCollectionTest' --tests 'in.synthora.musicbox.services.SharedPlaybackOutputTest' --tests 'in.synthora.musicbox.services.SharedQueueTest' --tests 'in.synthora.musicbox.services.QueueContinuationTest' --tests 'in.synthora.musicbox.services.DeviceQueueStartupTest' --tests 'in.synthora.musicbox.services.PhoneQueuePublicationTest' --tests 'in.synthora.musicbox.services.UpcomingAudioPreloaderTest' --tests 'in.synthora.musicbox.services.BackgroundPlaybackRecoveryTest' --tests 'in.synthora.musicbox.services.PlaybackHandoffTest' --tests 'in.synthora.musicbox.services.OutputSwitchRequestsTest' --tests 'in.synthora.musicbox.services.RemoteTransportPreviewTest' --tests 'in.synthora.musicbox.services.OfflinePlaybackTest' --tests 'in.synthora.musicbox.services.HomeFeedCacheTest' --tests 'in.synthora.musicbox.services.HomePersonalizationTest' --tests 'in.synthora.musicbox.services.RemoteTrackEndPreviewTest' --tests 'in.synthora.musicbox.services.AudioResponseValidationTest' --tests 'in.synthora.musicbox.services.NotificationRadioTest' --tests 'in.synthora.musicbox.services.CurrentAudioDownloadGuardTest' --no-daemon
 
       - name: Check release logic and update channel
         if: ${{ inputs.stable_release == true }}
@@ -121,10 +140,10 @@ jobs:
 
       - name: Check browse, playback presentation and Echo snapshots
         if: ${{ inputs.handoff_tests != true && inputs.library_player_tests != true && inputs.stable_release != true }}
-        run: sh ./gradlew testDebugUnitTest --tests 'com.example.juke.network.PhoneQueueRequestTest' --tests 'com.example.juke.network.DownloadCookiesTest' --tests 'com.example.juke.network.BrowseParserTest' --tests 'com.example.juke.network.NetworkErrorTest' --tests 'com.example.juke.models.PlaybackPresentationTest' --tests 'com.example.juke.services.EchoSnapshotTest' --tests 'com.example.juke.services.DeviceQueueStartupTest' --tests 'com.example.juke.services.PlaybackHandoffTest' --tests 'com.example.juke.services.OutputSwitchRequestsTest' --tests 'com.example.juke.network.ArtworkTest' --tests 'com.example.juke.network.DeviceAudioTest' --tests 'com.example.juke.utils.LogRedactionTest' --tests 'com.example.juke.services.DownloadedCollectionTest' --tests 'com.example.juke.services.SharedQueueTest' --tests 'com.example.juke.services.QueueContinuationTest' --tests 'com.example.juke.services.SharedPlaybackOutputTest' --tests 'com.example.juke.services.PhoneQueuePublicationTest' --tests 'com.example.juke.network.SearchRankingTest' --tests 'com.example.juke.network.YoutubeLinkTest' --tests 'com.example.juke.utils.PlaybackTimeTest' --tests 'com.example.juke.utils.OfflineNavigationTest' --no-daemon
+        run: sh ./gradlew testDebugUnitTest --tests 'in.synthora.musicbox.network.PhoneQueueRequestTest' --tests 'in.synthora.musicbox.network.DownloadCookiesTest' --tests 'in.synthora.musicbox.network.BrowseParserTest' --tests 'in.synthora.musicbox.network.NetworkErrorTest' --tests 'in.synthora.musicbox.models.PlaybackPresentationTest' --tests 'in.synthora.musicbox.services.EchoSnapshotTest' --tests 'in.synthora.musicbox.services.DeviceQueueStartupTest' --tests 'in.synthora.musicbox.services.UpcomingAudioPreloaderTest' --tests 'in.synthora.musicbox.services.BackgroundPlaybackRecoveryTest' --tests 'in.synthora.musicbox.services.PlaybackHandoffTest' --tests 'in.synthora.musicbox.services.OutputSwitchRequestsTest' --tests 'in.synthora.musicbox.services.RemoteTransportPreviewTest' --tests 'in.synthora.musicbox.services.OfflinePlaybackTest' --tests 'in.synthora.musicbox.services.HomeFeedCacheTest' --tests 'in.synthora.musicbox.services.HomePersonalizationTest' --tests 'in.synthora.musicbox.services.RemoteTrackEndPreviewTest' --tests 'in.synthora.musicbox.services.AudioResponseValidationTest' --tests 'in.synthora.musicbox.services.NotificationRadioTest' --tests 'in.synthora.musicbox.services.CurrentAudioDownloadGuardTest' --tests 'in.synthora.musicbox.network.ArtworkTest' --tests 'in.synthora.musicbox.network.DeviceAudioTest' --tests 'in.synthora.musicbox.utils.LogRedactionTest' --tests 'in.synthora.musicbox.services.DownloadedCollectionTest' --tests 'in.synthora.musicbox.services.SharedQueueTest' --tests 'in.synthora.musicbox.services.QueueContinuationTest' --tests 'in.synthora.musicbox.services.SharedPlaybackOutputTest' --tests 'in.synthora.musicbox.services.PhoneQueuePublicationTest' --tests 'in.synthora.musicbox.network.SearchRankingTest' --tests 'in.synthora.musicbox.network.YoutubeLinkTest' --tests 'in.synthora.musicbox.utils.PlaybackTimeTest' --tests 'in.synthora.musicbox.utils.OfflineNavigationTest' --tests 'in.synthora.musicbox.services.RemoteVolumeKeysTest' --tests 'in.synthora.musicbox.ui.components.player.LyricCenteringTest' --no-daemon
 
       - name: Upload handoff test results
-        if: ${{ always() && (inputs.handoff_tests == true || inputs.library_player_tests == true || inputs.stable_release == true) }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: handoff-test-results
@@ -134,6 +153,9 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew ${{ inputs.stable_release == true && 'assembleRelease' || 'assembleDebug' }} --no-daemon
+
+      - name: Verify APK launch and service entry points
+        run: python3 scripts/verify_apk_components.py app/build/outputs/apk/${{ inputs.stable_release == true && 'release/app-release.apk' || 'debug/app-debug.apk' }}
 
       - name: Verify stable APK and package checksums
         if: ${{ inputs.stable_release == true }}
@@ -232,8 +254,8 @@ jobs:
           script: |
             adb install apk/app-debug.apk
             adb install test-apk/app-debug-androidTest.apk
-            adb shell am instrument -w -e class ${{ matrix.tablet && 'com.example.juke.TabletPlaybackRegressionTest,com.example.juke.CollectionParityRegressionTest,com.example.juke.QueueRecoveryRegressionTest' || inputs.playback_tests && 'com.example.juke.PlaybackStreamRegressionTest,com.example.juke.FeatureInteractionRegressionTest,com.example.juke.TabletPlaybackRegressionTest,com.example.juke.CollectionParityRegressionTest,com.example.juke.QueueRecoveryRegressionTest' || 'com.example.juke.DownloadCookieUiTest,com.example.juke.UiRefinementRegressionTest,com.example.juke.BetaUiRegressionTest,com.example.juke.WebLayoutRegressionTest' }} com.example.juke.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
-            [ "${{ inputs.full_ui_tests }}" != "true" ] || adb pull /sdcard/Android/data/com.example.juke/files/screenshots screenshots
+            adb shell am instrument -w -e class ${{ matrix.tablet && 'in.synthora.musicbox.TabletPlaybackRegressionTest,in.synthora.musicbox.CollectionParityRegressionTest,in.synthora.musicbox.QueueRecoveryRegressionTest' || inputs.playback_tests && 'in.synthora.musicbox.PlaybackStreamRegressionTest,in.synthora.musicbox.FeatureInteractionRegressionTest,in.synthora.musicbox.TabletPlaybackRegressionTest,in.synthora.musicbox.CollectionParityRegressionTest,in.synthora.musicbox.QueueRecoveryRegressionTest' || 'in.synthora.musicbox.DownloadCookieUiTest,in.synthora.musicbox.UiRefinementRegressionTest,in.synthora.musicbox.BetaUiRegressionTest,in.synthora.musicbox.WebLayoutRegressionTest' }} in.synthora.musicbox.test/androidx.test.runner.AndroidJUnitRunner > ui-results.txt
+            [ "${{ inputs.full_ui_tests }}" != "true" ] || adb pull /sdcard/Android/data/in.synthora.musicbox/files/screenshots screenshots
             cat ui-results.txt
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' ui-results.txt
             grep -E 'OK \([0-9]+ tests?\)' ui-results.txt

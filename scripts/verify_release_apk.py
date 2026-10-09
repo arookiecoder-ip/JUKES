@@ -30,14 +30,14 @@ def main(build_tools: Path, apk: Path) -> None:
     element = metadata["elements"][0]
     version, code = element["versionName"], element["versionCode"]
     assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "Stable version must have no prerelease suffix"
-    assert metadata["applicationId"] == "com.example.juke", "Package identity changed"
+    assert metadata["applicationId"] == "in.synthora.musicbox", "Package identity changed"
     signing = subprocess.check_output([str(build_tools / "apksigner"), "verify", "--verbose", "--print-certs", str(apk)], text=True)
     expected = Path(".github/signing/debug-certificate.sha256").read_text().strip()
     print(signing, end="")  # Public certificates only; never private signing material.
     verify_pinned_certificate(signing, expected)
     badging = subprocess.check_output([str(build_tools / "aapt"), "dump", "badging", str(apk)], text=True)
     package_line = badging.splitlines()[0]
-    assert "name='com.example.juke'" in package_line
+    assert "name='in.synthora.musicbox'" in package_line
     assert f"versionName='{version}'" in package_line and f"versionCode='{code}'" in package_line
     assert "application-debuggable" not in badging, "Stable APK is debuggable"
     manifest = subprocess.check_output([str(build_tools / "aapt"), "dump", "xmltree", str(apk), "AndroidManifest.xml"], text=True)
@@ -49,7 +49,7 @@ def main(build_tools: Path, apk: Path) -> None:
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     (output / "SHA256SUMS.txt").write_text(f"{digest}  {target.name}\n")
     (output / "signing-certificate.sha256").write_text(expected + "\n")
-    print(f"Verified stable {version} ({code}), package com.example.juke, non-debuggable, matching signature")
+    print(f"Verified stable {version} ({code}), package in.synthora.musicbox, non-debuggable, matching signature")
     print(f"SHA256: {digest}")
 
 
