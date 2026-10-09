@@ -71,4 +71,35 @@ class PlaybackPresentationTest {
         assertSame(stale, `in`.synthora.musicbox.viewmodels.reconcilePhonePlayback(stale, listOf(next), "missing"))
     }
 
+    @Test fun combinedIdlessCreditMatchesWebappAndSplitsScreenshotArtists() {
+        val byline = "Sai Abhyankkar and Shruti Haasan and Vivek"
+        val track = Track("song", "Song", byline, durationSec = 10,
+            artists = listOf(ArtistCredit(byline)))
+        assertEquals(listOf("Sai Abhyankkar", "Shruti Haasan", "Vivek"),
+            track.artistCredits().map { it.name })
+    }
+
+    @Test fun authoritativeNamesContainingConjunctionsRemainOneArtist() {
+        for (name in listOf("Of Monsters and Men", "Florence and the Machine", "Simon & Garfunkel", "Earth, Wind & Fire")) {
+            val credit = ArtistCredit(name, "UCband")
+            assertEquals(listOf(credit), Track("song", "Song", name, durationSec = 10,
+                artists = listOf(credit)).artistCredits())
+        }
+        val credits = listOf(ArtistCredit("Of Monsters and Men", "UCband"), ArtistCredit("Guest"))
+        assertEquals(credits, Track("song", "Song", "Unused", durationSec = 10, artists = credits).artistCredits())
+        assertEquals(listOf(ArtistCredit("Simon & Garfunkel")),
+            Track("song", "Song", "Simon & Garfunkel", durationSec = 10).artistCredits())
+    }
+
+    @Test fun legacySeparatorsBlankIdsAndOxfordCommaKeepCorrectPrimaryId() {
+        for (byline in listOf("A, B, and C", " A AND B featuring C ", "A · B ft. C")) {
+            assertEquals(listOf(ArtistCredit("A", "UCfirst"), ArtistCredit("B"), ArtistCredit("C")),
+                Track("song", "Song", byline, durationSec = 10, artistId = "UCfirst",
+                    artists = listOf(ArtistCredit(byline, " "))).artistCredits())
+        }
+        assertTrue(Track("song", "Song", " ", durationSec = 10).artistCredits().isEmpty())
+        assertEquals(listOf(ArtistCredit("A")),
+            Track("song", "Song", "A and a", durationSec = 10).artistCredits())
+    }
+
 }

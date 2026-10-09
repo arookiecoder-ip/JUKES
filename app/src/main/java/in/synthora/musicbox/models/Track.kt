@@ -60,8 +60,30 @@ data class LRCLibResult(
 @Serializable
 data class ArtistCredit(val name: String, val id: String? = null)
 
-/** Prefer the account's individual credits; fall back to the displayed artist string. */
-fun Track.artistCredits(): List<ArtistCredit> = artists.filter { it.name.isNotBlank() }.ifEmpty {
-    artist.split(Regex("\\s*(?:,| & | feat\\.? | ft\\.? | featuring )\\s*", RegexOption.IGNORE_CASE))
-        .filter { it.isNotBlank() }.mapIndexed { index, name -> ArtistCredit(name.trim(), if (index == 0) artistId else null) }
-}.distinctBy { it.id ?: it.name.lowercase() }
+/**
+ * Match the webapp's artistLinksHtml rules: authoritative structured credits
+ * preserve literal names (including "and" and "&"). An ID-less combined
+ * credit is a legacy byline, not a declaration of a single artist.
+ */
+fun Track.artistCredits(): List<ArtistCredit> {
+    val supplied = artists.filter { it.name.isNotBlank() }.map {
+        ArtistCredit(it.name.trim(), it.id?.trim()?.takeIf(String::isNotEmpty))
+    }
+    val credits = if (supplied.size > 1 || supplied.singleOrNull()?.id != null) {
+        supplied
+    } else {
+        val byline = supplied.singleOrNull()?.name ?: artist.trim()
+        byline.split(ARTIST_BYLINE_SEPARATOR).map(String::trim).filter(String::isNotEmpty)
+            .mapIndexed { index, name ->
+                ArtistCredit(name, if (index == 0) artistId?.trim()?.takeIf(String::isNotEmpty) else null)
+            }
+    }
+    return credits.distinctBy { it.id ?: it.name.lowercase(java.util.Locale.ROOT) }
+}
+
+// Server credit joins use "and" and commas, never ampersands. Preserve band
+// names such as Simon & Garfunkel; structured collaborations already have rows.
+private val ARTIST_BYLINE_SEPARATOR = Regex(
+    ",\\s+and\\s+|,\\s*|\\s+and\\s+|\\s*·\\s*|\\s+(?:feat\\.?|ft\\.?|featuring)\\s+",
+    RegexOption.IGNORE_CASE
+)
