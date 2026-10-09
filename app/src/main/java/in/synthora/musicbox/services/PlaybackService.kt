@@ -681,7 +681,8 @@ class PlaybackService : MediaLibraryService() {
                 // Media3 treats replacing an item with the same URI as a metadata update.
                 // Stop first so prepare actually discards the broken loader/socket.
                 player.stop()
-                player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).setMimeType(null).setCustomCacheKey(null).build())
+                player.replaceMediaItem(index, original.buildUpon().setUri(refreshed.localUri!!).setMimeType(null)
+                    .setCustomCacheKey(if (cachedSource) original.localConfiguration?.customCacheKey else null).build())
                 player.seekTo(index, position)
                 player.prepare()
                 player.playWhenReady = resume && !inCall()
