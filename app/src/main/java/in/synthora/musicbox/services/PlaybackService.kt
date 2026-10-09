@@ -594,6 +594,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun cancelSessionResume() {
+        cancelledMedia3Resume = true
         resumeCommands.pause()
         mainHandler.removeCallbacks(resumeAfterCall)
         resumeSessionJob?.cancel()
