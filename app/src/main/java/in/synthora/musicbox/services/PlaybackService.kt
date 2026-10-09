@@ -325,7 +325,6 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun recoverAfterLeaseRenewal() {
-        offlineReconciliation.reconciled()
         if (!leaseInterruption.canResume(player.currentMediaItem?.mediaId, PhonePlaybackOwnership.token,
                 PhonePlaybackOwnership.permitsPlayback(), PhonePlaybackOwnership.localHandoff, inCall()) ||
             outputPrefs.getString("playback_output", "PHONE") != "PHONE") return
@@ -1056,7 +1055,7 @@ class PlaybackService : MediaLibraryService() {
         PhonePlaybackSynchronizer(applicationContext, serviceScope, player,
             trackById = { database.trackDao().getTrackByUuid(it)?.toTrack() },
             extendQueue = { maybeExtendPhoneQueue() }, pauseForLease = ::pauseForExpiredLease,
-            leaseRenewed = ::recoverAfterLeaseRenewal,
+            leaseRenewed = { offlineReconciliation.reconciled(); recoverAfterLeaseRenewal() },
             offlineAudioAvailable = ::canContinueCurrentAudioOffline,
             recoveryPending = { leaseInterruption.pending || networkInterruption.pending || recoveryShouldResume },
             pauseForHandoff = { pausePhoneForHandoff() }).start()
