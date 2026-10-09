@@ -21,6 +21,48 @@ import java.util.concurrent.atomic.AtomicBoolean
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class UpcomingAudioPreloaderTest {
+    @Test fun lazyFailureDoesNotDelaySelectedSongButServerRateLimitStillApplies() = runBlocking {
+        for (limited in listOf(false, true)) {
+            val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "retry-promotion-${System.nanoTime()}")
+            val cache = SimpleCache(directory, NoOpCacheEvictor())
+            val lazyFactory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory {
+                object : DataSource {
+                    override fun addTransferListener(listener: TransferListener) {}
+                    override fun open(spec: DataSpec): Long {
+                        if (limited) throw HttpDataSource.InvalidResponseCodeException(429, "Slow down", null,
+                            emptyMap(), spec, byteArrayOf())
+                        throw IOException("Speculative download failed")
+                    }
+                    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = -1
+                    override fun getUri(): Uri? = null
+                    override fun close() {}
+                }
+            }
+            val demandFactory = CacheDataSource.Factory().setCache(cache)
+                .setUpstreamDataSourceFactory { ByteArrayDataSource(ByteArray(8_192)) }
+            var now = 0L
+            val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+            val preloader = UpcomingAudioPreloader(lazyFactory, childScope, policyOverride = { PreloadPolicy(1, -1) },
+                nowMs = { now }, demandFactory = demandFactory)
+            val url = "https://audio.example/next"
+            suspend fun finish() { withTimeout(5_000) { childScope.coroutineContext[Job]!!.children.toList().forEach { it.join() } } }
+            try {
+                preloader.update(listOf(url)); finish()
+                assertFalse(cache.isCached(url, 0, 8_192))
+                preloader.update(emptyList(), currentUrl = url); finish()
+                assertEquals(!limited, cache.isCached(url, 0, 8_192))
+                if (limited) {
+                    now = 60_000
+                    preloader.update(emptyList(), currentUrl = url); finish()
+                    assertTrue(cache.isCached(url, 0, 8_192))
+                }
+            } finally {
+                preloader.clear(); childScope.coroutineContext[Job]?.cancelAndJoin()
+                cache.release(); directory.deleteRecursively()
+            }
+        }
+    }
+
     @Test fun activeLazyDownloadIsPromotedToDemandWhenItsSongStarts() = runBlocking {
         val directory = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "promote-${System.nanoTime()}")
         val cache = SimpleCache(directory, NoOpCacheEvictor())

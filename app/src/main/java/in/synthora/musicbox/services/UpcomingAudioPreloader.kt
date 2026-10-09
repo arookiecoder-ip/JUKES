@@ -27,7 +27,8 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
         val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(url))
         return length > 0 && cache.isCached(url, 0, length)
     }
-    private val retries = mutableMapOf<String, BackgroundRetry>()
+    private data class RetryWork(val backoff: BackgroundRetry = BackgroundRetry(), var demand: Boolean = false, var rateLimited: Boolean = false)
+    private val retries = mutableMapOf<String, RetryWork>()
     fun update(urls: List<String>, buffering: Boolean = false, currentUrl: String? = null) {
         val connectivity = context?.getSystemService(android.net.ConnectivityManager::class.java)
         val policy = policyOverride?.invoke(buffering) ?: preloadPolicy(`in`.synthora.musicbox.network.NetworkFeedback.online.value,
@@ -35,6 +36,9 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
             context?.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)?.getBoolean("prefetch_mobile_data", false) ?: false, buffering)
         val current = currentUrl?.takeIf { Uri.parse(it).scheme in listOf("https", "http") }
         val currentComplete = current != null && fullyCached(current)
+        // A failed speculative download cannot delay a newly selected song.
+        // Keep explicit server rate-limit backoff even when priority changes.
+        if (current != null && retries[current]?.let { !it.demand && !it.rateLimited } == true) retries.remove(current)
         val budget = context?.getSharedPreferences("music_settings_prefs", android.content.Context.MODE_PRIVATE)
             ?.getInt("stream_cache_mb", 256)?.coerceIn(128, 1024)?.toLong()?.times(1024 * 1024) ?: Long.MAX_VALUE
         val currentLength = current?.let { androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(it)) }?.coerceAtLeast(0) ?: 0
@@ -57,7 +61,7 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
         }
         retries.keys.retainAll(wanted)
         wanted.filter { it !in work && (it !in completed || (it == current && !currentComplete)) &&
-            retries[it]?.ready(nowMs()) != false }.forEach { url ->
+            retries[it]?.backoff?.ready(nowMs()) != false }.forEach { url ->
             val targetLength = if (url == current) androidx.media3.common.C.LENGTH_UNSET.toLong() else policy.bytesPerTrack
             val source = (if (url == current) demandFactory else factory).createDataSource() as CacheDataSource
             var guard: AudioDownloadGuard? = null
@@ -87,7 +91,12 @@ class UpcomingAudioPreloader(private val factory: DataSource.Factory, private va
                     val limited = generateSequence<Throwable>(error) { it.cause }.take(8)
                         .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
                         .firstOrNull()?.responseCode == 429
-                    if (work[url]?.writer === writer) retries.getOrPut(url) { BackgroundRetry() }.failed(nowMs(), if (limited) 60_000 else 0)
+                    if (work[url]?.writer === writer) {
+                        val retry = retries.getOrPut(url) { RetryWork() }
+                        retry.demand = url == current
+                        retry.rateLimited = limited
+                        retry.backoff.failed(nowMs(), if (limited) 60_000 else 0)
+                    }
                 } finally {
                     withContext(Dispatchers.IO + NonCancellable) { runCatching { source.close() } }
                     if (work[url]?.writer === writer) work.remove(url)
