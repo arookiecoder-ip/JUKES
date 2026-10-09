@@ -617,21 +617,23 @@ class PlaybackService : MediaLibraryService() {
                 DownloadRepository.get(applicationContext).awaitReady()
                 if (malformed) {
                     upcomingPreloader?.clearAndAwait()
-                    DownloadRepository.get(applicationContext).invalidateDamagedDownload(track)
+                    DownloadRepository.get(applicationContext).invalidateDamagedDownload(track, original.localConfiguration?.uri?.toString())
+                    withContext(Dispatchers.IO) {
+                        val config = original.localConfiguration
+                        StreamCacheManager.removeTrackCache(config?.customCacheKey ?: config?.uri?.toString())
+                    }
                 }
-                if (malformed && !`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
+                val local = DownloadRepository.get(applicationContext).localTrack(track).takeUnless {
+                    malformed && sameAudioSource(it.localUri, original.localConfiguration?.uri?.toString())
+                }
+                if (malformed && local == null && !`in`.synthora.musicbox.network.NetworkFeedback.online.value) {
                     malformedAudioRetried.remove(trackId)
                     recoveryShouldResume = false
                     player.pause()
                     `in`.synthora.musicbox.network.NetworkFeedback.notify("This audio is damaged. Connect to the internet to download it again.")
                     return@launch
                 }
-                val local = DownloadRepository.get(applicationContext).localTrack(track).takeUnless { malformed }
                 val refreshed = if (local != null) local else {
-                    if (malformed) withContext(Dispatchers.IO) {
-                        val config = original.localConfiguration
-                        StreamCacheManager.removeTrackCache(config?.customCacheKey ?: config?.uri?.toString())
-                    }
                     val video = track.ytVideoId ?: return@launch
                     if (!manual || httpFailure?.responseCode == 429) delay(retryDelay)
                     val url = withContext(Dispatchers.IO) { AlexaBackendApi.getStreamUrl(video) }

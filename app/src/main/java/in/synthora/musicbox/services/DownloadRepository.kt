@@ -142,9 +142,9 @@ class DownloadRepository private constructor(private val context: Context) {
     }
 
     /** Remove only this repository's damaged completed copy, retaining collection membership. */
-    suspend fun invalidateDamagedDownload(track: Track) {
+    suspend fun invalidateDamagedDownload(track: Track, failedSource: String?) {
         awaitReady()
-        val entries = completed.filter { it.track.ytVideoId == track.ytVideoId && track.ytVideoId != null }
+        val entries = completed.filter { it.track.ytVideoId == track.ytVideoId && track.ytVideoId != null && sameAudioSource(it.track.localUri, failedSource) }
         completed.removeAll(entries.toSet())
         save(); publishStatus()
         withContext(Dispatchers.IO) { entries.forEach { manager.remove(it.id); file(it.track)?.delete() } }

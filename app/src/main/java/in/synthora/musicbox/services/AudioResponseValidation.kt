@@ -21,6 +21,20 @@ internal fun isAudioErrorContentType(type: String?): Boolean {
 internal fun hasInvalidAudioResponse(error: Throwable?): Boolean =
     generateSequence(error) { it.cause }.take(8).any { it is InvalidAudioResponseException }
 
+internal fun sameAudioSource(first: String?, second: String?): Boolean {
+    if (first == null || second == null) return false
+    fun local(value: String): java.io.File? = runCatching {
+        val uri = java.net.URI(value)
+        when (uri.scheme?.lowercase()) {
+            "file" -> java.io.File(uri).canonicalFile
+            null -> java.io.File(value).canonicalFile
+            else -> null
+        }
+    }.getOrNull()
+    val a = local(first); val b = local(second)
+    return if (a != null && b != null) a == b else first == second
+}
+
 internal fun validCompletedAudio(file: java.io.File?, bytes: Long, total: Long): Boolean =
     file != null && file.isFile && file.canRead() && bytes > 0 && file.length() == bytes &&
         (total <= 0 || bytes == total) && runCatching {

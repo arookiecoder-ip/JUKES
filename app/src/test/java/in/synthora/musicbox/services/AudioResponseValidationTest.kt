@@ -67,6 +67,13 @@ class AudioResponseValidationTest {
             assertFalse(validCompletedAudio(file, file.length(), file.length()))
         } finally { file.delete() }
     }
+    @Test fun onlyTheFailingLocalFileIsInvalidatedAndHealthyDownloadsSurviveNetworkErrors() {
+        val file = java.io.File("/tmp/test-audio.m4a")
+        assertTrue(sameAudioSource(file.absolutePath, file.toURI().toString()))
+        assertFalse(sameAudioSource(file.toURI().toString(), "https://example.test/audio"))
+        assertFalse(sameAudioSource(file.toURI().toString(), "/tmp/other-audio.m4a"))
+        assertFalse(sameAudioSource(null, null))
+    }
     @Test fun recognizedBinaryContainersAndGenericMimeRemainAllowed() {
         for (header in listOf("ID3", "OggS", "fLaC", "RIFF", "\u0000\u0000\u0000\u0018ftyp")) assertFalse(isAudioErrorDocument(header.toByteArray()))
         assertFalse(isAudioErrorContentType("audio/mp4")); assertFalse(isAudioErrorContentType(null))
