@@ -61,14 +61,18 @@ internal class ReadOnlyPlaybackDataSource(network: DataSource, private val cache
     }
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
-        if (active === offline) {
-            val key = sessionKey ?: throw java.io.IOException("No open cache request")
-            val metadata = cache.getContentMetadata(key)
-            if (metadata.get(AUDIO_GENERATION, "").orEmpty() != sessionGeneration ||
-                ContentMetadata.getContentLength(metadata) != cachedTotal)
-                throw AudioRepresentationChangedException()
-        }
-        return active.read(buffer, offset, length)
+        requireUnchangedCache()
+        val read = active.read(buffer, offset, length)
+        // Replacement can race the read itself, including a span boundary.
+        requireUnchangedCache()
+        return read
+    }
+    private fun requireUnchangedCache() {
+        if (active !== offline) return
+        val metadata = cache.getContentMetadata(sessionKey ?: throw java.io.IOException("No open cache request"))
+        if (metadata.get(AUDIO_GENERATION, "").orEmpty() != sessionGeneration ||
+            ContentMetadata.getContentLength(metadata) != cachedTotal)
+            throw AudioRepresentationChangedException()
     }
     override fun getUri(): Uri? = uri
     override fun getResponseHeaders(): Map<String, List<String>> = active.responseHeaders

@@ -50,26 +50,27 @@ internal class CachedAudioFallbackDataSource(private val network: DataSource, pr
         // Once the warmer has saved the whole resource, stop depending on the
         // socket even if it has not reported the connectivity loss yet.
         if (active === network) useCompletedCache(null)
-        val read = try {
-            if (active !== network) {
-                val spec = request ?: throw IOException("No open audio request")
-                val key = spec.key ?: spec.uri.toString()
-                val metadata = cache.getContentMetadata(key)
-                if (metadata.get(AUDIO_GENERATION, "").orEmpty() != cacheGeneration ||
-                    ContentMetadata.getContentLength(metadata) != savedTotal)
-                    throw AudioRepresentationChangedException()
-            }
-            active.read(buffer, offset, length)
-        }
+        requireUnchangedCache()
+        val read = try { active.read(buffer, offset, length) }
         catch (error: IOException) {
             if (!useCompletedCache(error)) throw error
+            requireUnchangedCache()
             active.read(buffer, offset, length)
         }
+        requireUnchangedCache()
         if (read > 0) {
             if (active === network && !cacheRejected) prefixDigest.update(buffer, offset, read)
             delivered += read
         }
         return read
+    }
+    private fun requireUnchangedCache() {
+        if (active === network) return
+        val spec = request ?: throw IOException("No open audio request")
+        val metadata = cache.getContentMetadata(spec.key ?: spec.uri.toString())
+        if (metadata.get(AUDIO_GENERATION, "").orEmpty() != cacheGeneration ||
+            ContentMetadata.getContentLength(metadata) != savedTotal)
+            throw AudioRepresentationChangedException()
     }
     private fun useCompletedCache(error: IOException?): Boolean {
         val spec = request ?: return false

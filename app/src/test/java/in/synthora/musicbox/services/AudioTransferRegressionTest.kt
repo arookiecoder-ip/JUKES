@@ -361,6 +361,40 @@ class AudioTransferRegressionTest {
         } finally { source.close() }
     }
 
+    @Test fun replacementDuringDiskReadIsDetectedBeforeSamplesReachTheExtractor() {
+        for (mode in 0..2) withCache { cache ->
+            if (mode == 1) fill(cache)
+            val response = Response()
+            var disconnect = false
+            val network = object : DataSource by response {
+                override fun getResponseHeaders() = response.responseHeaders
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (disconnect) { fill(cache); throw IOException("Network disconnected while cache finished") }
+                    return response.read(buffer, offset, length)
+                }
+            }
+            val source = ReadOnlyPlaybackDataSource(ValidatingAudioDataSource(network, cache), cache)
+            try {
+                source.open(spec)
+                if (mode != 1) {
+                    source.read(ByteArray(77), 0, 77)
+                    if (mode == 2) disconnect = true else fill(cache)
+                }
+                source.addTransferListener(object : TransferListener {
+                    override fun onTransferInitializing(source: DataSource, spec: DataSpec, network: Boolean) {}
+                    override fun onTransferStart(source: DataSource, spec: DataSpec, network: Boolean) {}
+                    override fun onTransferEnd(source: DataSource, spec: DataSpec, network: Boolean) {}
+                    override fun onBytesTransferred(source: DataSource, spec: DataSpec, network: Boolean, bytes: Int) {
+                        if (!network) cache.applyContentMetadataMutations(url,
+                            ContentMetadataMutations().set(AUDIO_GENERATION, "replacement-during-read"))
+                    }
+                })
+                try { source.read(ByteArray(4096), 0, 4096); fail("Replacement raced the read without being detected") }
+                catch (_: AudioRepresentationChangedException) {}
+            } finally { source.close() }
+        }
+    }
+
     @Test fun partialCacheCannotConcealTransferFailureAndSourceCanBeReopened() = withCache { cache ->
         val source = CachedAudioFallbackDataSource(ValidatingAudioDataSource(Response(audio.copyOf(1_000)), cache), cache)
         repeat(2) {
