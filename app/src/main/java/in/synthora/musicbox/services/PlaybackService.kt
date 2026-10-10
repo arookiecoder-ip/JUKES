@@ -1110,6 +1110,7 @@ class PlaybackService : MediaLibraryService() {
             val causes = generateSequence<Throwable>(error) { it.cause }.take(8).toList()
             val status = causes.filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
             PlaybackDiagnostics.recordAudioFailure(error.errorCode, causes.map { it.javaClass.simpleName }, status)
+            PlaybackErrorRecorder.capture(error)
             Log.e(TAG, "Player error code=${error.errorCode}; causes=${causes.map { it.javaClass.simpleName }}; HTTP=$status")
             recoverCurrentStream()
         }

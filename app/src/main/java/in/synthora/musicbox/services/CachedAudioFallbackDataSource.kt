@@ -61,7 +61,7 @@ internal class CachedAudioFallbackDataSource(private val network: DataSource, pr
         runCatching { network.close() }
         active = saved
         if (resolvedLength < 0) resolvedLength = delivered + remaining
-        PlaybackDiagnostics.recordTransferFailure("cache_fallback", total, delivered)
+        PlaybackDiagnostics.recordTransferFailure("cache_fallback", total, delivered, spec.position)
         return true
     }
     override fun getUri(): Uri? = if (active === network) network.uri else request?.uri

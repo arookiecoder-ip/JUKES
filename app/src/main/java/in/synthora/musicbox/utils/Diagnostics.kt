@@ -44,6 +44,8 @@ object Diagnostics {
                         appendLine("  reason=${it.reason}, status=${it.status}, time=${it.timestamp}, description=${it.description}")
                     } }
             }
+            appendLine("Last automatically saved audio error:")
+            appendLine(`in`.synthora.musicbox.services.PlaybackErrorRecorder.savedReport(context))
             appendLine("Recent audio failures (codes and exception types only):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioFailures().forEach { appendLine("  $it") }
             appendLine("Recent audio responses (network source, MIME and byte length only):")

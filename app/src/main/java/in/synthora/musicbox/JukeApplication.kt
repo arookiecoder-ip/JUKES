@@ -17,6 +17,7 @@ class JukeApplication : Application(), ImageLoaderFactory, androidx.lifecycle.Vi
 
     override fun onCreate() {
         super.onCreate()
+        `in`.synthora.musicbox.services.PlaybackErrorRecorder.init(this)
         `in`.synthora.musicbox.utils.Diagnostics.installCrashRecorder(this)
         `in`.synthora.musicbox.network.Backend.init(this)
         `in`.synthora.musicbox.services.PhonePlaybackOwnership.init(this)

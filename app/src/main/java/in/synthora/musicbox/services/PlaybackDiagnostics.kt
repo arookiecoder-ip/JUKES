@@ -20,11 +20,11 @@ object PlaybackDiagnostics {
         audioFailures.addLast(AudioFailure(code, causes.take(8), httpStatus))
     }
     @Synchronized fun recentAudioFailures(): List<AudioFailure> = audioFailures.toList()
-    data class AudioTransfer(val kind: String, val expectedBytes: Long, val receivedBytes: Long)
+    data class AudioTransfer(val kind: String, val expectedBytes: Long, val receivedBytes: Long, val requestPosition: Long = -1)
     private val audioTransfers = ArrayDeque<AudioTransfer>()
-    @Synchronized internal fun recordTransferFailure(kind: String, expected: Long, received: Long) {
+    @Synchronized internal fun recordTransferFailure(kind: String, expected: Long, received: Long, requestPosition: Long = -1) {
         if (audioTransfers.size == 16) audioTransfers.removeFirst()
-        audioTransfers.addLast(AudioTransfer(kind, expected, received))
+        audioTransfers.addLast(AudioTransfer(kind, expected, received, requestPosition))
     }
     @Synchronized fun recentAudioTransfers(): List<AudioTransfer> = audioTransfers.toList()
     data class PlaybackEvent(val timeMs: Long, val event: String, val reason: Int, val state: Int,
@@ -32,7 +32,7 @@ object PlaybackDiagnostics {
     private val playbackEvents = ArrayDeque<PlaybackEvent>()
     @Synchronized internal fun recordPlaybackEvent(event: String, reason: Int, state: Int,
         wantsPlay: Boolean, position: Long, buffered: Long, cached: Boolean) {
-        if (playbackEvents.size == 32) playbackEvents.removeFirst()
+        if (playbackEvents.size == 64) playbackEvents.removeFirst()
         playbackEvents.addLast(PlaybackEvent(android.os.SystemClock.elapsedRealtime(), event, reason, state,
             wantsPlay, position, buffered, cached))
     }
