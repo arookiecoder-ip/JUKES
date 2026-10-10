@@ -41,6 +41,12 @@ internal object PlaybackErrorRecorder {
                 appendLine("Error code: ${error.errorCode}")
                 appendLine("Causes: ${causes.map { it.javaClass.simpleName }}")
                 parser?.let { appendLine("Parser message: ${safeParserMessage(it.message, key)}") }
+                causes.filter { it is java.io.IOException }.take(4).forEach { cause ->
+                    appendLine("IO message (${cause.javaClass.simpleName}): ${safeParserMessage(cause.message, key)}")
+                    cause.stackTrace.take(10).forEach { frame ->
+                        appendLine("  at ${safeParserMessage(frame.toString(), key)}")
+                    }
+                }
                 appendLine("Playback events:")
                 PlaybackDiagnostics.recentPlaybackEvents().forEach { appendLine(it) }
                 appendLine("Audio responses:")

@@ -923,7 +923,8 @@ class PlaybackService : MediaLibraryService() {
         val claim = PhonePlaybackOwnership.token
         val malformed = shouldInvalidateAudio(player.playerError?.errorCode ?: 0, hasTruncatedAudio(player.playerError),
             hasInvalidAudioResponse(player.playerError) || hasChangedAudioRepresentation(player.playerError) || hasInvalidCachedAudio(player.playerError),
-            original.localConfiguration?.uri?.scheme in setOf("http", "https"))
+            original.localConfiguration?.uri?.scheme in setOf("http", "https"),
+            currentStreamFullyCached(), hasIncompleteAudioTransfer(player.playerError))
         if (manual) malformedAudioRetried.remove(trackId)
         if (malformed && !malformedAudioRetried.add(trackId)) {
             recoveryShouldResume = false
@@ -1091,7 +1092,8 @@ class PlaybackService : MediaLibraryService() {
 
     private fun recordPlaybackEvent(event: String, reason: Int = 0) {
         PlaybackDiagnostics.recordPlaybackEvent(event, reason, player.playbackState, player.playWhenReady,
-            player.currentPosition, player.bufferedPosition, currentStreamFullyCached())
+            player.currentPosition, player.bufferedPosition, currentStreamFullyCached(),
+            player.currentMediaItem?.localConfiguration?.let { it.customCacheKey ?: it.uri.toString() })
     }
 
     private val playerListener = object : Player.Listener {

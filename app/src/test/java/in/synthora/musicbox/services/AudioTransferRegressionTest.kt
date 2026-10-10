@@ -164,6 +164,7 @@ class AudioTransferRegressionTest {
                 audio.copyInto(buffer, offset, index, index + n); index += n; return n
             }
             override fun getUri() = Uri.parse(url)
+            override fun getResponseHeaders() = mapOf("ETag" to listOf("\"version-a\""))
             override fun close() {}
         }
         val source = CachedAudioFallbackDataSource(network, cache)
@@ -179,6 +180,184 @@ class AudioTransferRegressionTest {
             fill(cache)
             assertArrayEquals(audio, prefix + readAll(source))
             assertEquals(77, network.index)
+        } finally { source.close() }
+    }
+
+    @Test fun completedCacheOfAnotherRepresentationCannotReplaceAnAlreadyOpenSocket() = withCache { cache ->
+        val network = Response(tag = "\"version-a\"")
+        val source = CachedAudioFallbackDataSource(ValidatingAudioDataSource(network, cache), cache)
+        try {
+            source.open(spec)
+            val prefix = ByteArray(77); val prefixLength = source.read(prefix, 0, prefix.size)
+            cache.removeResource(url); clearAudioRepresentation(cache, url)
+            val other = audio.map { (it.toInt() xor 0x40).toByte() }.toByteArray()
+            val save = writer(cache, ValidatingAudioDataSource(Response(other, tag = "\"version-b\""), cache))
+            try { CacheWriter(save, spec, null, null).cache() } finally { save.close() }
+            assertArrayEquals("A running extractor must keep reading version A", audio, prefix.copyOf(prefixLength) + readAll(source))
+        } finally { source.close() }
+    }
+
+    @Test fun equalSizeEtagsCannotHideDifferentBytesAtCacheHandoff() = withCache { cache ->
+        val network = Response()
+        val source = CachedAudioFallbackDataSource(ValidatingAudioDataSource(network, cache), cache)
+        try {
+            source.open(spec)
+            val prefix = ByteArray(77); val n = source.read(prefix, 0, prefix.size)
+            val generation = cache.getContentMetadata(url).get(AUDIO_GENERATION, "").orEmpty()
+            cache.removeResource(url); clearAudioRepresentation(cache, url)
+            val other = audio.map { (it.toInt() xor 0x40).toByte() }.toByteArray()
+            val saved = writer(cache, ValidatingAudioDataSource(Response(other), cache))
+            try { CacheWriter(saved, spec, null, null).cache() } finally { saved.close() }
+            // Simulate damaged/replaced bytes retaining the same metadata identity.
+            cache.applyContentMetadataMutations(url, ContentMetadataMutations().set(AUDIO_GENERATION, generation))
+            assertArrayEquals(audio, prefix.copyOf(n) + readAll(source))
+            assertTrue(PlaybackDiagnostics.recentAudioTransfers().any { it.kind == "cache_identity_mismatch" })
+        } finally { source.close() }
+    }
+
+    @Test fun fullCacheHandoffPreservesBytesAcrossTwoMegabyteAndFragmentBoundaries() = withCache { cache ->
+        val bytes = ByteArray(3_100_123) { (it % 251).toByte() }
+        val network = Response(bytes, bytes.size)
+        val source = ReadOnlyPlaybackDataSource(ValidatingAudioDataSource(network, cache), cache)
+        try {
+            source.open(spec)
+            val prefix = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8191)
+            while (prefix.size() < 2_097_152 + 443) {
+                val n = source.read(buffer, 0, minOf(buffer.size, 2_097_152 + 443 - prefix.size()))
+                assertTrue(n > 0); prefix.write(buffer, 0, n)
+            }
+            val saved = writer(cache, ValidatingAudioDataSource(Response(bytes, bytes.size), cache))
+            try { CacheWriter(saved, spec, null, null).cache() } finally { saved.close() }
+            val networkPosition = network.index
+            assertArrayEquals(bytes, prefix.toByteArray() + readAll(source))
+            assertEquals("A completed matching cache must stop network reads", networkPosition, network.index)
+        } finally { source.close() }
+    }
+
+    @Test fun boundedRangeHandoffAndOfflineReopenDoNotTruncateOrRepeatBytes() = withCache { cache ->
+        val network = Response()
+        val source = ReadOnlyPlaybackDataSource(ValidatingAudioDataSource(network, cache), cache)
+        val request = spec.buildUpon().setPosition(262_144).setLength(100_003).build()
+        try {
+            assertEquals(100_003L, source.open(request))
+            val prefix = ByteArray(443); assertEquals(443, source.read(prefix, 0, prefix.size))
+            fill(cache)
+            assertArrayEquals(audio.copyOfRange(262_144, 362_147), prefix + readAll(source))
+            source.close()
+            val offline = ReadOnlyPlaybackDataSource(object : DataSource {
+                override fun addTransferListener(listener: TransferListener) {}
+                override fun open(spec: DataSpec): Long = throw AssertionError("A complete cache opened the network")
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw AssertionError("Network read")
+                override fun getUri(): Uri? = null
+                override fun close() {}
+            }, cache)
+            try {
+                assertEquals(100_003L, offline.open(request))
+                assertArrayEquals(audio.copyOfRange(262_144, 362_147), readAll(offline))
+            } finally { offline.close() }
+        } finally { source.close() }
+    }
+
+    @Test fun partialCacheCannotChangeBytesOfAnAlreadyOpenPlaybackRequest() = withCache { cache ->
+        val other = audio.map { (it.toInt() xor 0x40).toByte() }.toByteArray()
+        val saved = writer(cache, ByteArrayDataSource(other))
+        try { CacheWriter(saved, spec.buildUpon().setLength(262_144).build(), null, null).cache() }
+        finally { saved.close() }
+        val source = ReadOnlyPlaybackDataSource(Response(), cache)
+        try { source.open(spec); assertArrayEquals(audio, readAll(source)) } finally { source.close() }
+    }
+
+    @Test fun realMp4KeepsItsSampleCursorWhenCacheCompletesWhileExtractorIsReading() = withCache { cache ->
+        val mp4 = requireNotNull(javaClass.getResourceAsStream("/audio/cache-recovery.m4a")).use { it.readBytes() }
+        val source = ReadOnlyPlaybackDataSource(ValidatingAudioDataSource(Response(mp4, mp4.size), cache), cache)
+        val extractor = Mp4Extractor()
+        var samples = 0
+        var lastTime = -1L
+        var warmed = false
+        extractor.init(object : ExtractorOutput {
+            override fun track(id: Int, type: Int): TrackOutput = object : ForwardingTrackOutput(DiscardingTrackOutput()) {
+                override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int, crypto: TrackOutput.CryptoData?) {
+                    samples++; lastTime = timeUs
+                }
+            }
+            override fun endTracks() {}
+            override fun seekMap(map: SeekMap) {}
+        })
+        try {
+            source.open(spec)
+            var input = DefaultExtractorInput(source, 0, mp4.size.toLong())
+            val seek = PositionHolder()
+            var iterations = 0
+            while (++iterations < 10_000) {
+                if (samples >= 30 && !warmed) {
+                    val saved = writer(cache, ValidatingAudioDataSource(Response(mp4, mp4.size), cache))
+                    try { CacheWriter(saved, spec, null, null).cache() } finally { saved.close() }
+                    warmed = true
+                }
+                when (extractor.read(input, seek)) {
+                    Extractor.RESULT_END_OF_INPUT -> break
+                    Extractor.RESULT_SEEK -> {
+                        source.close(); source.open(spec.buildUpon().setPosition(seek.position).build())
+                        input = DefaultExtractorInput(source, seek.position, mp4.size.toLong())
+                    }
+                }
+            }
+            assertTrue(warmed)
+            assertTrue(iterations < 10_000)
+            assertTrue(samples > 150)
+            assertTrue(lastTime >= 3_800_000)
+        } finally { extractor.release(); source.close() }
+    }
+
+    @Test fun extractorSeekCannotChangeRepresentationUntilItRestartsAtByteZero() = withCache { cache ->
+        val network = Response()
+        val source = ReadOnlyPlaybackDataSource(ValidatingAudioDataSource(network, cache), cache)
+        try {
+            source.open(spec); source.read(ByteArray(100), 0, 100); source.close()
+            cache.removeResource(url); clearAudioRepresentation(cache, url)
+            val other = audio.map { (it.toInt() xor 0x40).toByte() }.toByteArray()
+            val saved = writer(cache, ValidatingAudioDataSource(Response(other, tag = "\"version-b\""), cache))
+            try { CacheWriter(saved, spec, null, null).cache() } finally { saved.close() }
+            try { source.open(spec.buildUpon().setPosition(100).build()); fail("An extractor seek changed its encoding") }
+            catch (_: AudioRepresentationChangedException) {}
+            source.open(spec)
+            assertArrayEquals(other, readAll(source))
+        } finally { source.close() }
+    }
+
+    @Test fun truncatedPhysicalSpanCannotMasqueradeAsAnAlreadyValidatedFullCache() = withCache { cache ->
+        fill(cache); checkCompletedAudioCache(cache, url)
+        val span = cache.getCachedSpans(url).first()
+        java.io.RandomAccessFile(requireNotNull(span.file), "rw").use { it.setLength(1000) }
+        val reader = ReadOnlyPlaybackDataSource(Response(), cache)
+        try { reader.open(spec); fail("A physically truncated span was accepted") }
+        catch (_: InvalidCachedAudioException) {} finally { reader.close() }
+    }
+
+    @Test fun replacingAFullCacheWhileItIsOpenCannotSilentlyChangeItsRemainingSamples() = withCache { cache ->
+        fill(cache)
+        val source = ReadOnlyPlaybackDataSource(Response(), cache)
+        try {
+            source.open(spec); source.read(ByteArray(77), 0, 77)
+            cache.removeResource(url); clearAudioRepresentation(cache, url)
+            val other = audio.map { (it.toInt() xor 0x40).toByte() }.toByteArray()
+            val saved = writer(cache, ValidatingAudioDataSource(Response(other), cache))
+            try { CacheWriter(saved, spec, null, null).cache() } finally { saved.close() }
+            try { source.read(ByteArray(4096), 0, 4096); fail("Open cache changed its bytes silently") }
+            catch (_: AudioRepresentationChangedException) {}
+        } finally { source.close() }
+    }
+
+    @Test fun cacheCannotChangeAfterALiveNetworkReadHasSwitchedToIt() = withCache { cache ->
+        val source = ReadOnlyPlaybackDataSource(ValidatingAudioDataSource(Response(), cache), cache)
+        try {
+            source.open(spec); source.read(ByteArray(77), 0, 77)
+            fill(cache); source.read(ByteArray(77), 0, 77)
+            cache.removeResource(url); clearAudioRepresentation(cache, url)
+            fill(cache)
+            try { source.read(ByteArray(4096), 0, 4096); fail("The handed-off cache changed its generation") }
+            catch (_: AudioRepresentationChangedException) {}
         } finally { source.close() }
     }
 

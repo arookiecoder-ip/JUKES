@@ -66,6 +66,8 @@ class BackgroundPlaybackRecoveryTest {
 
     @Test fun interruptedHttpReadsPreserveCacheButDamagedFilesAndParserErrorsAreRepaired() {
         assertFalse(shouldInvalidateAudio(2000, true, false, true))
+        assertTrue(shouldInvalidateAudio(2000, true, false, true, completedCache = true))
+        assertFalse(shouldInvalidateAudio(2000, true, false, true, completedCache = true, incompleteTransfer = true))
         assertTrue(shouldInvalidateAudio(2000, true, false, false))
         assertTrue(shouldInvalidateAudio(3003, false, false, true))
         assertTrue(shouldInvalidateAudio(2000, false, true, true))

@@ -20,7 +20,19 @@ internal fun hasInvalidCachedAudio(error: Throwable?): Boolean =
 internal fun checkCompletedAudioCache(cache: Cache, key: String) {
     val metadata = cache.getContentMetadata(key)
     val total = ContentMetadata.getContentLength(metadata)
-    if (total <= 0 || !cache.isCached(key, 0, total) || metadata.get(AUDIO_INTEGRITY_LENGTH, -1L) == total) return
+    if (total <= 0 || !cache.isCached(key, 0, total)) return
+    // Cached span metadata alone cannot certify a file that was truncated or removed.
+    val spansIntact = synchronized(cache) {
+        // Cache reads may rename span files to update their access timestamp.
+        // Keep that operation from racing the physical-file check.
+        val spans = cache.getCachedSpans(key)
+        spans.isNotEmpty() && spans.all { span -> span.file?.let { it.canRead() && it.length() == span.length } == true }
+    }
+    if (!spansIntact) {
+        PlaybackDiagnostics.recordTransferFailure("cached_span_incomplete", total, -1, 0, key)
+        throw InvalidCachedAudioException()
+    }
+    if (metadata.get(AUDIO_INTEGRITY_LENGTH, -1L) == total) return
     val source = CacheDataSource.Factory().setCache(cache).createDataSource()
     var windowStart = -1L
     var window = byteArrayOf()
@@ -74,7 +86,7 @@ internal fun checkCompletedAudioCache(cache: Cache, key: String) {
         valid = valid && position == total && moov && media
     }
     if (!valid) {
-        PlaybackDiagnostics.recordTransferFailure("cached_container_incomplete", total, -1)
+        PlaybackDiagnostics.recordTransferFailure("cached_container_incomplete", total, -1, 0, key)
         throw InvalidCachedAudioException()
     }
     // One small structural scan per completed representation, on the loader/writer thread.

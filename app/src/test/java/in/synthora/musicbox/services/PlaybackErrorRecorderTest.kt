@@ -63,4 +63,29 @@ class PlaybackErrorRecorderTest {
         assertFalse(result.contains('\n'))
         assertTrue(PlaybackErrorRecorder.safeParserMessage("x".repeat(4000)).length <= 600)
     }
+    @Test fun eofAutomaticallyPreservesItsReadLocationAndAnonymousCorrelation(): Unit = kotlinx.coroutines.runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        File(context.filesDir, "last-audio-error.txt").delete()
+        PlaybackErrorRecorder.init(context)
+        val key = "https://private.example/audio?key=secret"
+        PlaybackDiagnostics.recordPlaybackEvent("error", 2000, 1, true, 129740, 129740, true, key)
+        PlaybackDiagnostics.recordTransferFailure("cache_fallback", 2646783, 2097595, 0, key)
+        val eof = java.io.EOFException("Unexpected end reading https://private.example/audio?key=secret")
+        eof.stackTrace = arrayOf(StackTraceElement("media.AudioReader", "readSample", "AudioReader.java", 123))
+        PlaybackErrorRecorder.capture(androidx.media3.common.PlaybackException("EOF", eof, 2000))
+        val report = kotlinx.coroutines.withTimeout(5000) {
+            var saved = PlaybackErrorRecorder.savedReport(context)
+            while (!saved.contains("AudioReader.java:123")) {
+                kotlinx.coroutines.delay(20); saved = PlaybackErrorRecorder.savedReport(context)
+            }
+            saved
+        }
+        assertTrue(report.contains("IO message (EOFException): Unexpected end reading [URI]"))
+        assertTrue(report.contains("sourceId=" + PlaybackDiagnostics.sourceId(key)))
+        assertFalse(report.contains("private.example"))
+        assertFalse(report.contains("key=secret"))
+        assertNotEquals(PlaybackDiagnostics.sourceId(key), PlaybackDiagnostics.sourceId("another-source"))
+        Unit
+    }
+
 }

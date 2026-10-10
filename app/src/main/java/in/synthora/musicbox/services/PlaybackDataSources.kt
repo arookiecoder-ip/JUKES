@@ -27,8 +27,10 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
         val rawUpstream = DefaultDataSource.Factory(context, authenticatedAudio)
         val upstreamDataSourceFactory = DataSource.Factory {
             val checked = ValidatingAudioDataSource(rawUpstream.createDataSource(), cache)
-            if (readOnlyCache) CachedAudioFallbackDataSource(checked, cache) else checked
+            if (readOnlyCache) ReadOnlyPlaybackDataSource(checked, cache) else checked
         }
+        // The writer may reuse partial spans; the player switches only to a full, matching copy.
+        if (readOnlyCache) return upstreamDataSourceFactory
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(cache)
             .setCacheReadDataSourceFactory { checkedCacheFileSource(cache) }
@@ -38,8 +40,5 @@ fun playbackDataSources(context: Context, cache: Cache, audioBaseUrl: String = B
                 if (cacheWarm) CacheDataSource.FLAG_BLOCK_ON_CACHE else 0)
         if (cacheWarm) cacheDataSourceFactory.setCacheWriteDataSinkFactory(
             androidx.media3.datasource.cache.CacheDataSink.Factory().setCache(cache).setFragmentSize(256 * 1024L))
-        // Playback must not hold a writable hole while its buffer is full: the
-        // independent warmer owns writes and can finish the entire song.
-        if (readOnlyCache) cacheDataSourceFactory.setCacheWriteDataSinkFactory(null)
         return cacheDataSourceFactory
 }

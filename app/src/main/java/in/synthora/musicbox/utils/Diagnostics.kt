@@ -48,11 +48,11 @@ object Diagnostics {
             appendLine(`in`.synthora.musicbox.services.PlaybackErrorRecorder.savedReport(context))
             appendLine("Recent audio failures (codes and exception types only):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioFailures().forEach { appendLine("  $it") }
-            appendLine("Recent audio responses (network source, MIME and byte length only):")
+            appendLine("Recent audio responses (timings, anonymous source IDs, MIME and byte length):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioResponses().forEach { appendLine("  $it") }
-            appendLine("Recent audio transfers (byte counts and outcome only):")
+            appendLine("Recent audio transfers (timings, anonymous source IDs, offsets and byte counts):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentAudioTransfers().forEach { appendLine("  $it") }
-            appendLine("Recent playback events (elapsed time, numeric state/reason and cursor only):")
+            appendLine("Recent playback events (elapsed time, anonymous source IDs, state/reason and cursor):")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.recentPlaybackEvents().forEach { appendLine("  $it") }
             appendLine("Playback timings:")
             `in`.synthora.musicbox.services.PlaybackDiagnostics.snapshot().forEach { (stage, value) ->

@@ -229,9 +229,7 @@ class UpcomingAudioPreloaderTest {
         val cache = SimpleCache(directory, NoOpCacheEvictor())
         val url = "https://audio.example/current"
         val bytes = ByteArray(8_192) { 7 }
-        val reader = playbackDataSources(RuntimeEnvironment.getApplication(), cache,
-            readOnlyCache = true).let { it as CacheDataSource.Factory }
-            .setUpstreamDataSourceFactory { ByteArrayDataSource(bytes) }.createDataSource()
+        val reader = ReadOnlyPlaybackDataSource(ByteArrayDataSource(bytes), cache)
         val writer = CacheDataSource.Factory().setCache(cache)
             .setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE)
             .setUpstreamDataSourceFactory { ByteArrayDataSource(bytes) }.createDataSource()
@@ -243,15 +241,13 @@ class UpcomingAudioPreloaderTest {
             } }
             assertTrue(cache.isCached(url, 0, bytes.size.toLong()))
             reader.close()
-            val offline = playbackDataSources(RuntimeEnvironment.getApplication(), cache,
-                readOnlyCache = true).let { it as CacheDataSource.Factory }
-                .setUpstreamDataSourceFactory { object : DataSource {
+            val offline = ReadOnlyPlaybackDataSource(object : DataSource {
                     override fun addTransferListener(listener: TransferListener) {}
                     override fun open(spec: DataSpec): Long = throw IOException("Offline")
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw IOException("Offline")
                     override fun getUri(): Uri? = null
                     override fun close() {}
-                } }.createDataSource()
+                }, cache)
             try {
                 offline.open(DataSpec.Builder().setUri(url).build())
                 val result = java.io.ByteArrayOutputStream()

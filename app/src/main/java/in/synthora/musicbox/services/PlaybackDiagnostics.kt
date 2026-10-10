@@ -5,13 +5,18 @@ object PlaybackDiagnostics {
     enum class Stage { SERVER_REQUEST, AUDIO_CONNECT, FIRST_BYTE, HANDOFF, HANDOFF_STATE, PLAYER_READY, RECOVERY }
     data class Measurement(val count: Long, val failures: Long, val totalMs: Long, val maxMs: Long)
     data class AudioFailure(val code: Int, val causes: List<String>, val httpStatus: Int?)
-    data class AudioResponse(val network: Boolean, val contentType: String?, val declaredBytes: Long, val rejected: Boolean)
+    private val sourceSalt = java.util.UUID.randomUUID().toString()
+    internal fun sourceId(key: String?): String = if (key == null) "unknown" else
+        java.security.MessageDigest.getInstance("SHA-256").digest((sourceSalt + key).toByteArray())
+            .take(6).joinToString("") { "%02x".format(it.toInt() and 255) }
+    data class AudioResponse(val network: Boolean, val contentType: String?, val declaredBytes: Long,
+        val rejected: Boolean, val timeMs: Long = 0, val sourceId: String = "unknown", val requestPosition: Long = -1)
     private val audioResponses = ArrayDeque<AudioResponse>()
-    @Synchronized fun recordAudioResponse(network: Boolean, contentType: String?, declaredBytes: Long, rejected: Boolean) {
+    @Synchronized fun recordAudioResponse(network: Boolean, contentType: String?, declaredBytes: Long, rejected: Boolean, key: String? = null, position: Long = -1) {
         if (audioResponses.size == 8) audioResponses.removeFirst()
         // Store a MIME token only, never parameters or arbitrary header text.
         val mime = contentType?.substringBefore(';')?.takeIf { it.matches(Regex("[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+")) }
-        audioResponses.addLast(AudioResponse(network, mime, declaredBytes, rejected))
+        audioResponses.addLast(AudioResponse(network, mime, declaredBytes, rejected, android.os.SystemClock.elapsedRealtime(), sourceId(key), position))
     }
     @Synchronized fun recentAudioResponses(): List<AudioResponse> = audioResponses.toList()
     private val audioFailures = ArrayDeque<AudioFailure>()
@@ -20,21 +25,21 @@ object PlaybackDiagnostics {
         audioFailures.addLast(AudioFailure(code, causes.take(8), httpStatus))
     }
     @Synchronized fun recentAudioFailures(): List<AudioFailure> = audioFailures.toList()
-    data class AudioTransfer(val kind: String, val expectedBytes: Long, val receivedBytes: Long, val requestPosition: Long = -1)
+    data class AudioTransfer(val kind: String, val expectedBytes: Long, val receivedBytes: Long, val requestPosition: Long = -1, val timeMs: Long = 0, val sourceId: String = "unknown")
     private val audioTransfers = ArrayDeque<AudioTransfer>()
-    @Synchronized internal fun recordTransferFailure(kind: String, expected: Long, received: Long, requestPosition: Long = -1) {
+    @Synchronized internal fun recordTransferFailure(kind: String, expected: Long, received: Long, requestPosition: Long = -1, key: String? = null) {
         if (audioTransfers.size == 16) audioTransfers.removeFirst()
-        audioTransfers.addLast(AudioTransfer(kind, expected, received, requestPosition))
+        audioTransfers.addLast(AudioTransfer(kind, expected, received, requestPosition, android.os.SystemClock.elapsedRealtime(), sourceId(key)))
     }
     @Synchronized fun recentAudioTransfers(): List<AudioTransfer> = audioTransfers.toList()
     data class PlaybackEvent(val timeMs: Long, val event: String, val reason: Int, val state: Int,
-        val wantsPlay: Boolean, val positionMs: Long, val bufferedMs: Long, val fullyCached: Boolean)
+        val wantsPlay: Boolean, val positionMs: Long, val bufferedMs: Long, val fullyCached: Boolean, val sourceId: String = "unknown")
     private val playbackEvents = ArrayDeque<PlaybackEvent>()
     @Synchronized internal fun recordPlaybackEvent(event: String, reason: Int, state: Int,
-        wantsPlay: Boolean, position: Long, buffered: Long, cached: Boolean) {
+        wantsPlay: Boolean, position: Long, buffered: Long, cached: Boolean, key: String? = null) {
         if (playbackEvents.size == 64) playbackEvents.removeFirst()
         playbackEvents.addLast(PlaybackEvent(android.os.SystemClock.elapsedRealtime(), event, reason, state,
-            wantsPlay, position, buffered, cached))
+            wantsPlay, position, buffered, cached, sourceId(key)))
     }
     @Synchronized fun recentPlaybackEvents(): List<PlaybackEvent> = playbackEvents.toList()
     private val values = mutableMapOf<Stage, Measurement>()

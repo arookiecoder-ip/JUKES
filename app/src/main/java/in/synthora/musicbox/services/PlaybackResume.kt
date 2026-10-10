@@ -18,4 +18,6 @@ internal fun hasTruncatedAudio(error: Throwable?): Boolean =
 
 /** A broken HTTP transfer is not evidence that previously cached bytes are corrupt. */
 internal fun shouldInvalidateAudio(errorCode: Int, truncated: Boolean, invalidResponse: Boolean,
-    networkSource: Boolean): Boolean = isMalformedAudio(errorCode) || invalidResponse || (truncated && !networkSource)
+    networkSource: Boolean, completedCache: Boolean = false, incompleteTransfer: Boolean = false): Boolean =
+    isMalformedAudio(errorCode) || invalidResponse ||
+        (truncated && (!networkSource || (completedCache && !incompleteTransfer)))

@@ -12,6 +12,8 @@ internal class AudioRepresentationChangedException : IOException("The saved audi
 internal fun hasChangedAudioRepresentation(error: Throwable?): Boolean =
     generateSequence(error) { it.cause }.take(8).any { it is AudioRepresentationChangedException }
 
+internal const val AUDIO_GENERATION = "custom_musicbox_audio_generation"
+
 private const val AUDIO_ETAG = "custom_musicbox_audio_etag"
 private const val AUDIO_LENGTH = "custom_musicbox_audio_length"
 
@@ -22,15 +24,15 @@ internal fun audioRepresentationHeader(cache: Cache, spec: DataSpec): String? =
 
 @UnstableApi
 internal fun clearAudioRepresentation(cache: Cache, key: String) {
-    val mutations = ContentMetadataMutations().remove(AUDIO_ETAG).remove(AUDIO_LENGTH).remove(AUDIO_INTEGRITY_LENGTH)
+    val mutations = ContentMetadataMutations().remove(AUDIO_ETAG).remove(AUDIO_LENGTH).remove(AUDIO_INTEGRITY_LENGTH).remove(AUDIO_GENERATION)
     ContentMetadataMutations.setContentLength(mutations, -1)
     ContentMetadataMutations.setRedirectedUri(mutations, null)
     cache.applyContentMetadataMutations(key, mutations)
 }
 
 @UnstableApi
-internal fun checkAudioRepresentation(cache: Cache?, spec: DataSpec, headers: Map<String, List<String>>) {
-    if (cache == null || spec.uri.scheme !in setOf("http", "https")) return
+internal fun checkAudioRepresentation(cache: Cache?, spec: DataSpec, headers: Map<String, List<String>>): String? {
+    if (cache == null || spec.uri.scheme !in setOf("http", "https")) return null
     fun header(name: String) = headers.entries.firstOrNull { it.key.equals(name, true) }?.value?.firstOrNull()
     val etag = header("ETag")?.takeIf { it.length <= 512 && !it.startsWith("W/") }.orEmpty()
     val range = header("Content-Range")
@@ -57,12 +59,14 @@ internal fun checkAudioRepresentation(cache: Cache?, spec: DataSpec, headers: Ma
         val legacyPartial = cached && oldEtag.isBlank() && etag.isNotBlank()
         if (invalidRange || (oldEtag.isNotBlank() && etag != oldEtag) ||
             (oldLength > 0 && total != null && total != oldLength) || legacyPartial) {
-            PlaybackDiagnostics.recordTransferFailure("representation_changed", oldLength, total ?: -1)
+            PlaybackDiagnostics.recordTransferFailure("representation_changed", oldLength, total ?: -1, spec.position, key)
             throw AudioRepresentationChangedException()
         }
-        val mutations = ContentMetadataMutations()
+        val generation = saved.get(AUDIO_GENERATION, "").orEmpty().ifBlank { java.util.UUID.randomUUID().toString() }
+        val mutations = ContentMetadataMutations().set(AUDIO_GENERATION, generation)
         if (etag.isNotBlank()) mutations.set(AUDIO_ETAG, etag)
         if (total != null && total > 0) mutations.set(AUDIO_LENGTH, total)
         cache.applyContentMetadataMutations(key, mutations)
+        return generation
     }
 }

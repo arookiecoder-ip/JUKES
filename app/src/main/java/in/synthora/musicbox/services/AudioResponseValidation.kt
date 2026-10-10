@@ -9,6 +9,10 @@ import java.io.EOFException
 import androidx.media3.datasource.cache.Cache
 
 /** Contains no response body, URL, credentials or server error details. */
+internal class IncompleteAudioTransferException : EOFException("Audio transfer ended before its declared byte length")
+internal fun hasIncompleteAudioTransfer(error: Throwable?): Boolean =
+    generateSequence(error) { it.cause }.take(8).any { it is IncompleteAudioTransferException }
+
 internal class InvalidAudioResponseException : IOException("The audio response is empty or contains an error document")
 
 internal fun isAudioErrorDocument(prefix: ByteArray, length: Int = prefix.size): Boolean {
@@ -55,8 +59,13 @@ internal class ValidatingAudioDataSource(private val upstream: DataSource, priva
     private var cursor = 0
     private var expected = C.LENGTH_UNSET.toLong()
     private var received = 0L
+    private var key: String? = null
+    private var position = 0L
+    internal var audioGeneration: String? = null
+        private set
     override fun open(spec: DataSpec): Long {
         count = 0; cursor = 0; received = 0; expected = C.LENGTH_UNSET.toLong()
+        key = spec.key ?: spec.uri.toString(); position = spec.position; audioGeneration = null
         try {
             val pinned = cache?.let { audioRepresentationHeader(it, spec) }
             val length = upstream.open(if (pinned != null) spec.withAdditionalHeaders(mapOf("If-Range" to pinned)) else spec)
@@ -74,7 +83,7 @@ internal class ValidatingAudioDataSource(private val upstream: DataSource, priva
                 } else header("Content-Length")?.toLongOrNull()?.minus(spec.position)?.takeIf { it >= 0 }
                 if (available != null) expected = if (expected < 0) available else minOf(expected, available)
             }
-            checkAudioRepresentation(cache, spec, upstream.responseHeaders)
+            audioGeneration = checkAudioRepresentation(cache, spec, upstream.responseHeaders)
 
             val type = upstream.responseHeaders.entries.firstOrNull { it.key.equals("Content-Type", true) }?.value?.firstOrNull()
             var invalid = isAudioErrorContentType(type)
@@ -89,7 +98,7 @@ internal class ValidatingAudioDataSource(private val upstream: DataSource, priva
                 }
                 invalid = isAudioErrorDocument(prefix, count)
             }
-            PlaybackDiagnostics.recordAudioResponse(spec.uri.scheme in setOf("http", "https"), type, length, invalid)
+            PlaybackDiagnostics.recordAudioResponse(spec.uri.scheme in setOf("http", "https"), type, length, invalid, key, position)
             if (invalid) throw InvalidAudioResponseException()
             return expected
         } catch (error: Exception) {
@@ -112,9 +121,9 @@ internal class ValidatingAudioDataSource(private val upstream: DataSource, priva
     }
     private fun requireCompleteTransfer() {
         if (expected >= 0 && received < expected) {
-            PlaybackDiagnostics.recordTransferFailure("early_eof", expected, received)
+            PlaybackDiagnostics.recordTransferFailure("early_eof", expected, received, position, key)
             // Never let CacheDataSource shorten the resource's saved length on a broken socket.
-            throw EOFException("Audio transfer ended before its declared byte length")
+            throw IncompleteAudioTransferException()
         }
     }
     // Java interface default methods are not forwarded by Kotlin delegation.
